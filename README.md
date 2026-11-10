@@ -20,11 +20,11 @@ A small OpenWrt web panel for toggling a transparent VLESS / Hysteria2 / Naive /
 
    Пароль тот же, что от админки роутера. Если вы не дома, можно зайти через GoodCloud: Remote SSH.
 
-2. Обновите список пакетов и поставьте панель одной командой:
+2. Обновите список пакетов, скачайте пакет и поставьте его (opkg на GL.iNet не принимает ссылку напрямую, поэтому сначала `wget`):
 
    ```sh
    opkg update
-   opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.2.0_all.ipk
+   cd /tmp && wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.2.1_all.ipk && opkg install /tmp/vrp.ipk; rm -f /tmp/vrp.ipk
    ```
 
 3. Откройте в браузере `http://192.168.8.1:8088`. Если установщик написал предупреждение про пароль, значит вход на страницу ещё не настроен — см. раздел [Auth / Пароль на страницу](#auth--пароль-на-страницу).
@@ -131,7 +131,7 @@ echo 'src/gz vless_panel https://raw.githubusercontent.com/Xstrwe/vless-router-p
 ## Update / Обновление
 
 ```sh
-opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.2.0_all.ipk
+cd /tmp && wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.2.1_all.ipk && opkg install /tmp/vrp.ipk; rm -f /tmp/vrp.ipk
 ```
 
 Либо, если фид настроен и проверка подписи временно снята: `opkg update && opkg upgrade vless-router-panel`.

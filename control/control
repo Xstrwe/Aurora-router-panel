@@ -1,5 +1,5 @@
 Package: vless-router-panel
-Version: 1.2.0
+Version: 1.2.1
 Depends: curl, jq, ucode, uhttpd, kmod-nft-tproxy
 License: MIT
 Section: net

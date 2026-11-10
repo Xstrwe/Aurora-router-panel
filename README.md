@@ -111,7 +111,7 @@ The page UI is currently in Russian; this README names every button and label by
 - **Enable / Disable:** turn transparent mode on or off. When off, the LAN uses the internet directly.
 - **Test connection / Speed:** connection and speed tests through the tunnel.
 - **Mode:** "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
-- **Protocol cards** (two columns on wide screens, one on narrow; each card is only as tall as its content): a field for the link or config, an auto-update row (checkbox and interval on one line), and the buttons **Connect …** and **Update now** side by side.
+- **Protocol cards** (two columns on wide screens, one on narrow; each card is only as tall as its content): a field for the link or config that grows with its content, an auto-update row (checkbox and interval on one line), and the buttons **Connect …** and **Update now** side by side. If a protocol has no saved link or config, the field is hidden behind an **Add** button; pressing it reveals the field.
 
 ### Command line
 

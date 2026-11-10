@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0a2
+
+- Web page: the vless / hysteria2 / naive link fields and the WireGuard
+  `.conf` field grow with their content (no fixed height, no inner
+  scroll) on input, paste and page load. Long links wrap inside the field.
+- If a protocol has no saved link or config, the field is hidden and an
+  **Добавить** button is shown instead; pressing it reveals the field and
+  focuses it. The rest of the card (auto-update row and the Connect /
+  Update now buttons) is unchanged.
+
+
 ## 1.3.0a1
 
 - Web page, all four protocol cards: the "Автообновление" row now holds the

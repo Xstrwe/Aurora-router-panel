@@ -26,6 +26,21 @@ BLK
 field_raw(){
   if [ -f "$AU_DIR/$1.src" ]; then cat "$AU_DIR/$1.src"; else cat "$(au_current_file "$1")"; fi 2>/dev/null
 }
+# $1 field name, $2 HTML-escaped value, $3 optional raw placeholder.
+# Empty saved value: hide the field and show "Добавить"; the button reveals it.
+link_field(){
+  _n="$1"; _v="$2"; _ph="$3"
+  _ta_h=; _btn_h=hidden
+  [ -z "$(printf '%s' "$_v" | tr -d '\r\n\t ')" ] && { _ta_h=hidden; _btn_h=; }
+  _pha=
+  if [ -n "$_ph" ]; then
+    _pha=" placeholder=\"$(printf '%s' "$_ph" | esc)\""
+  fi
+  cat <<BLK
+<div class=fld><textarea name=$_n spellcheck=false$_pha $_ta_h>$_v</textarea>
+<button type=button class=add $_btn_h>Добавить</button></div>
+BLK
+}
 MSG=""
 if [ "$REQUEST_METHOD" = POST ]; then
   POST=$(head -c "${CONTENT_LENGTH:-0}")
@@ -100,7 +115,7 @@ cat <<HTML
 body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:1040px;margin:20px auto;padding:0 14px;background:#f4f5f7;color:#222}
 .c{background:#fff;border-radius:12px;padding:16px 18px;margin:14px 0;box-shadow:0 1px 4px #0002}
 button{border:0;border-radius:10px;color:#fff;background:#1565c0;padding:10px 18px;font-size:16px;cursor:pointer}
-.big{width:100%;font-size:22px;padding:18px}textarea{width:100%;box-sizing:border-box;resize:none;overflow:hidden;min-height:2.6em;font-family:monospace;font-size:12px}
+.big{width:100%;font-size:22px;padding:18px}textarea{width:100%;box-sizing:border-box;resize:none;overflow:hidden;min-height:2.6em;font-family:monospace;font-size:12px;line-height:1.45;word-break:break-all;field-sizing:content}
 select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}td{padding:3px 8px 3px 0}
 .grid{column-count:2;column-gap:14px;margin:14px 0}
 .grid .c{margin:0 0 14px;break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid}
@@ -108,6 +123,9 @@ select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background
 .au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
 .au select{font-size:14px;padding:4px}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.fld{margin-top:6px}
+button.add{background:#fff;color:#1565c0;border:1px solid #1565c0;padding:8px 16px;font-size:15px;margin-top:4px}
+button.add:hover{background:#e3f2fd}
 </style></head><body><h2>Aurora router panel</h2>
 HTML
 [ -n "$MSG" ] && echo "<div class=msg>$(printf '%s' "$MSG" | esc)</div>"
@@ -129,39 +147,46 @@ cat <<HTML
 <select name=mode><option value=ru $M1>Всё, кроме российских сайтов</option><option value=all $M2>Всё через VLESS</option></select>
 <button>Применить</button></form></div>
 <div class=grid>
-<div class=c><form method=post><input type=hidden name=proto value=vless><b>Ссылка vless://</b><br>
-<textarea name=link spellcheck=false>$LINK</textarea>
+<div class=c><form method=post><input type=hidden name=proto value=vless><b>Ссылка vless://</b>
 HTML
+link_field link "$LINK"
 au_row vless
 cat <<HTML
 <div class=btns><button type=submit name=action value=save style="background:#6a1b9a">Подключить VLESS</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
-<div class=c><form method=post><input type=hidden name=proto value=hy2><b>Ссылка hysteria2://</b><br>
-<textarea name=hy2 spellcheck=false>$HY2</textarea>
+<div class=c><form method=post><input type=hidden name=proto value=hy2><b>Ссылка hysteria2://</b>
 HTML
+link_field hy2 "$HY2"
 au_row hy2
 cat <<HTML
 <div class=btns><button type=submit name=action value=hy2save style="background:#e65100">Подключить Hysteria2</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
-<div class=c><form method=post><input type=hidden name=proto value=naive><b>Ссылка naive+https://</b><br>
-<textarea name=nv spellcheck=false>$NV</textarea>
+<div class=c><form method=post><input type=hidden name=proto value=naive><b>Ссылка naive+https://</b>
 HTML
+link_field nv "$NV"
 au_row naive
 cat <<HTML
 <div class=btns><button type=submit name=action value=naivesave style="background:#00695c">Подключить Naive</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
-<div class=c><form method=post><input type=hidden name=proto value=wg><b>Конфиг WireGuard (.conf)</b><br>
-<textarea name=wg spellcheck=false placeholder="[Interface]
+<div class=c><form method=post><input type=hidden name=proto value=wg><b>Конфиг WireGuard (.conf)</b>
+HTML
+link_field wg "$WG" "[Interface]
 PrivateKey = ...
 Address = ...
 
 [Peer]
 PublicKey = ...
 Endpoint = ...
-AllowedIPs = 0.0.0.0/0">$WG</textarea>
-HTML
+AllowedIPs = 0.0.0.0/0"
 au_row wg
 cat <<HTML
 <div class=btns><button type=submit name=action value=wgsave style="background:#283593">Подключить WireGuard</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
 </div>
 <p style="color:#777;font-size:12px">IPv6 не проксируется. Прокси для отдельных программ: SOCKS5 192.168.8.1:10808, HTTP 192.168.8.1:10809.</p>
-<script>function fit(t){t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px'}document.querySelectorAll('textarea').forEach(function(t){t.rows=(t.value==''&&t.placeholder)?t.placeholder.split('\n').length:1;t.addEventListener('input',function(){fit(t)});fit(t)});window.addEventListener('resize',function(){document.querySelectorAll('textarea').forEach(fit)});</script>
+<script>
+function empty(t){return !t.value.replace(/[\r\n\t ]/g,'')}
+function fit(t){if(t.hidden)return;t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px'}
+function reveal(b){var t=b.parentNode.querySelector('textarea');b.hidden=true;t.hidden=false;if(empty(t)&&t.placeholder)t.rows=t.placeholder.split('\n').length;fit(t);t.focus()}
+document.querySelectorAll('.fld').forEach(function(w){var t=w.querySelector('textarea'),b=w.querySelector('.add');t.addEventListener('input',function(){fit(t)});if(empty(t)){t.hidden=true;if(b)b.hidden=false}else{if(b)b.hidden=true;fit(t)}});
+window.addEventListener('resize',function(){document.querySelectorAll('textarea').forEach(fit)});
+document.querySelectorAll('button.add').forEach(function(b){b.addEventListener('click',function(){reveal(b)})});
+</script>
 </body></html>
 HTML

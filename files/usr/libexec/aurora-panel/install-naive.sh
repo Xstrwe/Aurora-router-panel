@@ -1,7 +1,7 @@
 #!/bin/sh
 # Download the latest klzgrad/naiveproxy static build for this router's
 # OpenWrt architecture and install the binary to /usr/bin/naive.
-# The binary is not shipped in the vless-router-panel package (~13 MB).
+# The binary is not shipped in the aurora-router-panel package (~13 MB).
 #
 # Usage:
 #   install-naive.sh [--force] [version|url]

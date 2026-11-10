@@ -2,7 +2,7 @@
 # Local tests for autoupdate helpers and vless.sh update (mocked tree, no router).
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-LIB=$ROOT/files/usr/libexec/vless-panel/autoupdate-lib.sh
+LIB=$ROOT/files/usr/libexec/aurora-panel/autoupdate-lib.sh
 SH=$ROOT/files/etc/xray/vless.sh
 fail=0
 ok() { echo "ok - $1"; }
@@ -16,7 +16,7 @@ export VLESS_HYSTERIA_DIR=$TMP/etc/hysteria
 export VLESS_NAIVE_DIR=$TMP/etc/naive
 export VLESS_AU_LIB=$LIB
 export VLESS_AU_CRON=$TMP/crontabs/root
-export VLESS_AU_RUN=$ROOT/files/usr/libexec/vless-panel/autoupdate-run.sh
+export VLESS_AU_RUN=$ROOT/files/usr/libexec/aurora-panel/autoupdate-run.sh
 export VLESS_SH=$SH
 export D=$VLESS_PANEL_DIR
 export HYD=$VLESS_HYSTERIA_DIR
@@ -192,6 +192,16 @@ fi
 IPKG_INSTROOT=/tmp au_cron_remove
 ok "cron remove idempotent"
 
+# legacy cron line from the old vless-router-panel package is replaced
+printf '0 * * * * /usr/libexec/vless-panel/autoupdate-run.sh # vless-router-panel-autoupdate\n' > "$AU_CRON"
+IPKG_INSTROOT=/tmp au_cron_install
+if ! grep -q 'vless-router-panel-autoupdate' "$AU_CRON" && [ "$(grep -c "$AU_CRON_MARK" "$AU_CRON")" = 1 ]; then
+	ok "cron install replaces the legacy vless-router-panel line"
+else
+	bad "legacy cron line not replaced ($(cat "$AU_CRON"))"
+fi
+IPKG_INSTROOT=/tmp au_cron_remove
+
 # --- vless.sh update: fetch + store inactive proto (no switch) ---
 cat > "$TMP/curl-stub.sh" <<'ST'
 #!/bin/sh
@@ -346,9 +356,9 @@ fi
 # --- sh -n of scripts ---
 for s in \
 	"$SH" \
-	"$ROOT/files/www-vless/cgi-bin/vless" \
-	"$ROOT/files/usr/libexec/vless-panel/autoupdate-run.sh" \
-	"$ROOT/files/usr/libexec/vless-panel/install-naive.sh" \
+	"$ROOT/files/www-aurora/cgi-bin/vless" \
+	"$ROOT/files/usr/libexec/aurora-panel/autoupdate-run.sh" \
+	"$ROOT/files/usr/libexec/aurora-panel/install-naive.sh" \
 	"$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm"
 do
 	if sh -n "$s"; then

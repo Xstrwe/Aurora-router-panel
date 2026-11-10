@@ -24,7 +24,7 @@ A small OpenWrt web panel for toggling a transparent VLESS / Hysteria2 / Naive /
 
    ```sh
    opkg update
-   opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.1_all.ipk
+   opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.2_all.ipk
    ```
 
 3. Откройте в браузере `http://192.168.8.1:8088`. Если установщик написал предупреждение про пароль, значит вход на страницу ещё не настроен — см. раздел [Auth / Пароль на страницу](#auth--пароль-на-страницу).
@@ -108,7 +108,7 @@ echo 'src/gz vless_panel https://raw.githubusercontent.com/Xstrwe/vless-router-p
 ## Update / Обновление
 
 ```sh
-opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.1_all.ipk
+opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.2_all.ipk
 ```
 
 Либо, если фид настроен и проверка подписи временно снята: `opkg update && opkg upgrade vless-router-panel`.

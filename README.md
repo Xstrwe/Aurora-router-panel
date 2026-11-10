@@ -54,9 +54,9 @@ Without `xray` and the geo files the page installs, but you cannot save a link o
 
 3. Open `http://192.168.8.1:8088`. If the installer printed a warning that no password is set, see [Authentication](#authentication) first.
 
-4. Paste a `vless://` link into the VLESS card, press **Подключить VLESS**, then **Включить**. The page should show the transparent mode as **ВКЛЮЧЁН**.
+4. Paste a `vless://` link into the VLESS card, press **Connect VLESS**, then **Enable**. The page should show the transparent mode as **ON**.
 
-   To use Hysteria2, Naive or WireGuard, save the VLESS link first (it provides the base Xray config), then paste the link or config of the other protocol and press its **Подключить …** button.
+   To use Hysteria2, Naive or WireGuard, save the VLESS link first (it provides the base Xray config), then paste the link or config of the other protocol and press its **Connect …** button.
 
 If the router's LAN address is not `192.168.8.1`, change `uhttpd.aurora.listen_http` with `uci` (or in LuCI) and restart uhttpd:
 
@@ -97,13 +97,13 @@ Install the new `.ipk` the same way as above. Files that are not part of the pac
 
 ### The page
 
-The page itself is in Russian; button and field names are quoted below exactly as they appear.
+The page UI is currently in Russian; this README names every button and label by its English meaning.
 
 - **Status card:** transparent mode, Xray state, active protocol, server host (with its SNI), and an on-demand exit-IP check.
-- **Включить / Выключить:** turn transparent mode on or off. When off, the LAN uses the internet directly.
-- **Тест подключения / Скорость:** connection and speed tests through the tunnel.
-- **Режим:** `ru` (everything except Russian sites) or `all`.
-- **Protocol cards** (two columns on wide screens, one on narrow): a field for the link or config, a **Подключить …** button, and an autoupdate block.
+- **Enable / Disable:** turn transparent mode on or off. When off, the LAN uses the internet directly.
+- **Test connection / Speed:** connection and speed tests through the tunnel.
+- **Mode:** "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
+- **Protocol cards** (two columns on wide screens, one on narrow): a field for the link or config, a **Connect …** button, and an auto-update block.
 
 ### Command line
 
@@ -144,7 +144,7 @@ Then restart uhttpd with `/etc/init.d/uhttpd restart` and check that `curl -s -o
 
 ## Autoupdate
 
-Each protocol card has an **Автообновление** block: an on/off checkbox, a link field, an interval (1 h / 6 h / 24 h), and the buttons **Сохранить** and **Обновить сейчас**.
+Each protocol card has an **Auto-update** block: an on/off checkbox, a link field, an interval (1 h / 6 h / 24 h), and the buttons **Save** and **Update now**.
 
 - The fresh config comes from the protocol's own source: the link in that field. If the field is empty, the protocol's saved connection link is used, but only when it is an `http(s)` subscription URL. A plain `vless://`, `hysteria2://`, `naive+https://` link or a WireGuard config cannot be re-fetched, so there is then nothing to update.
 - A subscription may be plain text or base64; the first entry of the matching protocol is used. Downloads have a timeout and a 1 MiB limit.
@@ -169,13 +169,140 @@ Local ports: Xray SOCKS `10808`, HTTP `10809`, redirect (TCP) `12346`, TPROXY (U
 
 ## Troubleshooting
 
-- **"Xray не запустился, конфиг откатан" / "failed to listen ... address already in use".** Two Xray instances raced for ports 10808 or 12346. Since 1.3.0 the restart waits for Xray to exit, force-kills it if needed, waits for the ports to free up, and then waits for the new instance to listen. Manual fix: `/etc/init.d/xray-client stop; killall -9 xray; sleep 2; netstat -lntu | grep -E ':(10808|12345|12346) '` (must print nothing), then `/etc/init.d/xray-client start` or `vless.sh proto <current>`.
-- **Transparent mode is OFF** (`tproxy=0` or the page shows ВЫКЛЮЧЕН while Xray runs). Check `vless.sh status`, then run `/etc/xray/tproxy.sh up`. If you turned it off on purpose, `/etc/xray/tproxy.disabled` exists; `vless.sh on` removes it. A SOCKS test alone does not prove transparent mode works, so check `tproxy=1`.
-- **No internet for the whole LAN.** Run `/etc/xray/tproxy.sh down` to give the LAN direct access, then `vless.sh proto vless` and `/etc/xray/tproxy.sh up`.
-- **DNS under Naive.** Naive is TCP-only. The panel therefore sends DNS through the tunnel as DNS-over-TCP, blocks QUIC (UDP 443) so browsers fall back to TCP, and sends other UDP directly. If lookups fail, check on the router with `nslookup google.com` and from a LAN host with `dig @192.168.8.1 google.com`.
-- **Naive "Сначала установи naive".** `/usr/bin/naive` is missing; run the install script above.
-- **`opkg install` says "Illegal file name" or "Malformed package file".** You passed a URL, or the file is incomplete or not an `.ipk` (for example an HTML error page). Download with `wget -O /tmp/vrp.ipk ...` and compare the size and checksum with `feed/all/Packages`.
-- **`opkg update` complains about the feed signature.** The feed is unsigned. Prefer installing from a downloaded file; see the next section.
+Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `logread -e xray`, `logread -e hysteria`, `logread -e naive`, `logread -e vless-autoupdate`.
+
+### 1. Xray fails to start, "config rolled back" (port busy)
+
+- **Symptom:** switching protocol or saving a link ends with "Xray failed to start, config rolled back"; `logread -e xray` shows `failed to listen TCP on 0.0.0.0:12346` (or `10808`) with `address already in use`; `vless.sh status` shows `running=0`.
+- **Cause:** two Xray instances raced for the same ports, or an old instance had not exited yet. Since 1.3.0 the restart waits for Xray to exit, force-kills it if needed and waits for the ports to be free, but a stray process can still hold them.
+- **Fix:**
+
+  ```sh
+  /etc/init.d/xray-client stop
+  killall -9 xray 2>/dev/null; sleep 2
+  netstat -lntu | grep -E ':(10808|12345|12346) '    # must print nothing
+  /etc/init.d/xray-client start
+  vless.sh status                                     # running=1, tproxy=1
+  ```
+
+  If the ports are still busy, `netstat -lntup | grep -E ':(10808|12345|12346) '` shows the owning process. If everything is stuck, use item 8.
+
+### 2. Transparent mode is off (`tproxy=0`)
+
+- **Symptom:** `vless.sh status` shows `tproxy=0`, or the page shows transparent mode as OFF while Xray runs; LAN devices use the internet directly. A working SOCKS test (`10808`) does not prove transparent mode works.
+- **Cause:** the nftables table was removed, either because you pressed **Disable** (this creates `/etc/xray/tproxy.disabled`) or because a failed switch left it down.
+- **Fix:**
+
+  ```sh
+  vless.sh on                  # removes tproxy.disabled, restarts Xray, brings the rules up
+  # or just the rules:
+  /etc/xray/tproxy.sh up
+  nft list table inet xray >/dev/null && echo tproxy ok
+  ```
+
+### 3. No DNS (or slow DNS) while Naive is active
+
+- **Symptom:** sites do not open under Naive, `nslookup google.com` on the router or `dig @192.168.8.1 google.com` from a LAN host times out.
+- **Cause:** Naive carries TCP only. The panel therefore sends DNS through the tunnel as DNS over TCP, blocks QUIC (UDP 443) so browsers fall back to TCP, and sends other UDP directly. If Xray is down, or the Naive client or its server is unreachable, DNS fails too.
+- **Fix:**
+
+  ```sh
+  vless.sh status                                  # proto=naive, running=1, tproxy=1
+  ps w | grep -E 'naive|xray' | grep -v grep       # both must run
+  logread -e naive | tail                          # connection errors to the server?
+  nslookup google.com                              # on the router
+  dig @192.168.8.1 google.com                      # from a LAN host
+  ```
+
+  If `/usr/bin/naive` is missing, run `/usr/libexec/aurora-panel/install-naive.sh`. If the Naive server cannot be reached, switch back with item 8.
+
+### 4. The page shows 401 or you cannot log in
+
+- **Symptom:** `http://192.168.8.1:8088` asks for a login and rejects it, or answers `401` to everything.
+- **Cause:** the auth line in `/etc/xray/httpd.conf` does not match what you type: wrong user name, wrong password, or a malformed line. The browser may also be sending credentials cached for the old `VLESS` realm.
+- **Fix:** look at the line without printing the hash, fix it, and restart uhttpd:
+
+  ```sh
+  grep -v '^#' /etc/xray/httpd.conf | cut -d: -f1,2     # path and user only
+  ```
+
+  The format is `/:<user>:<password>`. With `/:root:$p$root` the password is the router admin password of the system user `root`. For a separate password use a hash from `uhttpd -m 'your-password'`. Then:
+
+  ```sh
+  /etc/init.d/uhttpd restart
+  curl -s -o /dev/null -w '%{http_code}\n' http://192.168.8.1:8088/cgi-bin/vless   # 401 without credentials
+  ```
+
+  Locked out completely? Delete the auth line from `/etc/xray/httpd.conf` over SSH and restart uhttpd; the page is then open to the LAN until you add a new line. Try a private browser window to rule out cached credentials. If the page does not load at all, check `uci show uhttpd.aurora` (listen address and port).
+
+### 5. opkg: "Malformed package file" or the URL is not accepted
+
+- **Symptom:** `opkg install <URL>` prints "Illegal file name", or installing the downloaded file prints "Malformed package file".
+- **Cause:** opkg on GL.iNet does not accept URLs. A "Malformed package file" means the file is not a complete `.ipk`: a truncated download, an HTML error page, or a cached older file from `raw.githubusercontent.com`.
+- **Fix:** download to `/tmp` first and compare size and checksum with the feed index:
+
+  ```sh
+  cd /tmp
+  wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/Aurora-router-panel/main/feed/all/aurora-router-panel_1.3.0_all.ipk
+  ls -l vrp.ipk
+  sha256sum vrp.ipk                                  # compare with SHA256sum in feed/all/Packages
+  tar tzf vrp.ipk                                    # must list ./debian-binary ./control.tar.gz ./data.tar.gz
+  opkg install /tmp/vrp.ipk && rm -f /tmp/vrp.ipk
+  ```
+
+  If the checksum differs, wait a few minutes (CDN cache) and download again. `opkg update` failing with a signature error is expected: the feed is unsigned, see "Package feed" below.
+
+### 6. Auto-update does nothing
+
+- **Symptom:** the config never changes, **Update now** says "nothing to update", or nothing appears in the log.
+- **Cause (check in this order):**
+  1. Auto-update is off for that protocol (the checkbox is cleared and saved).
+  2. The link field is empty and the saved connection link is not an `http(s)` subscription (a plain `vless://` link or a WireGuard config cannot be re-fetched).
+  3. The interval has not elapsed yet (cron runs hourly).
+  4. The cron line is missing or cron is not running.
+  5. The URL does not return an entry for that protocol, or the download fails.
+  6. The update was applied to the active protocol, the connectivity check failed, and it was rolled back.
+- **Fix:**
+
+  ```sh
+  cat /etc/xray/autoupdate/vless.conf                # enabled=1, url=..., interval=...  (use your protocol name)
+  grep aurora /etc/crontabs/root                     # must contain autoupdate-run.sh
+  /etc/init.d/cron enable; /etc/init.d/cron restart
+  vless.sh update vless                              # run it now and read the message
+  logread -e vless-autoupdate | tail
+  curl -fsSL '<your update URL>' | head -c 300       # does it return the expected link or config?
+  ```
+
+### 7. Hysteria2 or WireGuard does not connect
+
+- **Symptom:** after pressing **Connect Hysteria2** or **Connect WireGuard** the page reports an error, or it connects but there is no traffic (generate_204 fails).
+- **Cause:** both use UDP. Many networks block or throttle UDP, or QUIC on a given port. For Hysteria2 the usual culprits are a missing `/usr/bin/hysteria`, a wrong password, SNI or port in the link, or a firewall in front of the server. WireGuard is experimental here: it runs through Xray's built-in outbound and needs a complete `.conf`; an MTU that is too large also stalls traffic.
+- **Fix:**
+
+  ```sh
+  ls -l /usr/bin/hysteria                            # Hysteria2 only: the binary must exist
+  /etc/init.d/hysteria-client status; logread -e hysteria | tail
+  logread -e xray | tail                             # WireGuard handshake or routing errors
+  curl -s -o /dev/null -w '%{http_code}\n' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204   # expect 204
+  ```
+
+  For WireGuard make sure the config has `[Interface]` with `PrivateKey` and `Address`, and `[Peer]` with `PublicKey`, `Endpoint` and `AllowedIPs`; try `MTU = 1280` in `[Interface]`. Test the server from another network, or fall back to VLESS (item 8).
+
+### 8. No internet after switching protocol (restore VLESS)
+
+- **Symptom:** after a switch the whole LAN has no internet, or the page and SSH still work but nothing loads.
+- **Cause:** the new protocol's tunnel does not work, or the switch failed half-way and left transparent mode up without a working Xray (or down).
+- **Fix:** give the LAN a direct connection first, then bring VLESS back and re-enable the rules:
+
+  ```sh
+  /etc/xray/tproxy.sh down          # LAN uses the internet directly right away
+  vless.sh proto vless              # switch back to the saved VLESS link
+  /etc/xray/tproxy.sh up
+  vless.sh status                   # running=1, tproxy=1, proto=vless
+  curl -s -o /dev/null -w '%{http_code}\n' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204   # 204
+  ```
+
+  If `vless.sh proto vless` fails, the saved VLESS link may be wrong: save it again on the page. If Xray itself will not start, see item 1.
 
 ## Package feed (optional)
 

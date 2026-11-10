@@ -1,7 +1,7 @@
 #!/bin/sh
 # vless.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
 #         | store vless|hy2|naive|wg <file> | proto vless|hy2|naive|wg | mode ru|all
-#         | on | off | status | autoset <proto> <0|1> <server|url> <url> <1h|6h|24h>
+#         | on | off | status | autoset <proto> <0|1> <url> <1h|6h|24h>
 #         | update <proto>
 D=${VLESS_PANEL_DIR:-/etc/xray}
 HYD=${VLESS_HYSTERIA_DIR:-/etc/hysteria}
@@ -12,12 +12,28 @@ PROTO=$(cat $D/proto 2>/dev/null || echo vless)
 # shellcheck disable=SC1090
 [ -f "$AU_LIB" ] && . "$AU_LIB"
 svc(){ [ -x /etc/init.d/$1 ] || return 0; if [ "$2" = 1 ]; then /etc/init.d/$1 enable >/dev/null 2>&1; /etc/init.d/$1 restart >/dev/null 2>&1; else /etc/init.d/$1 stop >/dev/null 2>&1; /etc/init.d/$1 disable >/dev/null 2>&1; fi; }
+xports_busy(){ # 0 if any of tcp 10808/12346 or udp 12345 is still bound
+  netstat -lnt 2>/dev/null | grep -qE ':(10808|12346) ' && return 0
+  netstat -lnu 2>/dev/null | grep -qE ':12345 ' && return 0
+  return 1
+}
+xports_up(){ # 0 when both tcp 10808 and 12346 listen
+  _n=$(netstat -lnt 2>/dev/null)
+  echo "$_n" | grep -q ':10808 ' && echo "$_n" | grep -q ':12346 '
+}
 xrestart(){
   if [ -n "${VLESS_AU_XRESTART:-}" ]; then sh "$VLESS_AU_XRESTART"; return $?; fi
   /etc/init.d/xray-client stop >/dev/null 2>&1
-  i=0; while [ $i -lt 10 ] && { pidof xray >/dev/null || netstat -lnt 2>/dev/null | grep -q ':10808 '; }; do sleep 1; i=$((i+1)); done
+  # wait up to 10s for xray to exit, then kill it
+  i=0; while [ $i -lt 10 ] && pidof xray >/dev/null; do sleep 1; i=$((i+1)); done
+  pidof xray >/dev/null && { killall -9 xray >/dev/null 2>&1; sleep 1; }
+  # wait until the listen ports are released (a second instance would fail to bind)
+  i=0; while [ $i -lt 10 ] && xports_busy; do sleep 1; i=$((i+1)); done
   /etc/init.d/xray-client start >/dev/null 2>&1
-  i=0; while [ $i -lt 6 ]; do sleep 1; pidof xray >/dev/null && netstat -lnt 2>/dev/null | grep -q ':10808 ' && return 0; i=$((i+1)); done
+  i=0; while [ $i -lt 15 ]; do
+    pidof xray >/dev/null && xports_up && return 0
+    sleep 1; i=$((i+1))
+  done
   return 1
 }
 hyup(){ [ "$1" = hy2 ] && svc hysteria-client 1 || svc hysteria-client 0; [ "$1" = naive ] && svc naive-client 1 || svc naive-client 0; }
@@ -36,7 +52,7 @@ au_fetch(){
   if [ -n "${VLESS_AU_CURL:-}" ]; then
     sh "$VLESS_AU_CURL" "$1" "$2" || err "не удалось скачать обновление"
   else
-    curl -fL --max-time 25 --max-filesize 1048576 -A 'vless-router-panel-autoupdate/1.2.1' -o "$2" "$1" || err "не удалось скачать обновление"
+    curl -fL --max-time 25 --max-filesize 1048576 -A 'vless-router-panel-autoupdate/1.3.0' -o "$2" "$1" || err "не удалось скачать обновление"
   fi
   [ -s "$2" ] || err "пустой ответ сервера автообновления"
   sz=$(wc -c < "$2" | tr -d ' ')
@@ -73,7 +89,7 @@ gen(){ # $1 linkfile $2 mode $3 proto
   cp $D/config.json $D/config.prev.json 2>/dev/null
   mv /tmp/vless.json $D/config.json; mv /tmp/vless.link $D/link.txt; echo "$IP" > $D/server_ip; echo "$2" > $D/mode; echo "$P" > $D/proto
   hyup "$P"
-  xrestart || { cp $D/config.prev.json $D/config.json; xrestart; err "Xray не запустился, конфиг откатан"; }
+  xrestart || { cp $D/config.prev.json $D/config.json; echo "$PROTO" > $D/proto; echo "$MODE" > $D/mode; hyup "$PROTO"; xrestart; au_tproxy; err "Xray не запустился, конфиг откатан"; }
   au_tproxy
   echo OK
 }
@@ -129,11 +145,11 @@ do_update(){
   P=$1
   au_ok_proto "$P" || err "update vless|hy2|naive|wg"
   au_load "$P"
-  URL=$(au_resolve_url)
-  if [ "$AU_SOURCE" = server ] && [ -z "$URL" ]; then
-    err "адрес «нашего сервера» не задан"
+  URL=$(au_resolve_url "$P")
+  if [ -z "$URL" ]; then
+    echo "нечего обновлять: укажите ссылку автообновления под этим протоколом"
+    return 0
   fi
-  [ -n "$URL" ] || err "укажите ссылку автообновления"
   IN=/tmp/vless-au-$P.in
   OUT=/tmp/vless-au-$P.out
   au_fetch "$URL" "$IN"
@@ -211,7 +227,7 @@ status)
   echo "tproxy=$(nft list table inet xray >/dev/null 2>&1 && echo 1 || echo 0)"
   echo "mode=$MODE"; echo "proto=$PROTO"; echo "server_ip=$(cat $D/server_ip 2>/dev/null)";;
 autoset)
-  au_save_conf "$2" "$3" "$4" "$5" "$6" || err "autoset <proto> <0|1> <server|url> <url> <1h|6h|24h>"
+  au_save_conf "$2" "$3" "$4" "$5" || err "autoset <proto> <0|1> <url> <1h|6h|24h>"
   echo OK;;
 update) do_update "$2";;
 *) err "usage";;

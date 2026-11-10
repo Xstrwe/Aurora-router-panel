@@ -85,7 +85,11 @@ awk -v size="$INSTALLED_SIZE" '
   { print }
   /^Architecture:/ { print "Installed-Size: " size }
 ' "$ROOT/control/control" > "$CTRL/control"
-cp "$ROOT/control/postinst" "$CTRL/postinst"
+# Fill the file list used by the opkg ownership self-heal in postinst
+# (regular files of the package, absolute paths).
+FILES=$(cd "$DATA" && find . -type f | sed 's#^\.##' | LC_ALL=C sort | tr '\n' ' ')
+sed "s#@FILES@#${FILES}#" "$ROOT/control/postinst" > "$CTRL/postinst"
+sh -n "$CTRL/postinst" || { echo "ERROR: generated postinst has a syntax error" >&2; exit 1; }
 cp "$ROOT/control/prerm" "$CTRL/prerm"
 cp "$ROOT/control/postrm" "$CTRL/postrm"
 chmod 755 "$CTRL/postinst" "$CTRL/prerm" "$CTRL/postrm"

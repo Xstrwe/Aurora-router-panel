@@ -2,6 +2,16 @@
 # Runs on the router after install or upgrade. Do not overwrite user state.
 [ -n "$IPKG_INSTROOT" ] && exit 0
 
+# When this package replaces vless-router-panel, opkg drops files that both
+# packages ship (e.g. /etc/xray/vless.sh) from our file list while removing the
+# old one. Re-add them so that later upgrades and removals work.
+OWN=/usr/lib/opkg/info/aurora-router-panel.list
+if [ -f "$OWN" ]; then
+	for f in @FILES@; do
+		[ -e "$f" ] && { grep -qxF "$f" "$OWN" || echo "$f" >> "$OWN"; }
+	done
+fi
+
 mkdir -p /etc/xray
 
 if [ ! -f /etc/xray/httpd.conf ]; then

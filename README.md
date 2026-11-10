@@ -24,7 +24,7 @@ A small OpenWrt web panel for toggling a transparent VLESS / Hysteria2 / Naive /
 
    ```sh
    opkg update
-   opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.0_all.ipk
+   opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.1_all.ipk
    ```
 
 3. Откройте в браузере `http://192.168.8.1:8088`. Если установщик написал предупреждение про пароль, значит вход на страницу ещё не настроен — см. раздел [Auth / Пароль на страницу](#auth--пароль-на-страницу).
@@ -61,11 +61,11 @@ opkg update && opkg install xz
 # ssh root@192.168.8.1 chmod 755 /usr/bin/naive
 ```
 
-Переустановка: `/usr/libexec/vless-panel/install-naive.sh --force`. После этого вставьте ссылку `naive+https://` на странице и нажмите **«Сохранить и подключить Naive»**.
+Переустановка: `/usr/libexec/vless-panel/install-naive.sh --force`. После этого вставьте ссылку `naive+https://` на странице и нажмите **«Подключить Naive»**.
 
 ### WireGuard
 
-Вставьте в поле целиком свой `.conf` (блоки `[Interface]` с `PrivateKey` и `Address` и `[Peer]` с `PublicKey`, `Endpoint` и `AllowedIPs`) и нажмите **«Сохранить и подключить WireGuard»**. Туннель поднимается через встроенный outbound WireGuard в Xray, отдельный `wireguard-tools` не требуется. Обычный WireGuard в некоторых сетях могут блокировать — если не заработает, нажмите **«Подключить VLESS»**.
+Вставьте в поле целиком свой `.conf` (блоки `[Interface]` с `PrivateKey` и `Address` и `[Peer]` с `PublicKey`, `Endpoint` и `AllowedIPs`) и нажмите **«Подключить WireGuard»**. Туннель поднимается через встроенный outbound WireGuard в Xray, отдельный `wireguard-tools` не требуется. Обычный WireGuard в некоторых сетях могут блокировать — если не заработает, нажмите **«Подключить VLESS»**.
 
 ## Requirements / Требования
 
@@ -108,7 +108,7 @@ echo 'src/gz vless_panel https://raw.githubusercontent.com/Xstrwe/vless-router-p
 ## Update / Обновление
 
 ```sh
-opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.0_all.ipk
+opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.1_all.ipk
 ```
 
 Либо, если фид настроен и проверка подписи временно снята: `opkg update && opkg upgrade vless-router-panel`.

@@ -34,6 +34,10 @@
   wide screens and one on narrow ones.
 - `build.sh` verifies the ipk member order (`./debian-binary`,
   `./control.tar.gz`, `./data.tar.gz`). The feed under `feed/` is rebuilt by CI.
+- Release automation: a round `X.Y.0` version creates the tag and a GitHub
+  Release (`.ipk` and `.sha256` attached) and publishes a usign-signed opkg
+  feed on GitHub Pages (`https://xstrwe.github.io/Aurora-router-panel/all`).
+  No change to the package contents.
 
 ## 1.2.1
 

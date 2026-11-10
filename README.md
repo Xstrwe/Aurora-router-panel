@@ -67,6 +67,8 @@ opkg update && opkg install xz
 
 Вставьте в поле целиком свой `.conf` (блоки `[Interface]` с `PrivateKey` и `Address` и `[Peer]` с `PublicKey`, `Endpoint` и `AllowedIPs`) и нажмите **«Подключить WireGuard»**. Туннель поднимается через встроенный outbound WireGuard в Xray, отдельный `wireguard-tools` не требуется. Обычный WireGuard в некоторых сетях могут блокировать — если не заработает, нажмите **«Подключить VLESS»**.
 
+Список изменений по версиям: [CHANGELOG.md](CHANGELOG.md).
+
 ## Автообновление конфигов
 
 Под каждым протоколом на странице (VLESS, Hysteria2, Naive, WireGuard) есть блок **«Автообновление»**:

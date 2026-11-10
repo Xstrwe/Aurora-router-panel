@@ -4,42 +4,38 @@
 
 Это пакет **`.ipk`** для `opkg`, не `.deb`. На OpenWrt (в том числе GL.iNet GL-BE6500, OpenWrt 23.05, `aarch64_cortex-a53`) пакеты ставятся через `opkg`. Архитектура пакета — `all`: внутри только скрипты. Бинарь `naive` (~13 МБ) в пакет **не входит** — его ставит скрипт `install-naive.sh`.
 
-Репозиторий публичный и не содержит секретов: ни ссылок, ни паролей, ни ключей, ни `config.json`.
-
 ---
 
 A small OpenWrt web panel for toggling a transparent VLESS / Hysteria2 / Naive / WireGuard proxy, testing the connection and speed, and saving protocol links or a WireGuard `.conf`. Ships as an `.ipk` (`Architecture: all`) and an unsigned `opkg` feed. The `naive` binary is not bundled; see `install-naive.sh`. No user secrets are included in the package or this repository.
 
 ## Установка на GL.iNet GL-BE6500
 
-1. Подключитесь к роутеру. На маке откройте Терминал и введите:
+1. Подключитесь к роутеру.
 
    ```sh
    ssh root@192.168.8.1
    ```
 
-   Пароль тот же, что от админки роутера. Если вы не дома, можно зайти через GoodCloud: Remote SSH.
-
 2. Обновите список пакетов, скачайте пакет и поставьте его (opkg на GL.iNet не принимает ссылку напрямую, поэтому сначала `wget`):
 
    ```sh
    opkg update
-   cd /tmp && wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.3.0_all.ipk && opkg install /tmp/vrp.ipk; rm -f /tmp/vrp.ipk
+   cd /tmp && wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/Aurora-router-panel/main/feed/all/vless-router-panel_1.3.0_all.ipk && opkg install /tmp/vrp.ipk; rm -f /tmp/vrp.ipk
    ```
 
 3. Откройте в браузере `http://192.168.8.1:8088`. Если установщик написал предупреждение про пароль, значит вход на страницу ещё не настроен — см. раздел [Auth / Пароль на страницу](#auth--пароль-на-страницу).
 
-4. Вставьте ссылку в поле и нажмите **«Подключить VLESS»**, потом **«Включить»**. Проверьте, что «Прозрачный режим» показывает **ВКЛЮЧЁН**.
+4. Вставьте ссылку в поле и нажмите подключить.
 
 5. Новая версия ставится той же командой, только с новой ссылкой на `.ipk` (смотрите номер версии в имени файла). Ваши ссылки и настройки при обновлении сохраняются.
 
 6. Удалить пакет:
 
    ```sh
-   opkg remove vless-router-panel
+   opkg remove Aurora-router-panel
    ```
 
-Если LAN-адрес роутера не `192.168.8.1`, поправьте `uhttpd.vless.listen_http` через `uci` и перезапустите `uhttpd`.
+Если LAN-адрес роутера не `192.168.8.1`, поправьте `uhttpd.vless.listen_http` через `Luci` и перезапустите `uhttpd`.
 
 Для Hysteria2, Naive и WireGuard сначала сохраните обычную ссылку `vless://` (по ней собирается базовый конфиг Xray), а уже потом нажимайте кнопку нужного протокола.
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.0a1
+
+- Web page, all four protocol cards: the "Автообновление" row now holds the
+  checkbox and the interval on one line. The separate update-URL field and its
+  hint are removed, and so is every "Сохранить" button. "Обновить сейчас" sits
+  next to "Подключить …" in each card; it saves the auto-update settings and
+  the link, then runs the update. "Подключить …" now saves the auto-update
+  settings too.
+- Cards size to their content and stack in two CSS columns, so a short card no
+  longer leaves a gap.
+- Auto-update has a single source: the protocol's own saved connection link.
+  An `http(s)` subscription URL entered in a card's link field is kept in
+  `/etc/xray/autoupdate/<proto>.src` and the first matching link or config
+  from it is applied; any other link has nothing to re-fetch. New command
+  `vless.sh src <proto> <infile> <outfile> <0|1>`; `vless.sh autoset` is now
+  `<proto> <0|1> <1h|6h|24h>`. Existing `url=` lines in
+  `/etc/xray/autoupdate/*.conf` are ignored, so a URL that was only typed into
+  the old field must be pasted into the link field again.
+- Tests cover the new source handling and the page layout.
+
 ## 1.3.0
 
 - Renamed the project to Aurora-router-panel: package `aurora-router-panel`

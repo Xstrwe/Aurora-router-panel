@@ -104,64 +104,75 @@ else
 	ok "extract fails on garbage"
 fi
 
-# --- save/load/resolve url ---
-au_save_conf vless 1 'https://example.com/my' 6h
+# --- save/load roundtrip (no URL is stored in the conf any more) ---
+au_save_conf vless 1 6h
 au_load vless
-if [ "$AU_ENABLED" = 1 ] && [ "$AU_URL" = 'https://example.com/my' ] && [ "$AU_INTERVAL" = 6h ]; then
+if [ "$AU_ENABLED" = 1 ] && [ "$AU_INTERVAL" = 6h ]; then
 	ok "au_save_conf/au_load roundtrip"
 else
 	bad "au_save_conf/au_load"
 fi
-# conf must not be sourced as shell (injection). Write a hostile url and load safely.
+if grep -q '^url=' "$AU_DIR/vless.conf"; then bad "conf must not contain url="; else ok "conf has no url= line"; fi
+if au_save_conf vless 1 'https://x' 1h 2>/dev/null; then bad "old 4-argument form must be rejected"; else ok "au_save_conf rejects a bad interval"; fi
+# legacy conf lines (source=, url=) are ignored and never expanded as shell
 printf 'enabled=1\nsource=server\nurl=$(echo pwned)\ninterval=1h\n' > "$AU_DIR/vless.conf"
 au_load vless
-if [ "$AU_URL" = '$(echo pwned)' ]; then
-	ok "au_load does not expand shell in url"
+if [ "$AU_ENABLED" = 1 ] && [ "$AU_INTERVAL" = 1h ] && [ -z "${AU_URL:-}" ]; then
+	ok "au_load ignores legacy source=/url= lines"
 else
-	bad "au_load expanded url ($AU_URL)"
+	bad "au_load legacy lines ($AU_ENABLED $AU_INTERVAL ${AU_URL:-})"
 fi
 
-# legacy "source=server" lines are ignored; empty url + non-http saved link => nothing to fetch
-printf 'enabled=1\nsource=server\nurl=\ninterval=1h\n' > "$AU_DIR/vless.conf"
-au_load vless
+# --- resolve: only the protocol's own saved connection link is used ---
+rm -f "$(au_src_file vless)"
 if [ -z "$(au_resolve_url vless)" ]; then
-	ok "resolve: empty field and vless:// link gives no URL"
+	ok "resolve: saved vless:// link gives no URL"
 else
-	bad "resolve empty ($(au_resolve_url vless))"
+	bad "resolve vless:// ($(au_resolve_url vless))"
 fi
-au_save_conf vless 1 'https://example.com/field' 1h
-au_load vless
-if [ "$(au_resolve_url vless)" = "https://example.com/field" ]; then
-	ok "resolve: autoupdate field wins"
-else
-	bad "resolve field"
-fi
-# fallback: own saved link is an http(s) subscription URL
-au_save_conf vless 1 '' 1h
-au_load vless
 cp "$D/link.txt" "$TMP/link.keep"
 printf 'https://example.com/own-sub\n' > "$D/link.txt"
 if [ "$(au_resolve_url vless)" = "https://example.com/own-sub" ]; then
-	ok "resolve: falls back to saved http(s) link"
+	ok "resolve: saved http(s) link is the source"
 else
-	bad "resolve fallback ($(au_resolve_url vless))"
+	bad "resolve saved http link ($(au_resolve_url vless))"
 fi
 cp "$TMP/link.keep" "$D/link.txt"
+au_src_set vless 'https://example.com/field'
+if [ "$(au_resolve_url vless)" = "https://example.com/field" ] && [ "$(stat -c %a "$(au_src_file vless)")" = 600 ]; then
+	ok "resolve: subscription URL saved from the card (mode 600)"
+else
+	bad "resolve src ($(au_resolve_url vless))"
+fi
+au_src_clear vless
+if [ -z "$(au_resolve_url vless)" ]; then ok "au_src_clear"; else bad "au_src_clear"; fi
 if grep -rq 'autoupdate-server\|нашего сервера\|с нашего' "$ROOT/files" "$ROOT/README.md"; then
 	bad "leftover references to the removed server source"
 else
 	ok "no references to the removed server source"
 fi
+# the page has no URL field, hint, or Save button any more
+CGI=$ROOT/files/www-aurora/cgi-bin/vless
+if grep -q 'auurl\|ссылка на обновление\|Пусто — обновление\|>Сохранить<' "$CGI"; then
+	bad "CGI still has the auto-update URL field, hint or Save button"
+else
+	ok "CGI has no auto-update URL field, hint or Save button"
+fi
+if [ "$(grep -c '>Обновить сейчас<' "$CGI")" = 4 ] && [ "$(grep -c '>Подключить ' "$CGI")" = 4 ]; then
+	ok "CGI has Connect + Update now in all 4 protocol cards"
+else
+	bad "CGI button count"
+fi
 
 # --- interval / stamp ---
-au_save_conf hy2 1 'https://example.com/h' 1h
+au_save_conf hy2 1 1h
 now=1000000
 rm -f "$(au_stamp_file hy2)"
 if au_due hy2 "$now"; then ok "due when no stamp"; else bad "due when no stamp"; fi
 au_stamp hy2 "$now"
 if au_due hy2 $((now + 3599)); then bad "not due before 1h"; else ok "not due before 1h"; fi
 if au_due hy2 $((now + 3600)); then ok "due after 1h"; else bad "due after 1h"; fi
-au_save_conf hy2 0 'https://example.com/h' 1h
+au_save_conf hy2 0 1h
 if au_due hy2 $((now + 99999)); then bad "disabled is not due"; else ok "disabled is not due"; fi
 
 # --- same/norm ---
@@ -231,7 +242,8 @@ chmod 755 "$TMP/bin/ucode"
 # jq is real; nslookup/xray should not be called on inactive hy2 store (store_hy2 uses ucode only)
 export PATH="$TMP/bin:$PATH"
 
-au_save_conf hy2 1 'https://example.com/hy2' 24h
+au_save_conf hy2 1 24h
+au_src_set hy2 'https://example.com/hy2'
 # proto is vless, so update hy2 should only store
 set +e
 msg=$("$SH" update hy2 2>&1)
@@ -257,7 +269,8 @@ else
 fi
 
 # empty field and non-http saved link: nothing to update, no fetch, exit 0
-au_save_conf naive 1 '' 24h
+au_save_conf naive 1 24h
+au_src_clear naive
 set +e
 msg=$("$SH" update naive 2>&1)
 rc=$?
@@ -273,7 +286,8 @@ printf 'vless://00000000-0000-0000-0000-000000000000@192.0.2.10:443?sni=example.
 printf 'OLDCFG\n' > "$D/config.json"
 echo vless > "$D/proto"
 printf 'vless://99999999-9999-9999-9999-999999999999@192.0.2.90:443?sni=new.example\n' > "$TMP/fx/example.com_vless"
-au_save_conf vless 1 'https://example.com/vless' 24h
+au_save_conf vless 1 24h
+au_src_set vless 'https://example.com/vless'
 
 cat > "$TMP/apply-stub.sh" <<'ST'
 #!/bin/sh
@@ -352,6 +366,38 @@ if [ "$rc" -eq 0 ] && echo "$msg" | grep -q 'OK' \
 else
 	bad "successful apply (rc=$rc msg=$msg link=$(cat "$D/link.txt") cfg=$(cat "$D/config.json"))"
 fi
+
+# --- vless.sh src: subscription URL in a card field ---
+printf 'https://example.com/hy2\n' > "$TMP/field.in"
+rm -f "$(au_src_file hy2)"
+if "$SH" src hy2 "$TMP/field.in" "$TMP/field.out" 1 >/dev/null 2>&1 \
+   && grep -q 'hysteria2://newpass@192.0.2.80:443' "$TMP/field.out" \
+   && [ "$(au_resolve_url hy2)" = "https://example.com/hy2" ]; then
+	ok "src: URL is fetched, link extracted, URL remembered as source"
+else
+	bad "src fetch"
+fi
+printf 'hysteria2://direct@192.0.2.81:443\n' > "$TMP/field.in"
+if "$SH" src hy2 "$TMP/field.in" "$TMP/field.out" 1 >/dev/null 2>&1 \
+   && grep -q 'direct@192.0.2.81' "$TMP/field.out" && [ -z "$(au_resolve_url hy2)" ]; then
+	ok "src: a direct link is passed through and clears the source"
+else
+	bad "src direct"
+fi
+printf 'https://example.com/nothing-here\n' > "$TMP/field.in"
+if "$SH" src hy2 "$TMP/field.in" "$TMP/field.out" 1 >/dev/null 2>&1; then
+	bad "src should fail when the URL cannot be fetched"
+else
+	ok "src fails on an unfetchable URL and keeps no source"
+fi
+printf 'https://example.com/hy2\n' > "$TMP/field.in"
+"$SH" src hy2 "$TMP/field.in" "$TMP/field.out" 0 >/dev/null 2>&1
+if [ "$(au_resolve_url hy2)" = "https://example.com/hy2" ]; then
+	ok "src with fetch=0 only records the source"
+else
+	bad "src fetch=0"
+fi
+au_src_clear hy2
 
 # --- sh -n of scripts ---
 for s in \

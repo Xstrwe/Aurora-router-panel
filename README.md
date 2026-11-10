@@ -111,7 +111,7 @@ The page UI is currently in Russian; this README names every button and label by
 - **Enable / Disable:** turn transparent mode on or off. When off, the LAN uses the internet directly.
 - **Test connection / Speed:** connection and speed tests through the tunnel.
 - **Mode:** "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
-- **Protocol cards** (two columns on wide screens, one on narrow): a field for the link or config, a **Connect …** button, and an auto-update block.
+- **Protocol cards** (two columns on wide screens, one on narrow; each card is only as tall as its content): a field for the link or config, an auto-update row (checkbox and interval on one line), and the buttons **Connect …** and **Update now** side by side.
 
 ### Command line
 
@@ -126,7 +126,8 @@ vless.sh proto vless|hy2|naive|wg   # switch to an already saved protocol
 vless.sh mode ru|all
 vless.sh on | off           # transparent mode on / off
 vless.sh status             # running=, tproxy=, mode=, proto=, server_ip=
-vless.sh autoset <proto> <0|1> <url> <1h|6h|24h>
+vless.sh autoset <proto> <0|1> <1h|6h|24h>   # auto-update on/off and interval
+vless.sh src <proto> <infile> <outfile> <0|1> # link field input: an http(s) URL is remembered as the subscription source
 vless.sh update <proto>     # run the autoupdate for one protocol now
 ```
 
@@ -152,13 +153,14 @@ Then restart uhttpd with `/etc/init.d/uhttpd restart` and check that `curl -s -o
 
 ## Autoupdate
 
-Each protocol card has an **Auto-update** block: an on/off checkbox, a link field, an interval (1 h / 6 h / 24 h), and the buttons **Save** and **Update now**.
+Each protocol card has an **Auto-update** row (an on/off checkbox and an interval of 1 h / 6 h / 24 h on one line) and two buttons: **Connect …** and **Update now**. There is no separate Save button and no separate update-URL field.
 
-- The fresh config comes from the protocol's own source: the link in that field. If the field is empty, the protocol's saved connection link is used, but only when it is an `http(s)` subscription URL. A plain `vless://`, `hysteria2://`, `naive+https://` link or a WireGuard config cannot be re-fetched, so there is then nothing to update.
+- The fresh config always comes from the protocol's own saved connection link, the one in the card's link field. If you put an `http(s)` subscription URL into that field, it is kept as the source and the link or config extracted from it is applied; a plain `vless://`, `hysteria2://`, `naive+https://` link or a WireGuard config cannot be re-fetched, so there is then nothing to update.
+- **Connect** saves the auto-update settings and the link, then connects the protocol. **Update now** saves the auto-update settings and the link, then runs the update (a new direct link in the field is applied like Connect).
 - A subscription may be plain text or base64; the first entry of the matching protocol is used. Downloads have a timeout and a 1 MiB limit.
 - Cron runs `/usr/libexec/aurora-panel/autoupdate-run.sh` every hour and updates the protocols whose interval has elapsed.
 - If the config did not change, nothing is touched. For the **active** protocol a changed config is applied immediately and verified with a request to `generate_204` through the local SOCKS port; on failure everything is rolled back and Xray is restarted. For other protocols the new config is only saved.
-- Settings live in `/etc/xray/autoupdate/<proto>.conf` and survive upgrades. Autoupdate is off until you enable it.
+- Settings live in `/etc/xray/autoupdate/<proto>.conf` (`enabled`, `interval`); the subscription URL, if any, in `<proto>.src`. Both survive upgrades. Old `url=` and `source=` lines from earlier versions are ignored. Autoupdate is off until you enable it.
 
 ## File layout
 
@@ -266,7 +268,7 @@ Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `
 - **Symptom:** the config never changes, **Update now** says "nothing to update", or nothing appears in the log.
 - **Cause (check in this order):**
   1. Auto-update is off for that protocol (the checkbox is cleared and saved).
-  2. The link field is empty and the saved connection link is not an `http(s)` subscription (a plain `vless://` link or a WireGuard config cannot be re-fetched).
+  2. The link field does not hold an `http(s)` subscription URL (a plain `vless://` link or a WireGuard config cannot be re-fetched).
   3. The interval has not elapsed yet (cron runs hourly).
   4. The cron line is missing or cron is not running.
   5. The URL does not return an entry for that protocol, or the download fails.
@@ -274,12 +276,13 @@ Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `
 - **Fix:**
 
   ```sh
-  cat /etc/xray/autoupdate/vless.conf                # enabled=1, url=..., interval=...  (use your protocol name)
+  cat /etc/xray/autoupdate/vless.conf                # enabled=1, interval=...  (use your protocol name)
+  cat /etc/xray/autoupdate/vless.src                 # the subscription URL, if the field held one
   grep aurora /etc/crontabs/root                     # must contain autoupdate-run.sh
   /etc/init.d/cron enable; /etc/init.d/cron restart
   vless.sh update vless                              # run it now and read the message
   logread -e vless-autoupdate | tail
-  curl -fsSL '<your update URL>' | head -c 300       # does it return the expected link or config?
+  curl -fsSL "$(cat /etc/xray/autoupdate/vless.src)" | head -c 300   # does it return the expected link or config?
   ```
 
 ### 7. Hysteria2 or WireGuard does not connect

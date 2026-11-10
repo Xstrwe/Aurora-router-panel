@@ -2,7 +2,7 @@
 
 A small web panel for OpenWrt / GL.iNet routers that runs a transparent proxy for the whole LAN through [Xray](https://github.com/XTLS/Xray-core) and lets you switch between **VLESS**, **Hysteria2**, **Naive** and **WireGuard** from a single page.
 
-It ships as an `.ipk` package (`Architecture: all`, scripts only) plus an unsigned opkg feed, and is the successor of `vless-router-panel`.
+It ships as an `.ipk` package (`Architecture: all`, scripts only) plus a signed opkg feed on GitHub Pages, and is the successor of `vless-router-panel`.
 
 ## Features
 
@@ -41,16 +41,24 @@ Without `xray` and the geo files the page installs, but you cannot save a link o
    ssh root@192.168.8.1
    ```
 
-2. Download the package to `/tmp` first and install the file. **opkg on GL.iNet rejects URLs** ("Illegal file name"), so do not pass the URL to `opkg install`:
+2. Install it. Either add the signed opkg feed (recommended; later versions arrive with `opkg update && opkg upgrade`), see [Package feed](#package-feed):
+
+   ```sh
+   wget -O /etc/opkg/keys/2fa6e8de3e3e6f05 https://xstrwe.github.io/Aurora-router-panel/keys/2fa6e8de3e3e6f05
+   echo 'src/gz aurora https://xstrwe.github.io/Aurora-router-panel/all' >> /etc/opkg/customfeeds.conf
+   opkg update && opkg install aurora-router-panel
+   ```
+
+   or download the `.ipk` to `/tmp` first and install the file. **opkg on GL.iNet rejects URLs** ("Illegal file name"), so do not pass the URL to `opkg install`:
 
    ```sh
    cd /tmp
-   wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/Aurora-router-panel/main/feed/all/aurora-router-panel_1.3.0_all.ipk
+   wget -O vrp.ipk https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.3.0/aurora-router-panel_1.3.0_all.ipk
    opkg install /tmp/vrp.ipk
    rm -f /tmp/vrp.ipk
    ```
 
-   The version is part of the file name; take the current one from the [`feed/all`](feed/all) directory. `raw.githubusercontent.com` may cache a freshly merged file for a few minutes, so check `opkg list-installed | grep aurora` after installing.
+   Every [GitHub Release](https://github.com/Xstrwe/Aurora-router-panel/releases) has the `.ipk` and a `.sha256` file; the version is part of the file name. Check `opkg list-installed | grep aurora` after installing.
 
 3. Open `http://192.168.8.1:8088`. If the installer printed a warning that no password is set, see [Authentication](#authentication) first.
 
@@ -238,19 +246,20 @@ Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `
 ### 5. opkg: "Malformed package file" or the URL is not accepted
 
 - **Symptom:** `opkg install <URL>` prints "Illegal file name", or installing the downloaded file prints "Malformed package file".
-- **Cause:** opkg on GL.iNet does not accept URLs. A "Malformed package file" means the file is not a complete `.ipk`: a truncated download, an HTML error page, or a cached older file from `raw.githubusercontent.com`.
+- **Cause:** opkg on GL.iNet does not accept URLs. A "Malformed package file" means the file is not a complete `.ipk`: a truncated download, an HTML error page, or a cached older file.
 - **Fix:** download to `/tmp` first and compare size and checksum with the feed index:
 
   ```sh
   cd /tmp
-  wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/Aurora-router-panel/main/feed/all/aurora-router-panel_1.3.0_all.ipk
+  wget -O vrp.ipk https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.3.0/aurora-router-panel_1.3.0_all.ipk
+  wget -O vrp.ipk.sha256 https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.3.0/aurora-router-panel_1.3.0_all.ipk.sha256
   ls -l vrp.ipk
-  sha256sum vrp.ipk                                  # compare with SHA256sum in feed/all/Packages
+  sha256sum vrp.ipk; cat vrp.ipk.sha256              # the two hashes must match
   tar tzf vrp.ipk                                    # must list ./debian-binary ./control.tar.gz ./data.tar.gz
   opkg install /tmp/vrp.ipk && rm -f /tmp/vrp.ipk
   ```
 
-  If the checksum differs, wait a few minutes (CDN cache) and download again. `opkg update` failing with a signature error is expected: the feed is unsigned, see "Package feed" below.
+  If the checksum differs, download again. If `opkg update` reports a signature error for the `aurora` feed, the public key is missing or wrong: see [Package feed](#package-feed).
 
 ### 6. Auto-update does nothing
 
@@ -304,9 +313,29 @@ Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `
 
   If `vless.sh proto vless` fails, the saved VLESS link may be wrong: save it again on the page. If Xray itself will not start, see item 1.
 
-## Package feed (optional)
+## Package feed
 
-Feed URL: `https://raw.githubusercontent.com/Xstrwe/Aurora-router-panel/main/feed/all`. The feed is **unsigned**, while OpenWrt 23.05 normally has `option check_signature 1` in `/etc/opkg.conf`, which applies to all feeds at once. The simplest and safest way is to install from the downloaded `.ipk` as shown above. If you still want `opkg update` to work, add `src/gz aurora_panel <feed URL>` to `/etc/opkg/customfeeds.conf`, temporarily comment out `check_signature`, run `opkg update && opkg install aurora-router-panel`, and restore the option afterwards.
+Every round release (`X.Y.0`) is published as a GitHub Release and in a **signed opkg feed** on GitHub Pages: `https://xstrwe.github.io/Aurora-router-panel/all` (files `Packages`, `Packages.gz`, `Packages.sig` and the `.ipk`).
+
+Packages are signed with [usign](https://git.openwrt.org/?p=project/usign.git), the same signature scheme OpenWrt uses for its own feeds, so `option check_signature 1` in `/etc/opkg.conf` can stay enabled. The public key is [`keys/aurora-router-panel.pub`](keys/aurora-router-panel.pub); its key ID is `2fa6e8de3e3e6f05`.
+
+On the router:
+
+```sh
+# 1. trust the signing key (opkg looks keys up by key ID)
+wget -O /etc/opkg/keys/2fa6e8de3e3e6f05 https://xstrwe.github.io/Aurora-router-panel/keys/2fa6e8de3e3e6f05
+
+# 2. add the feed
+echo 'src/gz aurora https://xstrwe.github.io/Aurora-router-panel/all' >> /etc/opkg/customfeeds.conf
+
+# 3. install (and later upgrade)
+opkg update
+opkg install aurora-router-panel
+```
+
+Check that the key you downloaded is the right one: `cat /etc/opkg/keys/2fa6e8de3e3e6f05` must print the same second line as [`keys/aurora-router-panel.pub`](keys/aurora-router-panel.pub), `RWQvpujePj5vBTDs4E+JxMS904WhmHAzCtyBztpBnRiLTeSU5iMaIdFj`. The feed needs HTTPS support in opkg's downloader (`ca-bundle` and `libustream-*`, present on stock OpenWrt and GL.iNet firmware).
+
+The feed holds only the latest release. To pin or roll back a version, install the `.ipk` of that release from the GitHub Releases page.
 
 ## Uninstall
 
@@ -324,7 +353,10 @@ This removes the panel, its uhttpd section and the autoupdate cron line. It does
 
 `build.sh` assembles a reproducible `.ipk` (a gzip-compressed tar with `./debian-binary`, `./control.tar.gz`, `./data.tar.gz`, owner `root:root`, fixed timestamps), writes `feed/all/Packages` and `Packages.gz`, syntax-checks all shell scripts, unpacks the result to verify its contents, and runs `tests/autoupdate.sh`. It needs GNU tar and gzip. The package version is taken from `control/control`.
 
-CI (`.github/workflows/build.yml`) runs `build.sh` on every push and pull request touching the package files. On `main` it commits the rebuilt `feed/` if it changed.
+CI:
+
+- `.github/workflows/build.yml` runs `build.sh` on every push and pull request touching the package files. On `main` it commits the rebuilt, unsigned `feed/` if it changed (kept for the existing raw URL; new installs should use the signed Pages feed above).
+- `.github/workflows/release.yml` makes a release. It runs when `main` gets a change to `control/control` whose `Version` is a round `X.Y.0`, when a tag `vX.Y.0` is pushed (the tag must match the control `Version`), or by hand (Actions, "Run workflow"; it re-publishes the feed and refreshes the assets of an existing release). It builds the `.ipk`, signs `Packages` with the `USIGN_SECRET_KEY` Actions secret, creates the tag and a GitHub Release (notes taken from the matching `CHANGELOG.md` section, `.ipk` and `.sha256` attached) and deploys the feed to GitHub Pages. If no release exists for a version, a plain push of the version bump is enough. A `CHANGELOG.md` section named `## X.Y.0` is required.
 
 Sources: `files/` (installed tree), `control/` (package metadata and maintainer scripts), `tests/`.
 

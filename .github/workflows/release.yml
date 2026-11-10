@@ -1,0 +1,212 @@
+name: Release and publish opkg feed
+
+# Runs when:
+#  - main gets a commit that touches control/control and the package Version is X.Y.0
+#    (a new release; skipped if the release for that version already exists),
+#  - a tag vX.Y.0 is pushed (the tag must match the control Version),
+#  - it is started by hand (rebuilds assets and re-publishes the feed).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/control'
+    tags:
+      - 'v[0-9]+.[0-9]+.0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-and-feed
+  cancel-in-progress: false
+
+env:
+  # usign (OpenWrt's signify-compatible signer), pinned commit.
+  USIGN_REF: c4c72b1b07945ee192361dc751291a7c98d6adcd
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version and tag
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          VER=$(sed -n 's/^Version: //p' control/control | head -1)
+          TAG="v$VER"
+          echo "Package version: $VER"
+          if ! printf '%s' "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.0$'; then
+            echo "Version $VER is not a round X.Y.0 release; nothing to do."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "$TAG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match control Version $VER (expected $TAG)"
+            exit 1
+          fi
+          EXISTS=false
+          if gh release view "$TAG" >/dev/null 2>&1; then EXISTS=true; fi
+          if [ "$EXISTS" = true ] && [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_TYPE" = branch ]; then
+            echo "Release $TAG already exists; nothing to do."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "publish=true"
+            echo "version=$VER"
+            echo "tag=$TAG"
+            echo "exists=$EXISTS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build ipk and feed index
+        if: steps.resolve.outputs.publish == 'true'
+        run: ./build.sh
+
+      - name: Build usign
+        if: steps.resolve.outputs.publish == 'true'
+        run: |
+          set -eu
+          git clone https://git.openwrt.org/project/usign.git /tmp/usign \
+            || git clone https://github.com/openwrt/usign.git /tmp/usign
+          git -C /tmp/usign checkout --quiet "$USIGN_REF"
+          cd /tmp/usign
+          gcc -O2 -std=gnu99 -o /tmp/usign-bin \
+            ed25519.c edsign.c f25519.c fprime.c sha512.c base64.c main.c
+          sudo install -m 755 /tmp/usign-bin /usr/local/bin/usign
+
+      - name: Sign the feed index
+        if: steps.resolve.outputs.publish == 'true'
+        env:
+          USIGN_SECRET_KEY: ${{ secrets.USIGN_SECRET_KEY }}
+        run: |
+          set -eu
+          umask 077
+          printf '%s\n' "$USIGN_SECRET_KEY" > "$RUNNER_TEMP/aurora.sec"
+          usign -S -m feed/all/Packages -s "$RUNNER_TEMP/aurora.sec" -x feed/all/Packages.sig
+          rm -f "$RUNNER_TEMP/aurora.sec"
+          # The published public key must verify what we just signed.
+          usign -V -m feed/all/Packages -p keys/aurora-router-panel.pub -x feed/all/Packages.sig
+          echo "Signature verified with keys/aurora-router-panel.pub"
+
+      - name: Assemble the Pages site
+        if: steps.resolve.outputs.publish == 'true'
+        run: |
+          set -eu
+          SITE=_site
+          rm -rf "$SITE"
+          mkdir -p "$SITE/all" "$SITE/keys"
+          cp feed/all/* "$SITE/all/"
+          FP=$(usign -F -p keys/aurora-router-panel.pub)
+          cp keys/aurora-router-panel.pub "$SITE/aurora-router-panel.pub"
+          cp keys/aurora-router-panel.pub "$SITE/keys/$FP"
+          touch "$SITE/.nojekyll"
+          BASE="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}"
+          cat > "$SITE/index.html" <<HTML
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>Aurora-router-panel opkg feed</title>
+          <h1>Aurora-router-panel opkg feed</h1>
+          <p>Signed opkg feed for OpenWrt (architecture <code>all</code>).
+          Source: <a href="https://github.com/${GITHUB_REPOSITORY}">${GITHUB_REPOSITORY}</a>.</p>
+          <pre>
+          # public key (usign key id $FP)
+          wget -O /etc/opkg/keys/$FP $BASE/keys/$FP
+          # feed
+          echo 'src/gz aurora $BASE/all' >> /etc/opkg/customfeeds.conf
+          opkg update &amp;&amp; opkg install aurora-router-panel
+          </pre>
+          <ul>
+          <li><a href="all/Packages">all/Packages</a>,
+              <a href="all/Packages.gz">Packages.gz</a>,
+              <a href="all/Packages.sig">Packages.sig</a></li>
+          <li><a href="aurora-router-panel.pub">aurora-router-panel.pub</a></li>
+          </ul>
+          HTML
+          ls -R "$SITE"
+
+      - name: Extract release notes from CHANGELOG
+        if: steps.resolve.outputs.publish == 'true'
+        env:
+          VER: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -eu
+          awk -v ver="$VER" '
+            /^## / { if (found) exit; if ($2 == ver) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$RUNNER_TEMP/notes-body.md"
+          if [ ! -s "$RUNNER_TEMP/notes-body.md" ]; then
+            echo "::error::No '## $VER' section found in CHANGELOG.md"
+            exit 1
+          fi
+          BASE="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}"
+          FP=$(usign -F -p keys/aurora-router-panel.pub)
+          {
+            echo "## Aurora-router-panel $VER"
+            echo
+            cat "$RUNNER_TEMP/notes-body.md"
+            echo
+            echo "## Install"
+            echo
+            echo '```sh'
+            echo "wget -O /etc/opkg/keys/$FP $BASE/keys/$FP"
+            echo "echo 'src/gz aurora $BASE/all' >> /etc/opkg/customfeeds.conf"
+            echo "opkg update && opkg install aurora-router-panel"
+            echo '```'
+            echo
+            echo "The attached \`.ipk\` can also be installed directly; \`.sha256\` holds its SHA-256 checksum."
+          } > "$RUNNER_TEMP/notes.md"
+
+      - name: Create tag and GitHub Release
+        if: steps.resolve.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          VER: ${{ steps.resolve.outputs.version }}
+          EXISTS: ${{ steps.resolve.outputs.exists }}
+        run: |
+          set -eu
+          IPK="feed/all/aurora-router-panel_${VER}_all.ipk"
+          ( cd feed/all && sha256sum "aurora-router-panel_${VER}_all.ipk" > "$GITHUB_WORKSPACE/$IPK.sha256" )
+          mv "$IPK.sha256" "$RUNNER_TEMP/"
+          SUM="$RUNNER_TEMP/aurora-router-panel_${VER}_all.ipk.sha256"
+          if [ "$EXISTS" = true ]; then
+            echo "Release $TAG exists; refreshing its assets."
+            gh release upload "$TAG" "$IPK" "$SUM" --clobber
+          else
+            # --target is used only when the tag does not exist yet (main push).
+            TARGET=""
+            if ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+              TARGET="--target $GITHUB_SHA"
+            fi
+            # shellcheck disable=SC2086
+            gh release create "$TAG" "$IPK" "$SUM" $TARGET \
+              --title "Aurora-router-panel $VER" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.resolve.outputs.publish == 'true'
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

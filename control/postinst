@@ -23,7 +23,7 @@ if [ ! -f /etc/xray/httpd.conf ]; then
 CONF
 fi
 
-if ! grep -q '^/rfc2617' /etc/xray/httpd.conf 2>/dev/null; then
+if ! grep -qE '^/[^:]*:[^:]+:.+' /etc/xray/httpd.conf 2>/dev/null; then
 	echo "WARNING: /etc/xray/httpd.conf has no basic-auth entry; the panel on :8088 is reachable without a password. See the comments in that file."
 fi
 

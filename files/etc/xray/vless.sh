@@ -36,7 +36,7 @@ au_fetch(){
   if [ -n "${VLESS_AU_CURL:-}" ]; then
     sh "$VLESS_AU_CURL" "$1" "$2" || err "не удалось скачать обновление"
   else
-    curl -fL --max-time 25 --max-filesize 1048576 -A 'vless-router-panel-autoupdate/1.2.0' -o "$2" "$1" || err "не удалось скачать обновление"
+    curl -fL --max-time 25 --max-filesize 1048576 -A 'vless-router-panel-autoupdate/1.2.1' -o "$2" "$1" || err "не удалось скачать обновление"
   fi
   [ -s "$2" ] || err "пустой ответ сервера автообновления"
   sz=$(wc -c < "$2" | tr -d ' ')
@@ -59,7 +59,11 @@ gen(){ # $1 linkfile $2 mode $3 proto
   fi
   if [ "$P" = naive ]; then
     [ -s $NAD/config.json ] || err "Сначала сохрани ссылку Naive"
-    jq '(.outbounds[] | select(.tag=="proxy")) |= {tag:"proxy",protocol:"socks",settings:{servers:[{address:"127.0.0.1",port:10828}]}}' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
+    # Naive is TCP-only: DNS goes as DNS-over-TCP through the tunnel, QUIC is blocked (browsers fall back to TCP), other UDP goes direct
+    jq '(.outbounds[] | select(.tag=="proxy")) |= {tag:"proxy",protocol:"socks",settings:{servers:[{address:"127.0.0.1",port:10828}]}}
+      | .outbounds += [{tag:"dns-out",protocol:"dns",settings:{network:"tcp",address:"1.1.1.1",port:53}},{tag:"block",protocol:"blackhole"}]
+      | .dns = {servers:["tcp://1.1.1.1","tcp://8.8.8.8"],queryStrategy:"UseIPv4"}
+      | .routing.rules = [{type:"field",inboundTag:["dns-in"],outboundTag:"dns-out"},{type:"field",network:"udp",port:"53",outboundTag:"dns-out"},{type:"field",network:"udp",port:"443",outboundTag:"block"}] + .routing.rules[0:-1] + [{type:"field",network:"udp",outboundTag:"direct"}] + .routing.rules[-1:]' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
   fi
   if [ "$P" = wg ]; then
     [ -s $D/wg.json ] || err "Сначала сохрани конфиг WireGuard"

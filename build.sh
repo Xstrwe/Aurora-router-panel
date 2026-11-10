@@ -48,7 +48,7 @@ for s in \
   "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh" \
   "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh" \
   "$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm" \
-  "$ROOT/build.sh"
+  "$ROOT/build.sh" "$ROOT/tools/vercmp.sh" "$ROOT/tools/mkfeed.sh"
 do
   sh -n "$s" || { echo "ERROR: sh -n failed for $s" >&2; exit 1; }
 done
@@ -174,6 +174,10 @@ esac
 
 if [ -x "$ROOT/tests/autoupdate.sh" ]; then
   "$ROOT/tests/autoupdate.sh" || { echo "ERROR: autoupdate tests failed" >&2; exit 1; }
+fi
+
+if [ -x "$ROOT/tests/version-order.sh" ]; then
+  "$ROOT/tests/version-order.sh" || { echo "ERROR: version tests failed" >&2; exit 1; }
 fi
 
 echo "Built $FEED/$IPK_NAME"

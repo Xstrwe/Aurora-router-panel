@@ -15,7 +15,6 @@ export VLESS_PANEL_DIR=$TMP/etc/xray
 export VLESS_HYSTERIA_DIR=$TMP/etc/hysteria
 export VLESS_NAIVE_DIR=$TMP/etc/naive
 export VLESS_AU_LIB=$LIB
-export VLESS_AU_SERVER=$TMP/autoupdate-server
 export VLESS_AU_CRON=$TMP/crontabs/root
 export VLESS_AU_RUN=$ROOT/files/usr/libexec/vless-panel/autoupdate-run.sh
 export VLESS_SH=$SH
@@ -105,32 +104,16 @@ else
 	ok "extract fails on garbage"
 fi
 
-# --- server URL empty / set ---
-cp "$ROOT/files/usr/libexec/vless-panel/autoupdate-server" "$AU_SERVER"
-if [ -z "$(au_server_url)" ]; then
-	ok "packaged server URL is empty"
-else
-	bad "packaged server URL should be empty"
-fi
-printf 'https://example.com/sub\n' >> "$AU_SERVER"
-if [ "$(au_server_url)" = "https://example.com/sub" ]; then
-	ok "server URL reads first http(s) line"
-else
-	bad "server URL parse ($(au_server_url))"
-fi
-# restore empty for later tests
-cp "$ROOT/files/usr/libexec/vless-panel/autoupdate-server" "$AU_SERVER"
-
-# --- resolve url vs server ---
-au_save_conf vless 1 url 'https://example.com/my' 6h
+# --- save/load/resolve url ---
+au_save_conf vless 1 'https://example.com/my' 6h
 au_load vless
-if [ "$AU_ENABLED" = 1 ] && [ "$AU_SOURCE" = url ] && [ "$AU_URL" = 'https://example.com/my' ] && [ "$AU_INTERVAL" = 6h ]; then
+if [ "$AU_ENABLED" = 1 ] && [ "$AU_URL" = 'https://example.com/my' ] && [ "$AU_INTERVAL" = 6h ]; then
 	ok "au_save_conf/au_load roundtrip"
 else
 	bad "au_save_conf/au_load"
 fi
 # conf must not be sourced as shell (injection). Write a hostile url and load safely.
-printf 'enabled=1\nsource=url\nurl=$(echo pwned)\ninterval=1h\n' > "$AU_DIR/vless.conf"
+printf 'enabled=1\nsource=server\nurl=$(echo pwned)\ninterval=1h\n' > "$AU_DIR/vless.conf"
 au_load vless
 if [ "$AU_URL" = '$(echo pwned)' ]; then
 	ok "au_load does not expand shell in url"
@@ -138,38 +121,47 @@ else
 	bad "au_load expanded url ($AU_URL)"
 fi
 
-au_save_conf vless 1 server '' 1h
+# legacy "source=server" lines are ignored; empty url + non-http saved link => nothing to fetch
+printf 'enabled=1\nsource=server\nurl=\ninterval=1h\n' > "$AU_DIR/vless.conf"
 au_load vless
-if [ -z "$(au_resolve_url)" ]; then
-	ok "resolve empty server URL"
+if [ -z "$(au_resolve_url vless)" ]; then
+	ok "resolve: empty field and vless:// link gives no URL"
 else
-	bad "resolve empty server URL"
+	bad "resolve empty ($(au_resolve_url vless))"
 fi
-printf 'https://example.com/from-server\n' > "$AU_SERVER"
+au_save_conf vless 1 'https://example.com/field' 1h
 au_load vless
-if [ "$(au_resolve_url)" = "https://example.com/from-server" ]; then
-	ok "resolve source=server"
+if [ "$(au_resolve_url vless)" = "https://example.com/field" ]; then
+	ok "resolve: autoupdate field wins"
 else
-	bad "resolve source=server ($(au_resolve_url))"
+	bad "resolve field"
 fi
-au_save_conf vless 1 url 'https://example.com/field' 1h
+# fallback: own saved link is an http(s) subscription URL
+au_save_conf vless 1 '' 1h
 au_load vless
-if [ "$(au_resolve_url)" = "https://example.com/field" ]; then
-	ok "resolve source=url"
+cp "$D/link.txt" "$TMP/link.keep"
+printf 'https://example.com/own-sub\n' > "$D/link.txt"
+if [ "$(au_resolve_url vless)" = "https://example.com/own-sub" ]; then
+	ok "resolve: falls back to saved http(s) link"
 else
-	bad "resolve source=url"
+	bad "resolve fallback ($(au_resolve_url vless))"
 fi
-cp "$ROOT/files/usr/libexec/vless-panel/autoupdate-server" "$AU_SERVER"
+cp "$TMP/link.keep" "$D/link.txt"
+if grep -rq 'autoupdate-server\|нашего сервера\|с нашего' "$ROOT/files" "$ROOT/README.md"; then
+	bad "leftover references to the removed server source"
+else
+	ok "no references to the removed server source"
+fi
 
 # --- interval / stamp ---
-au_save_conf hy2 1 url 'https://example.com/h' 1h
+au_save_conf hy2 1 'https://example.com/h' 1h
 now=1000000
 rm -f "$(au_stamp_file hy2)"
 if au_due hy2 "$now"; then ok "due when no stamp"; else bad "due when no stamp"; fi
 au_stamp hy2 "$now"
 if au_due hy2 $((now + 3599)); then bad "not due before 1h"; else ok "not due before 1h"; fi
 if au_due hy2 $((now + 3600)); then ok "due after 1h"; else bad "due after 1h"; fi
-au_save_conf hy2 0 url 'https://example.com/h' 1h
+au_save_conf hy2 0 'https://example.com/h' 1h
 if au_due hy2 $((now + 99999)); then bad "disabled is not due"; else ok "disabled is not due"; fi
 
 # --- same/norm ---
@@ -229,7 +221,7 @@ chmod 755 "$TMP/bin/ucode"
 # jq is real; nslookup/xray should not be called on inactive hy2 store (store_hy2 uses ucode only)
 export PATH="$TMP/bin:$PATH"
 
-au_save_conf hy2 1 url 'https://example.com/hy2' 24h
+au_save_conf hy2 1 'https://example.com/hy2' 24h
 # proto is vless, so update hy2 should only store
 set +e
 msg=$("$SH" update hy2 2>&1)
@@ -254,16 +246,16 @@ else
 	bad "update unchanged (rc=$rc msg=$msg)"
 fi
 
-# empty server
-au_save_conf naive 1 server '' 24h
+# empty field and non-http saved link: nothing to update, no fetch, exit 0
+au_save_conf naive 1 '' 24h
 set +e
 msg=$("$SH" update naive 2>&1)
 rc=$?
 set -e
-if [ "$rc" -ne 0 ] && echo "$msg" | grep -q 'не задан'; then
-	ok "update source=server with empty URL errors"
+if [ "$rc" -eq 0 ] && echo "$msg" | grep -q 'нечего обновлять'; then
+	ok "update with no URL and non-http link: nothing to update"
 else
-	bad "empty server (rc=$rc msg=$msg)"
+	bad "no url update (rc=$rc msg=$msg)"
 fi
 
 # --- active proto: apply hook writes new file, probe fails, rollback ---
@@ -271,7 +263,7 @@ printf 'vless://00000000-0000-0000-0000-000000000000@192.0.2.10:443?sni=example.
 printf 'OLDCFG\n' > "$D/config.json"
 echo vless > "$D/proto"
 printf 'vless://99999999-9999-9999-9999-999999999999@192.0.2.90:443?sni=new.example\n' > "$TMP/fx/example.com_vless"
-au_save_conf vless 1 url 'https://example.com/vless' 24h
+au_save_conf vless 1 'https://example.com/vless' 24h
 
 cat > "$TMP/apply-stub.sh" <<'ST'
 #!/bin/sh

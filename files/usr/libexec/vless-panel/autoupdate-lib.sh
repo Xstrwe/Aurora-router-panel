@@ -1,13 +1,12 @@
 # Shared autoupdate helpers for vless.sh and autoupdate-run.sh.
 # Safe to source: no work at load time, no eval of user files.
 # Override paths with VLESS_PANEL_DIR, VLESS_HYSTERIA_DIR, VLESS_NAIVE_DIR,
-# VLESS_AU_SERVER, VLESS_AU_CRON, VLESS_SH.
+# VLESS_AU_CRON, VLESS_SH.
 
 [ -n "${D:-}" ] || D=${VLESS_PANEL_DIR:-/etc/xray}
 [ -n "${HYD:-}" ] || HYD=${VLESS_HYSTERIA_DIR:-/etc/hysteria}
 [ -n "${NAD:-}" ] || NAD=${VLESS_NAIVE_DIR:-/etc/naive}
 AU_DIR=$D/autoupdate
-AU_SERVER=${VLESS_AU_SERVER:-/usr/libexec/vless-panel/autoupdate-server}
 AU_CRON=${VLESS_AU_CRON:-/etc/crontabs/root}
 AU_CRON_MARK='vless-router-panel-autoupdate'
 AU_RUN=${VLESS_AU_RUN:-/usr/libexec/vless-panel/autoupdate-run.sh}
@@ -16,10 +15,9 @@ AU_SH=${VLESS_SH:-/etc/xray/vless.sh}
 au_ok_proto() { case "$1" in vless|hy2|naive|wg) return 0;; *) return 1;; esac; }
 
 # Read /etc/xray/autoupdate/<proto>.conf without sourcing it.
-# Sets AU_ENABLED AU_SOURCE AU_URL AU_INTERVAL.
+# Sets AU_ENABLED AU_URL AU_INTERVAL. Old "source=" lines are ignored.
 au_load() {
 	AU_ENABLED=0
-	AU_SOURCE=url
 	AU_URL=
 	AU_INTERVAL=24h
 	[ -n "$1" ] && au_ok_proto "$1" || return 1
@@ -27,7 +25,6 @@ au_load() {
 	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in
 			enabled=0|enabled=1) AU_ENABLED=${line#enabled=} ;;
-			source=server|source=url) AU_SOURCE=${line#source=} ;;
 			interval=1h|interval=6h|interval=24h) AU_INTERVAL=${line#interval=} ;;
 			url=*) AU_URL=${line#url=} ;;
 		esac
@@ -36,41 +33,37 @@ au_load() {
 }
 
 au_save_conf() {
-	# proto enabled source url interval
+	# proto enabled url interval
 	au_ok_proto "$1" || return 1
 	case "$2" in 0|1) ;; *) return 1;; esac
-	case "$3" in server|url) ;; *) return 1;; esac
-	case "$5" in 1h|6h|24h) ;; *) return 1;; esac
+	case "$4" in 1h|6h|24h) ;; *) return 1;; esac
 	mkdir -p "$AU_DIR"
 	umask 077
 	{
 		printf 'enabled=%s\n' "$2"
-		printf 'source=%s\n' "$3"
-		printf 'url=%s\n' "$4"
-		printf 'interval=%s\n' "$5"
+		printf 'url=%s\n' "$3"
+		printf 'interval=%s\n' "$4"
 	} > "$AU_DIR/$1.conf"
 	chmod 600 "$AU_DIR/$1.conf" 2>/dev/null || true
 }
 
-# First non-comment, non-empty line of the packaged default server file.
-au_server_url() {
-	[ -f "$AU_SERVER" ] || { echo ""; return 0; }
-	while IFS= read -r line || [ -n "$line" ]; do
-		case "$line" in
-			''|\#*) continue ;;
-			http://*|https://*) printf '%s\n' "$line"; return 0 ;;
-		esac
-	done < "$AU_SERVER"
-	echo ""
-}
-
 # Resolve the fetch URL for a proto (after au_load). Prints URL or nothing.
+# 1) the autoupdate link saved under the protocol block;
+# 2) otherwise the protocol's own saved connection link, but only if it is
+#    an http(s) subscription URL (a vless:// etc. link has nothing to re-fetch).
 au_resolve_url() {
-	if [ "$AU_SOURCE" = server ]; then
-		au_server_url
-	else
+	if [ -n "$AU_URL" ]; then
 		printf '%s\n' "$AU_URL"
+		return 0
 	fi
+	[ -n "${1:-}" ] || return 0
+	f=$(au_current_file "$1") || return 0
+	[ -f "$f" ] || return 0
+	c=$(head -c 2048 "$f" | tr -d '\r\n\t ')
+	case "$c" in
+		http://*|https://*) printf '%s\n' "$c" ;;
+	esac
+	return 0
 }
 
 au_current_file() {

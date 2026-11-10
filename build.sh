@@ -26,8 +26,7 @@ cp -a "$ROOT/files/." "$DATA/"
 chmod 644 "$DATA/www-vless/index.html" \
           "$DATA/etc/xray/gen.uc" \
           "$DATA/etc/xray/hy2.uc"
-chmod 644 "$DATA/usr/libexec/vless-panel/autoupdate-lib.sh" \
-          "$DATA/usr/libexec/vless-panel/autoupdate-server"
+chmod 644 "$DATA/usr/libexec/vless-panel/autoupdate-lib.sh"
 chmod 755 "$DATA/www-vless/cgi-bin/vless" \
           "$DATA/etc/xray/vless.sh" \
           "$DATA/etc/xray/tproxy.sh" \
@@ -72,11 +71,6 @@ if [ -d "$DATA/etc/xray/autoupdate" ]; then
   echo "ERROR: refusing to ship user autoupdate state under etc/xray/autoupdate" >&2
   exit 1
 fi
-if grep -qE '^[[:space:]]*https?://' "$DATA/usr/libexec/vless-panel/autoupdate-server"; then
-  echo "ERROR: packaged autoupdate-server URL must stay empty" >&2
-  exit 1
-fi
-
 # Installed-Size is unpacked payload size in KiB (1024-byte).
 UNPACKED=$(find "$DATA" -type f -exec stat -c %s {} + | awk '{s+=$1} END {print s+0}')
 INSTALLED_SIZE=$(( (UNPACKED + 1023) / 1024 ))
@@ -123,6 +117,10 @@ gzip -n -c "$FEED/Packages" > "$FEED/Packages.gz"
 # --- verify by extracting back ---
 VERIFY="$STAGING/verify"
 mkdir -p "$VERIFY/outer" "$VERIFY/ctrl" "$VERIFY/data"
+# Outer archive must be a gzip tar whose first three members are, in order,
+# ./debian-binary ./control.tar.gz ./data.tar.gz (what OpenWrt opkg expects).
+ORDER=$(gzip -dc "$FEED/$IPK_NAME" | tar -tf - | tr '\n' ' ')
+[ "$ORDER" = "./debian-binary ./control.tar.gz ./data.tar.gz " ] || { echo "ERROR: bad ipk member order: $ORDER" >&2; exit 1; }
 gzip -dc "$FEED/$IPK_NAME" | tar -C "$VERIFY/outer" -xf -
 printf '2.0\n' > "$STAGING/expected-debian-binary"
 cmp "$STAGING/expected-debian-binary" "$VERIFY/outer/debian-binary"
@@ -141,7 +139,10 @@ test -x "$VERIFY/data/etc/init.d/naive-client"
 test -x "$VERIFY/data/usr/libexec/vless-panel/install-naive.sh"
 test -x "$VERIFY/data/usr/libexec/vless-panel/autoupdate-run.sh"
 test -f "$VERIFY/data/usr/libexec/vless-panel/autoupdate-lib.sh"
-test -f "$VERIFY/data/usr/libexec/vless-panel/autoupdate-server"
+if [ -e "$VERIFY/data/usr/libexec/vless-panel/autoupdate-server" ]; then
+  echo "ERROR: autoupdate-server must not be shipped (server source removed)" >&2
+  exit 1
+fi
 test -f "$VERIFY/data/www-vless/index.html"
 test -f "$VERIFY/data/etc/xray/gen.uc"
 test -f "$VERIFY/data/etc/xray/hy2.uc"

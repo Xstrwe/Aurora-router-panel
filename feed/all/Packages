@@ -1,11 +1,11 @@
 Package: vless-router-panel
-Version: 1.1.0
+Version: 1.1.1
 Depends: curl, jq, ucode, uhttpd, kmod-nft-tproxy
 License: MIT
 Section: net
 Priority: optional
 Architecture: all
-Installed-Size: 26
+Installed-Size: 27
 Maintainer: Xstrwe <https://github.com/Xstrwe>
 Source: https://github.com/Xstrwe/vless-router-panel
 Description: Web panel "VLESS на роутере" for OpenWrt (uhttpd :8088).
@@ -14,7 +14,7 @@ Description: Web panel "VLESS на роутере" for OpenWrt (uhttpd :8088).
  manually installed xray binary in /usr/bin and geoip/geosite in
  /usr/share/xray. hysteria and naive binaries are optional; install
  naive with /usr/libexec/vless-panel/install-naive.sh.
-Filename: vless-router-panel_1.1.0_all.ipk
-Size: 12055
-SHA256sum: 57b3346e4b14a1df39eda4b1116c7b86c6419413e392e97a4e16542fb8eff38e
+Filename: vless-router-panel_1.1.1_all.ipk
+Size: 12278
+SHA256sum: 9fc271f9f1d2faeedde1c7345d1b0ddd1644c314270b7d176728574975acde75
 

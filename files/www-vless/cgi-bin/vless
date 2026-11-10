@@ -38,7 +38,9 @@ NV=$(cat /etc/xray/naive.txt 2>/dev/null | esc)
 WG=$(cat /etc/xray/wg.conf 2>/dev/null | esc)
 PN=VLESS; [ "$S_proto" = hy2 ] && PN=Hysteria2; [ "$S_proto" = naive ] && PN=Naive; [ "$S_proto" = wg ] && PN=WireGuard
 LINK=$(cat /etc/xray/link.txt 2>/dev/null | esc)
-HOST=$(sed -E 's#^vless://[^@]+@([^?]+).*#\1#' /etc/xray/link.txt 2>/dev/null | esc)
+case "$S_proto" in hy2) F=/etc/xray/hy2.txt;; naive) F=/etc/xray/naive.txt;; wg) F=;; *) F=/etc/xray/link.txt;; esac
+if [ -n "$F" ]; then HOST=$(sed -E 's#^[a-z0-9+]+://[^@]+@([^/?\#]+).*#\1#' $F 2>/dev/null | head -1 | esc); SNI=$(sed -nE 's#.*[?&]sni=([^&\#]+).*#\1#p' $F 2>/dev/null | head -1 | esc); [ -n "$SNI" ] || SNI=${HOST%:*}
+else HOST=$(jq -r '.settings.peers[0].endpoint' /etc/xray/wg.json 2>/dev/null | esc); SNI="без SNI"; fi
 if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"; BA=off; BT="Выключить VLESS"; BC="#c62828"
 else ST="ВЫКЛЮЧЕН (интернет напрямую)"; SC="#c62828"; BA=on; BT="Включить VLESS"; BC="#1a7f37"; fi
 [ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
@@ -61,7 +63,7 @@ cat <<HTML
 <tr><td>Прозрачный режим для сети:</td><td><b style="color:$SC">$ST</b></td></tr>
 <tr><td>Служба Xray:</td><td>$([ "$S_running" = 1 ] && echo работает || echo остановлена)</td></tr>
 <tr><td>Протокол:</td><td><b>$PN</b></td></tr>
-<tr><td>Сервер:</td><td>$HOST ($S_server_ip)</td></tr>
+<tr><td>Сервер:</td><td>$HOST ($SNI)</td></tr>
 <tr><td>IP выхода через VLESS:</td><td>$([ -n "$EXIT" ] && printf '%s' "$EXIT" | esc || echo '<a href="?ip">проверить</a>')</td></tr>
 </table></div>
 <div class=c style="display:flex;flex-wrap:wrap;gap:8px">
@@ -77,9 +79,9 @@ cat <<HTML
 <textarea name=link spellcheck=false>$LINK</textarea><br><button>Сохранить</button></form></div>
 <div class=c><form method=post style="display:inline"><input type=hidden name=action value=proto><input type=hidden name=proto value=vless><button style="background:#6a1b9a">Подключить VLESS</button></form></div>
 <div class=c><form method=post><input type=hidden name=action value=hy2save><b>Ссылка hysteria2://</b><br>
-<textarea name=hy2 spellcheck=false>$HY2</textarea><br><button style="background:#e65100">Сохранить и подключить Hysteria2</button></form></div>
+<textarea name=hy2 spellcheck=false>$HY2</textarea><br><button style="background:#e65100">Подключить Hysteria2</button></form></div>
 <div class=c><form method=post><input type=hidden name=action value=naivesave><b>Ссылка naive+https://</b><br>
-<textarea name=nv spellcheck=false>$NV</textarea><br><button style="background:#00695c">Сохранить и подключить Naive</button></form></div>
+<textarea name=nv spellcheck=false>$NV</textarea><br><button style="background:#00695c">Подключить Naive</button></form></div>
 <div class=c><form method=post><input type=hidden name=action value=wgsave><b>Конфиг WireGuard (.conf)</b><br>
 <textarea name=wg spellcheck=false placeholder="[Interface]
 PrivateKey = ...
@@ -88,7 +90,7 @@ Address = ...
 [Peer]
 PublicKey = ...
 Endpoint = ...
-AllowedIPs = 0.0.0.0/0">$WG</textarea><br><button style="background:#283593">Сохранить и подключить WireGuard</button></form></div>
+AllowedIPs = 0.0.0.0/0">$WG</textarea><br><button style="background:#283593">Подключить WireGuard</button></form></div>
 <p style="color:#777;font-size:12px">IPv6 не проксируется. Прокси для отдельных программ: SOCKS5 192.168.8.1:10808, HTTP 192.168.8.1:10809.</p>
 </body></html>
 HTML

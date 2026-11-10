@@ -3,7 +3,8 @@
 D=/etc/xray
 err(){ echo "ERROR: $*"; exit 1; }
 PROTO=$(cat $D/proto 2>/dev/null || echo vless)
-svc(){ if [ "$2" = 1 ]; then /etc/init.d/$1 enable; /etc/init.d/$1 restart; else /etc/init.d/$1 stop 2>/dev/null; /etc/init.d/$1 disable 2>/dev/null; fi; }
+svc(){ [ -x /etc/init.d/$1 ] || return 0; if [ "$2" = 1 ]; then /etc/init.d/$1 enable >/dev/null 2>&1; /etc/init.d/$1 restart >/dev/null 2>&1; else /etc/init.d/$1 stop >/dev/null 2>&1; /etc/init.d/$1 disable >/dev/null 2>&1; fi; }
+xrestart(){ /etc/init.d/xray-client stop >/dev/null 2>&1; i=0; while [ $i -lt 10 ] && { pidof xray >/dev/null || netstat -lnt 2>/dev/null | grep -q ':10808 '; }; do sleep 1; i=$((i+1)); done; /etc/init.d/xray-client start >/dev/null 2>&1; i=0; while [ $i -lt 6 ]; do sleep 1; pidof xray >/dev/null && netstat -lnt 2>/dev/null | grep -q ':10808 ' && return 0; i=$((i+1)); done; return 1; }
 hyup(){ [ "$1" = hy2 ] && svc hysteria-client 1 || svc hysteria-client 0; [ "$1" = naive ] && svc naive-client 1 || svc naive-client 0; }
 gen(){ # $1 linkfile $2 mode $3 proto
   P=${3:-$PROTO}
@@ -32,8 +33,7 @@ gen(){ # $1 linkfile $2 mode $3 proto
   cp $D/config.json $D/config.prev.json 2>/dev/null
   mv /tmp/vless.json $D/config.json; mv /tmp/vless.link $D/link.txt; echo "$IP" > $D/server_ip; echo "$2" > $D/mode; echo "$P" > $D/proto
   hyup "$P"
-  /etc/init.d/xray-client restart; sleep 2
-  pidof xray >/dev/null || { cp $D/config.prev.json $D/config.json; /etc/init.d/xray-client restart; err "Xray не запустился, конфиг откатан"; }
+  xrestart || { cp $D/config.prev.json $D/config.json; xrestart; err "Xray не запустился, конфиг откатан"; }
   echo OK
 }
 MODE=$(cat $D/mode 2>/dev/null || echo ru)
@@ -76,7 +76,7 @@ wgsave)
   gen $D/link.txt "$MODE" wg;;
 proto) case "$2" in vless|hy2|naive|wg) ;; *) err "proto vless|hy2|naive|wg";; esac; gen $D/link.txt "$MODE" "$2";;
 mode) case "$2" in ru|all) ;; *) err "mode ru|all";; esac; gen $D/link.txt "$2";;
-on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; /etc/init.d/xray-client restart; echo OK;;
+on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; xrestart || err "Xray не запустился"; echo OK;;
 off) touch $D/tproxy.disabled; $D/tproxy.sh down; echo OK;;
 status)
   echo "running=$(pidof xray >/dev/null && echo 1 || echo 0)"

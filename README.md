@@ -1,183 +1,210 @@
-# vless-router-panel
+# Aurora-router-panel
 
-Панель **«VLESS на роутере»** для OpenWrt / GL.iNet: веб-страница на `http://192.168.8.1:8088` для включения и выключения прозрачного прокси, теста подключения и скорости, сохранения ссылок `vless://`, `hysteria2://`, `naive+https://` и конфига WireGuard (`.conf`), и автообновления этих конфигов по ссылке подключения каждого протокола.
+A small web panel for OpenWrt / GL.iNet routers that runs a transparent proxy for the whole LAN through [Xray](https://github.com/XTLS/Xray-core) and lets you switch between **VLESS**, **Hysteria2**, **Naive** and **WireGuard** from a single page.
 
-Это пакет **`.ipk`** для `opkg`, не `.deb`. На OpenWrt (в том числе GL.iNet GL-BE6500, OpenWrt 23.05, `aarch64_cortex-a53`) пакеты ставятся через `opkg`. Архитектура пакета — `all`: внутри только скрипты. Бинарь `naive` (~13 МБ) в пакет **не входит** — его ставит скрипт `install-naive.sh`.
+It ships as an `.ipk` package (`Architecture: all`, scripts only) plus an unsigned opkg feed, and is the successor of `vless-router-panel`.
 
----
+## Features
 
-A small OpenWrt web panel for toggling a transparent VLESS / Hysteria2 / Naive / WireGuard proxy, testing the connection and speed, and saving protocol links or a WireGuard `.conf`. Ships as an `.ipk` (`Architecture: all`) and an unsigned `opkg` feed. The `naive` binary is not bundled; see `install-naive.sh`. No user secrets are included in the package or this repository.
+- Switch the active protocol with one button: **VLESS (Reality)**, **Hysteria2**, **Naive** or **WireGuard** (through Xray's built-in outbound; no `wireguard-tools` needed).
+- **Transparent mode** for the LAN: TCP is redirected and UDP is TPROXY'd to Xray with nftables. Local and private ranges and the proxy server itself bypass the tunnel. DNS from the router and the LAN is handled by Xray.
+- Routing modes: everything except Russian sites goes through the tunnel (`ru`), or everything does (`all`).
+- **Per-protocol autoupdate** of the config from a subscription or link, with automatic rollback if the new config breaks the connection.
+- Connection test (latency, exit IP, YouTube) and a speed test from the page.
+- Web panel on port 8088 with optional HTTP basic auth. SOCKS5 (`:10808`) and HTTP (`:10809`) proxies are also exposed on the LAN address for individual apps.
+- Safe by default: installing or removing the package never stops a working proxy, and your links and configs are never overwritten.
 
-## Установка на GL.iNet GL-BE6500
+## Supported hardware and software
 
-1. Подключитесь к роутеру.
+- Developed and tested on the **GL.iNet GL-BE6500** with **OpenWrt 23.05** (`aarch64_cortex-a53`). Other OpenWrt 23.05 routers with nftables and enough flash should work, but are untested. The LAN bridge is assumed to be `br-lan` with the router at `192.168.8.1`.
+- IPv6 is not proxied.
+- The WireGuard option is experimental.
+
+## Requirements
+
+Installed automatically from the OpenWrt feeds (package dependencies): `curl`, `jq`, `ucode`, `uhttpd`, `kmod-nft-tproxy`.
+
+Install manually (not shipped in the package):
+
+- `xray` at `/usr/bin/xray`
+- `geoip.dat` and `geosite.dat` in `/usr/share/xray/`
+- optional: `hysteria` at `/usr/bin/hysteria` (only for Hysteria2)
+- optional: `naive` at `/usr/bin/naive` (only for Naive), installed by the helper script below; it needs the `xz` package to unpack the archive
+
+Without `xray` and the geo files the page installs, but you cannot save a link or enable transparent mode.
+
+## Installation
+
+1. Log in to the router (the password is your router admin password; away from home you can use GoodCloud Remote SSH):
 
    ```sh
    ssh root@192.168.8.1
    ```
 
-2. Обновите список пакетов, скачайте пакет и поставьте его (opkg на GL.iNet не принимает ссылку напрямую, поэтому сначала `wget`):
+2. Download the package to `/tmp` first and install the file. **opkg on GL.iNet rejects URLs** ("Illegal file name"), so do not pass the URL to `opkg install`:
 
    ```sh
-   opkg update
-   cd /tmp && wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/Aurora-router-panel/main/feed/all/vless-router-panel_1.3.0_all.ipk && opkg install /tmp/vrp.ipk; rm -f /tmp/vrp.ipk
+   cd /tmp
+   wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/Aurora-router-panel/main/feed/all/aurora-router-panel_1.3.0_all.ipk
+   opkg install /tmp/vrp.ipk
+   rm -f /tmp/vrp.ipk
    ```
 
-3. Откройте в браузере `http://192.168.8.1:8088`. Если установщик написал предупреждение про пароль, значит вход на страницу ещё не настроен — см. раздел [Auth / Пароль на страницу](#auth--пароль-на-страницу).
+   The version is part of the file name; take the current one from the [`feed/all`](feed/all) directory. `raw.githubusercontent.com` may cache a freshly merged file for a few minutes, so check `opkg list-installed | grep aurora` after installing.
 
-4. Вставьте ссылку в поле и нажмите подключить.
+3. Open `http://192.168.8.1:8088`. If the installer printed a warning that no password is set, see [Authentication](#authentication) first.
 
-5. Новая версия ставится той же командой, только с новой ссылкой на `.ipk` (смотрите номер версии в имени файла). Ваши ссылки и настройки при обновлении сохраняются.
+4. Paste a `vless://` link into the VLESS card, press **Подключить VLESS**, then **Включить**. The page should show the transparent mode as **ВКЛЮЧЁН**.
 
-6. Удалить пакет:
+   To use Hysteria2, Naive or WireGuard, save the VLESS link first (it provides the base Xray config), then paste the link or config of the other protocol and press its **Подключить …** button.
 
-   ```sh
-   opkg remove Aurora-router-panel
-   ```
+If the router's LAN address is not `192.168.8.1`, change `uhttpd.aurora.listen_http` with `uci` (or in LuCI) and restart uhttpd:
 
-Если LAN-адрес роутера не `192.168.8.1`, поправьте `uhttpd.vless.listen_http` через `Luci` и перезапустите `uhttpd`.
+```sh
+uci -q delete uhttpd.aurora.listen_http
+uci add_list uhttpd.aurora.listen_http='<LAN-IP>:8088'
+uci commit uhttpd && /etc/init.d/uhttpd restart
+```
 
-Для Hysteria2, Naive и WireGuard сначала сохраните обычную ссылку `vless://` (по ней собирается базовый конфиг Xray), а уже потом нажимайте кнопку нужного протокола.
-
-### Naive
-
-Бинарный файл `naive` в пакет не входит. На GL-BE6500 нужна статическая сборка `openwrt-aarch64_cortex-a53-static` с [релизов klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy/releases). На роутере:
+### Optional: Naive binary
 
 ```sh
 opkg update && opkg install xz
-/usr/libexec/vless-panel/install-naive.sh
+/usr/libexec/aurora-panel/install-naive.sh
 ```
 
-Скрипт сам определит архитектуру, скачает последний релиз и положит бинарь в `/usr/bin/naive`. Уже существующий `/etc/naive/config.json` он не трогает. Если GitHub с роутера недоступен, скачайте архив на компьютере и укажите URL или скопируйте бинарь вручную:
+The script picks the static build for your architecture from the klzgrad/naiveproxy releases and installs it to `/usr/bin/naive`. It never touches an existing `/etc/naive/config.json`. Useful options: `--force` to replace the binary, or a release tag / direct archive URL as an argument. If the router cannot reach GitHub, copy the binary yourself: `scp naive root@192.168.8.1:/usr/bin/naive && ssh root@192.168.8.1 chmod 755 /usr/bin/naive`.
+
+## Upgrading
+
+Install the new `.ipk` the same way as above. Files that are not part of the package are kept: `/etc/xray/{link.txt,config.json,hy2.txt,naive.txt,wg.conf,wg.json,server_ip,mode,proto,httpd.conf}`, `/etc/xray/autoupdate/*`, `/etc/hysteria/client.yaml`, `/etc/naive/config.json` and `/usr/bin/naive`.
+
+### Upgrading from `vless-router-panel`
+
+`aurora-router-panel` declares `Replaces` and `Conflicts: vless-router-panel`, so a plain `opkg install /tmp/vrp.ipk` replaces the old package. All your settings under `/etc/xray`, `/etc/hysteria` and `/etc/naive`, and the active protocol, are preserved. What moves:
+
+| Old | New |
+| --- | --- |
+| package `vless-router-panel` | `aurora-router-panel` |
+| `/usr/libexec/vless-panel` | `/usr/libexec/aurora-panel` |
+| `/www-vless` | `/www-aurora` |
+| uhttpd section `uhttpd.vless` | `uhttpd.aurora` (same listen address and port) |
+| cron mark `vless-router-panel-autoupdate` | `aurora-router-panel-autoupdate` (line rewritten) |
+
+`/etc/xray/vless.sh` and the page address `/cgi-bin/vless` stay the same. The old GitHub URL redirects to the new repository.
+
+## Usage
+
+### The page
+
+The page itself is in Russian; button and field names are quoted below exactly as they appear.
+
+- **Status card:** transparent mode, Xray state, active protocol, server host (with its SNI), and an on-demand exit-IP check.
+- **Включить / Выключить:** turn transparent mode on or off. When off, the LAN uses the internet directly.
+- **Тест подключения / Скорость:** connection and speed tests through the tunnel.
+- **Режим:** `ru` (everything except Russian sites) or `all`.
+- **Protocol cards** (two columns on wide screens, one on narrow): a field for the link or config, a **Подключить …** button, and an autoupdate block.
+
+### Command line
+
+`/etc/xray/vless.sh` is the backend the page calls. It takes a file for the link-based commands:
 
 ```sh
-/usr/libexec/vless-panel/install-naive.sh https://github.com/klzgrad/naiveproxy/releases/download/v154.0.8037.49-5/naiveproxy-v154.0.8037.49-5-openwrt-aarch64_cortex-a53-static.tar.xz
-# или:
-# scp naive root@192.168.8.1:/usr/bin/naive
-# ssh root@192.168.8.1 chmod 755 /usr/bin/naive
+vless.sh save <file>        # save a vless:// link and connect VLESS
+vless.sh hy2save <file>     # save a hysteria2:// link and connect Hysteria2
+vless.sh naivesave <file>   # save a naive+https:// link and connect Naive
+vless.sh wgsave <file>      # save a WireGuard .conf and connect WireGuard
+vless.sh proto vless|hy2|naive|wg   # switch to an already saved protocol
+vless.sh mode ru|all
+vless.sh on | off           # transparent mode on / off
+vless.sh status             # running=, tproxy=, mode=, proto=, server_ip=
+vless.sh autoset <proto> <0|1> <url> <1h|6h|24h>
+vless.sh update <proto>     # run the autoupdate for one protocol now
 ```
 
-Переустановка: `/usr/libexec/vless-panel/install-naive.sh --force`. После этого вставьте ссылку `naive+https://` на странице и нажмите **«Подключить Naive»**.
+After any change, check that `vless.sh status` shows `running=1` and `tproxy=1`.
 
-### WireGuard
+### Authentication
 
-Вставьте в поле целиком свой `.conf` (блоки `[Interface]` с `PrivateKey` и `Address` и `[Peer]` с `PublicKey`, `Endpoint` и `AllowedIPs`) и нажмите **«Подключить WireGuard»**. Туннель поднимается через встроенный outbound WireGuard в Xray, отдельный `wireguard-tools` не требуется. Обычный WireGuard в некоторых сетях могут блокировать — если не заработает, нажмите **«Подключить VLESS»**.
+The package does not invent a password. On first install it only creates a placeholder `/etc/xray/httpd.conf` containing comments (it never overwrites an existing one) and prints a warning. Until the file contains a real auth line, the page on port 8088 is open to everyone on the LAN.
 
-Список изменений по версиям: [CHANGELOG.md](CHANGELOG.md).
-
-## Автообновление конфигов
-
-Под каждым протоколом на странице (VLESS, Hysteria2, Naive, WireGuard) есть блок **«Автообновление»**:
-
-- поле для ссылки на обновление (подписка или прямая ссылка на конфиг этого протокола);
-- галочка вкл/выкл, интервал (1 час / 6 часов / 24 часа);
-- кнопки **«Сохранить»** и **«Обновить сейчас»**.
-
-Карточки протоколов на странице идут сеткой в два столбца (на узком экране — в один), в каждой: поле ссылки, кнопка **«Подключить …»**, блок автообновления.
-
-Настройки хранятся в `/etc/xray/autoupdate/<протокол>.conf` и при обновлении пакета не затираются.
-
-Откуда берётся свежий конфиг: из ссылки, указанной в поле «Автообновление» под этим протоколом. Если поле пустое, берётся уже сохранённая ссылка подключения этого протокола — но только если это `http(s)`-подписка; обычная ссылка `vless://`, `hysteria2://`, `naive+https://` или конфиг WireGuard повторно скачать нельзя, тогда обновлять нечего (будет сообщение «нечего обновлять»). Отдельного сервера обновлений нет. Старые настройки с `source=` в `/etc/xray/autoupdate/*.conf` просто игнорируются.
-
-По расписанию раз в час cron запускает `/usr/libexec/vless-panel/autoupdate-run.sh`: если у протокола включено автообновление и прошёл выбранный интервал, скрипт скачивает ссылку (с таймаутом и ограничением размера). Подойдёт и обычная ссылка/конфиг, и подписка в base64 — берётся первая запись нужного протокола. Если содержимое не изменилось, файлы не трогаются. Если изменилось:
-
-- для **текущего** протокола конфиг применяется сразу (через тот же путь, что и кнопки «Подключить …»);
-- для остальных только сохраняется файл, протокол сам не переключается.
-
-Если после применения активного протокола Xray не запустился или проверка `curl` через SOCKS `127.0.0.1:10808` на `https://www.google.com/generate_204` не прошла, всё откатывается к предыдущим файлам и службы перезапускаются — роутер не должен остаться без интернета. Прозрачный режим при этом сохраняется как был (если не было файла `/etc/xray/tproxy.disabled`, tproxy остаётся включённым).
-
-Строка cron добавляется и убирается пакетом сама, повторная установка её не дублирует. Сами расписания и ссылки пакет не включает: по умолчанию автообновление выключено, пока вы его не сохраните на странице.
-
-## Requirements / Требования
-
-
-Ставятся из обычных фидов OpenWrt (зависимости пакета):
-
-- `curl`, `jq`, `ucode`, `uhttpd`, `kmod-nft-tproxy`
-- `nftables` обычно уже есть вместе с `kmod-nft-tproxy`
-
-Нужно поставить **вручную** (в пакете их нет, в официальных фидах их тоже может не быть):
-
-- `xray` в `/usr/bin/xray`
-- `geoip` и `geosite` в `/usr/share/xray/` (файлы `geoip.dat`, `geosite.dat`)
-- по желанию: `hysteria` в `/usr/bin/hysteria` — только если пользуетесь кнопкой Hysteria2
-- по желанию: `naive` в `/usr/bin/naive` — только если пользуетесь кнопкой Naive; ставится скриптом выше. Для распаковки архива нужен пакет `xz`.
-
-Без `xray` и geo-файлов страница установится, но сохранить ссылку и включить прозрачный режим не получится.
-
-## Репозиторий пакетов (опционально)
-
-Адрес фида:
-
-`https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all`
+The panel runs as its own uhttpd instance (`uhttpd.aurora`) with `config=/etc/xray/httpd.conf`. Each auth line has the form `<path-prefix>:<user>:<password>`. Add one line for the whole panel in either of these ways:
 
 ```sh
-echo 'src/gz vless_panel https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all' >> /etc/opkg/customfeeds.conf
+# Option A: reuse the router's own admin password (stored in /etc/shadow).
+# "$p$root" tells uhttpd to look up the system user "root".
+echo '/:root:$p$root' >> /etc/xray/httpd.conf
+
+# Option B: a separate password. Generate a crypt hash and use it as the third field.
+uhttpd -m 'your-password'            # prints the hash
+echo '/:admin:<HASH>' >> /etc/xray/httpd.conf
 ```
 
-Фид **не подписан**. В OpenWrt 23.05 в `/etc/opkg.conf` обычно включено `option check_signature 1` (проверка usign). Этот флаг действует на **все** фиды сразу, отдельного выключателя «только для этого фида» нет. Поэтому `opkg update` выдаст ошибку подписи для `vless_panel`.
+Then restart uhttpd with `/etc/init.d/uhttpd restart` and check that `curl -s -o /dev/null -w '%{http_code}\n' http://192.168.8.1:8088/cgi-bin/vless` prints `401`. The comments in the placeholder file mention an older `/rfc2617 VLESS admin HASH` syntax; use the `/:user:password` form above instead. Never commit real passwords or hashes anywhere.
 
-Что можно сделать:
+## Autoupdate
 
-1. **Лучше не добавлять фид**, а ставить и обновлять пакет по прямой ссылке на `.ipk` (команда в начале README). Для установки по URL подпись фида не нужна.
-2. Если всё же хотите `opkg update` / `opkg upgrade vless-router-panel`:
-   - временно закомментируйте `option check_signature 1` в `/etc/opkg.conf`;
-   - выполните `opkg update && opkg install vless-router-panel`;
-   - **верните** `option check_signature 1`, чтобы официальные фиды по-прежнему проверялись.
+Each protocol card has an **Автообновление** block: an on/off checkbox, a link field, an interval (1 h / 6 h / 24 h), and the buttons **Сохранить** and **Обновить сейчас**.
 
-Не оставляйте проверку подписей выключенной.
+- The fresh config comes from the protocol's own source: the link in that field. If the field is empty, the protocol's saved connection link is used, but only when it is an `http(s)` subscription URL. A plain `vless://`, `hysteria2://`, `naive+https://` link or a WireGuard config cannot be re-fetched, so there is then nothing to update.
+- A subscription may be plain text or base64; the first entry of the matching protocol is used. Downloads have a timeout and a 1 MiB limit.
+- Cron runs `/usr/libexec/aurora-panel/autoupdate-run.sh` every hour and updates the protocols whose interval has elapsed.
+- If the config did not change, nothing is touched. For the **active** protocol a changed config is applied immediately and verified with a request to `generate_204` through the local SOCKS port; on failure everything is rolled back and Xray is restarted. For other protocols the new config is only saved.
+- Settings live in `/etc/xray/autoupdate/<proto>.conf` and survive upgrades. Autoupdate is off until you enable it.
 
-## Update / Обновление
+## File layout
+
+| Path | Purpose |
+| --- | --- |
+| `/etc/xray/vless.sh` | backend: save, switch, update, status |
+| `/etc/xray/tproxy.sh` | nftables rules for transparent mode (`up` / `down`) |
+| `/etc/xray/gen.uc`, `hy2.uc` | config generators (ucode) |
+| `/etc/init.d/xray-client`, `hysteria-client`, `naive-client` | procd services |
+| `/www-aurora/cgi-bin/vless` | the web page (CGI), served by uhttpd on :8088 |
+| `/usr/libexec/aurora-panel/` | autoupdate library and runner, `install-naive.sh` |
+| `/etc/xray/` (state) | saved links, `config.json`, `proto`, `mode`, `httpd.conf`, `autoupdate/` |
+| `/etc/hysteria/client.yaml`, `/etc/naive/config.json` | Hysteria2 / Naive client configs |
+
+Local ports: Xray SOCKS `10808`, HTTP `10809`, redirect (TCP) `12346`, TPROXY (UDP) `12345`, Xray DNS `5354`; Hysteria2 SOCKS `10818`; Naive SOCKS `10828`.
+
+## Troubleshooting
+
+- **"Xray не запустился, конфиг откатан" / "failed to listen ... address already in use".** Two Xray instances raced for ports 10808 or 12346. Since 1.3.0 the restart waits for Xray to exit, force-kills it if needed, waits for the ports to free up, and then waits for the new instance to listen. Manual fix: `/etc/init.d/xray-client stop; killall -9 xray; sleep 2; netstat -lntu | grep -E ':(10808|12345|12346) '` (must print nothing), then `/etc/init.d/xray-client start` or `vless.sh proto <current>`.
+- **Transparent mode is OFF** (`tproxy=0` or the page shows ВЫКЛЮЧЕН while Xray runs). Check `vless.sh status`, then run `/etc/xray/tproxy.sh up`. If you turned it off on purpose, `/etc/xray/tproxy.disabled` exists; `vless.sh on` removes it. A SOCKS test alone does not prove transparent mode works, so check `tproxy=1`.
+- **No internet for the whole LAN.** Run `/etc/xray/tproxy.sh down` to give the LAN direct access, then `vless.sh proto vless` and `/etc/xray/tproxy.sh up`.
+- **DNS under Naive.** Naive is TCP-only. The panel therefore sends DNS through the tunnel as DNS-over-TCP, blocks QUIC (UDP 443) so browsers fall back to TCP, and sends other UDP directly. If lookups fail, check on the router with `nslookup google.com` and from a LAN host with `dig @192.168.8.1 google.com`.
+- **Naive "Сначала установи naive".** `/usr/bin/naive` is missing; run the install script above.
+- **`opkg install` says "Illegal file name" or "Malformed package file".** You passed a URL, or the file is incomplete or not an `.ipk` (for example an HTML error page). Download with `wget -O /tmp/vrp.ipk ...` and compare the size and checksum with `feed/all/Packages`.
+- **`opkg update` complains about the feed signature.** The feed is unsigned. Prefer installing from a downloaded file; see the next section.
+
+## Package feed (optional)
+
+Feed URL: `https://raw.githubusercontent.com/Xstrwe/Aurora-router-panel/main/feed/all`. The feed is **unsigned**, while OpenWrt 23.05 normally has `option check_signature 1` in `/etc/opkg.conf`, which applies to all feeds at once. The simplest and safest way is to install from the downloaded `.ipk` as shown above. If you still want `opkg update` to work, add `src/gz aurora_panel <feed URL>` to `/etc/opkg/customfeeds.conf`, temporarily comment out `check_signature`, run `opkg update && opkg install aurora-router-panel`, and restore the option afterwards.
+
+## Uninstall
 
 ```sh
-cd /tmp && wget -O vrp.ipk https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.3.0_all.ipk && opkg install /tmp/vrp.ipk; rm -f /tmp/vrp.ipk
+opkg remove aurora-router-panel
 ```
 
-Либо, если фид настроен и проверка подписи временно снята: `opkg update && opkg upgrade vless-router-panel`.
+This removes the panel, its uhttpd section and the autoupdate cron line. It does not stop Xray, Hysteria or Naive, so a working transparent proxy keeps running. Your saved links and configs, `/usr/bin/naive` and the other state files stay on the router; delete them by hand if you no longer need them (`rm -rf /etc/xray/autoupdate` etc.).
 
-При обновлении **не перезаписываются** пользовательские файлы, которых нет в пакете:
-
-- `/etc/xray/link.txt`, `/etc/xray/config.json`, `/etc/xray/hy2.txt`
-- `/etc/xray/naive.txt`, `/etc/xray/wg.conf`, `/etc/xray/wg.json`
-- `/etc/xray/server_ip`, `/etc/xray/mode`, `/etc/xray/proto`
-- `/etc/xray/httpd.conf`
-- `/etc/hysteria/client.yaml`
-- `/etc/naive/config.json`
-- `/etc/xray/autoupdate/*.conf` и метки времени `.stamp`
-
-Секция `uhttpd.vless`, если вы её уже меняли, тоже не трогается. Бинарь `/usr/bin/naive` пакет не удаляет и не заменяет.
-
-## Uninstall / Удаление
-
-```sh
-opkg remove vless-router-panel
-```
-
-Удаляется секция `uhttpd.vless` (страница на :8088 перестаёт слушаться) и строка cron автообновления. Службы `xray`, Hysteria и Naive пакет сам не останавливает, чтобы не сбить уже работающий прозрачный режим. Пользовательские файлы из списка выше и `/usr/bin/naive` остаются на роутере; сотрите их вручную, если они больше не нужны.
-
-## Auth / Пароль на страницу
-
-Пакет **не придумывает пароль**. Если файла `/etc/xray/httpd.conf` ещё нет, `postinst` создаёт заготовку с комментариями, а базовая авторизация остаётся выключенной (в журнал ставится предупреждение). Пока в этом файле нет строки `/rfc2617`, страница доступна всем в LAN.
-
-Чтобы включить логин:
-
-```sh
-uhttpd -m 'your-password'
-# добавьте в /etc/xray/httpd.conf строку:
-# /rfc2617 VLESS admin HASH
-/etc/init.d/uhttpd restart
-```
-
-## Build / Сборка
+## Building from source
 
 ```sh
 ./build.sh
 ```
 
-Собирает воспроизводимый `.ipk` (внешний tar.gz с `./debian-binary`, `./control.tar.gz`, `./data.tar.gz`, владелец `root:root`) и индекс фида `feed/all/Packages` + `Packages.gz`. Скрипт сам распаковывает пакет и проверяет состав, права и синтаксис shell-скриптов (`sh -n`).
+`build.sh` assembles a reproducible `.ipk` (a gzip-compressed tar with `./debian-binary`, `./control.tar.gz`, `./data.tar.gz`, owner `root:root`, fixed timestamps), writes `feed/all/Packages` and `Packages.gz`, syntax-checks all shell scripts, unpacks the result to verify its contents, and runs `tests/autoupdate.sh`. It needs GNU tar and gzip. The package version is taken from `control/control`.
 
-Исходники страницы и скриптов лежат в `files/`.
+CI (`.github/workflows/build.yml`) runs `build.sh` on every push and pull request touching the package files. On `main` it commits the rebuilt `feed/` if it changed.
+
+Sources: `files/` (installed tree), `control/` (package metadata and maintainer scripts), `tests/`.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT. См. [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

@@ -8,13 +8,13 @@
 [ "$PKG_UPGRADE" = "1" ] && exit 0
 
 # Fallback if prerm could not source the helper (files already removed).
-if [ -f /etc/crontabs/root ] && grep -q 'vless-router-panel-autoupdate' /etc/crontabs/root; then
-	sed -i '/vless-router-panel-autoupdate/d' /etc/crontabs/root
+if [ -f /etc/crontabs/root ] && grep -q 'aurora-router-panel-autoupdate' /etc/crontabs/root; then
+	sed -i '/aurora-router-panel-autoupdate/d' /etc/crontabs/root
 	/etc/init.d/cron restart >/dev/null 2>&1 || true
 fi
 
-if uci -q get uhttpd.vless >/dev/null; then
-	uci -q delete uhttpd.vless
+if uci -q get uhttpd.aurora >/dev/null; then
+	uci -q delete uhttpd.aurora
 	uci commit uhttpd
 	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 fi

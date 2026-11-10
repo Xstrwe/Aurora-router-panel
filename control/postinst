@@ -2,6 +2,16 @@
 # Runs on the router after install or upgrade. Do not overwrite user state.
 [ -n "$IPKG_INSTROOT" ] && exit 0
 
+# When this package replaces vless-router-panel, opkg drops files that both
+# packages ship (e.g. /etc/xray/vless.sh) from our file list while removing the
+# old one. Re-add them so that later upgrades and removals work.
+OWN=/usr/lib/opkg/info/aurora-router-panel.list
+if [ -f "$OWN" ]; then
+	for f in @FILES@; do
+		[ -e "$f" ] && { grep -qxF "$f" "$OWN" || echo "$f" >> "$OWN"; }
+	done
+fi
+
 mkdir -p /etc/xray
 
 if [ ! -f /etc/xray/httpd.conf ]; then
@@ -27,15 +37,24 @@ if ! grep -qE '^/[^:]*:[^:]+:.+' /etc/xray/httpd.conf 2>/dev/null; then
 	echo "WARNING: /etc/xray/httpd.conf has no basic-auth entry; the panel on :8088 is reachable without a password. See the comments in that file."
 fi
 
-if ! uci -q get uhttpd.vless >/dev/null; then
-	uci set uhttpd.vless=uhttpd
-	uci add_list uhttpd.vless.listen_http='192.168.8.1:8088'
-	uci set uhttpd.vless.home='/www-vless'
-	uci set uhttpd.vless.cgi_prefix='/cgi-bin'
-	uci set uhttpd.vless.config='/etc/xray/httpd.conf'
-	uci set uhttpd.vless.realm='VLESS'
-	uci set uhttpd.vless.script_timeout='90'
-	uci set uhttpd.vless.max_requests='3'
+# Migrate from the old vless-router-panel package: its uhttpd instance "vless"
+# (same port) is replaced by "aurora", keeping a custom listen address.
+LISTEN='192.168.8.1:8088'
+if uci -q get uhttpd.vless >/dev/null; then
+	OLDL=$(uci -q get uhttpd.vless.listen_http | head -1)
+	[ -n "$OLDL" ] && LISTEN=$OLDL
+	uci -q delete uhttpd.vless
+	uci commit uhttpd
+fi
+if ! uci -q get uhttpd.aurora >/dev/null; then
+	uci set uhttpd.aurora=uhttpd
+	uci add_list uhttpd.aurora.listen_http="$LISTEN"
+	uci set uhttpd.aurora.home='/www-aurora'
+	uci set uhttpd.aurora.cgi_prefix='/cgi-bin'
+	uci set uhttpd.aurora.config='/etc/xray/httpd.conf'
+	uci set uhttpd.aurora.realm='Aurora'
+	uci set uhttpd.aurora.script_timeout='90'
+	uci set uhttpd.aurora.max_requests='3'
 	uci commit uhttpd
 fi
 
@@ -43,9 +62,9 @@ fi
 
 mkdir -p /etc/xray/autoupdate
 # Install the hourly autoupdate cron line (idempotent). Does not enable any proto.
-if [ -f /usr/libexec/vless-panel/autoupdate-lib.sh ]; then
+if [ -f /usr/libexec/aurora-panel/autoupdate-lib.sh ]; then
 	# shellcheck disable=SC1091
-	. /usr/libexec/vless-panel/autoupdate-lib.sh
+	. /usr/libexec/aurora-panel/autoupdate-lib.sh
 	au_cron_install
 fi
 exit 0

@@ -6,7 +6,7 @@
 D=${VLESS_PANEL_DIR:-/etc/xray}
 HYD=${VLESS_HYSTERIA_DIR:-/etc/hysteria}
 NAD=${VLESS_NAIVE_DIR:-/etc/naive}
-AU_LIB=${VLESS_AU_LIB:-/usr/libexec/vless-panel/autoupdate-lib.sh}
+AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
 err(){ echo "ERROR: $*"; exit 1; }
 PROTO=$(cat $D/proto 2>/dev/null || echo vless)
 # shellcheck disable=SC1090
@@ -52,7 +52,7 @@ au_fetch(){
   if [ -n "${VLESS_AU_CURL:-}" ]; then
     sh "$VLESS_AU_CURL" "$1" "$2" || err "не удалось скачать обновление"
   else
-    curl -fL --max-time 25 --max-filesize 1048576 -A 'vless-router-panel-autoupdate/1.3.0' -o "$2" "$1" || err "не удалось скачать обновление"
+    curl -fL --max-time 25 --max-filesize 1048576 -A 'aurora-router-panel-autoupdate/1.3.0' -o "$2" "$1" || err "не удалось скачать обновление"
   fi
   [ -s "$2" ] || err "пустой ответ сервера автообновления"
   sz=$(wc -c < "$2" | tr -d ' ')
@@ -166,7 +166,7 @@ do_update(){
   if [ "$PROTO" = "$P" ]; then
     if [ "$P" = naive ] && [ ! -x /usr/bin/naive ] && [ -z "${VLESS_AU_APPLY:-}" ]; then
       rm -rf "$B" "$OUT"
-      err "Сначала установи naive: /usr/libexec/vless-panel/install-naive.sh"
+      err "Сначала установи naive: /usr/libexec/aurora-panel/install-naive.sh"
     fi
     if [ -n "${VLESS_AU_APPLY:-}" ]; then
       if ! sh "$VLESS_AU_APPLY" "$P" "$OUT"; then
@@ -214,7 +214,7 @@ case "$1" in
 save) store_vless "$2"; gen $D/link.txt "$MODE" vless;;
 hy2save) store_hy2 "$2"; gen $D/link.txt "$MODE" hy2;;
 naivesave)
-  [ -x /usr/bin/naive ] || err "Сначала установи naive: /usr/libexec/vless-panel/install-naive.sh"
+  [ -x /usr/bin/naive ] || err "Сначала установи naive: /usr/libexec/aurora-panel/install-naive.sh"
   store_naive "$2"; gen $D/link.txt "$MODE" naive;;
 wgsave) store_wg "$2"; gen $D/link.txt "$MODE" wg;;
 store) store_proto "$2" "$3"; echo OK;;

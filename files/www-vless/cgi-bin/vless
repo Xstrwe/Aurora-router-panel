@@ -1,8 +1,47 @@
 #!/bin/sh
 V=/etc/xray/vless.sh
+AU_LIB=/usr/libexec/vless-panel/autoupdate-lib.sh
+# shellcheck disable=SC1090
+[ -f "$AU_LIB" ] && . "$AU_LIB"
 esc(){ sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
 ud(){ printf '%b' "$(printf '%s' "$1" | sed -e 's/+/ /g' -e 's/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g')"; }
 fld(){ printf '%s' "$POST" | tr '&' '\n' | sed -n "s/^$1=//p" | head -1; }
+au_block(){
+  # $1 proto — HTML row under that protocol's card
+  au_load "$1"
+  SV=$(au_server_url)
+  if [ -n "$SV" ]; then SVH=$(printf '%s' "$SV" | esc); else SVH="не задан"; fi
+  URL=$(printf '%s' "$AU_URL" | esc)
+  EN=""; [ "$AU_ENABLED" = 1 ] && EN=checked
+  S_SERVER=""; S_URL=""
+  [ "$AU_SOURCE" = server ] && S_SERVER=selected || S_URL=selected
+  I1=""; I6=""; I24=""
+  case "$AU_INTERVAL" in 1h) I1=selected ;; 6h) I6=selected ;; *) I24=selected ;; esac
+  cat <<BLK
+<div class=au><form method=post>
+<input type=hidden name=proto value="$1">
+<b>Автообновление</b>
+<label><input type=checkbox name=en value=1 $EN> вкл</label>
+<select name=src>
+<option value=server $S_SERVER>с нашего сервера</option>
+<option value=url $S_URL>по ссылке из поля</option>
+</select>
+<div class=hint>Адрес «нашего сервера»: $SVH</div>
+<textarea name=auurl spellcheck=false placeholder="https://…">$URL</textarea>
+<label>Интервал
+<select name=int>
+<option value=1h $I1>1 час</option>
+<option value=6h $I6>6 часов</option>
+<option value=24h $I24>24 часа</option>
+</select>
+</label>
+<div class=btns>
+<button type=submit name=action value=ausave>Сохранить</button>
+<button type=submit name=action value=update>Обновить сейчас</button>
+</div>
+</form></div>
+BLK
+}
 MSG=""
 if [ "$REQUEST_METHOD" = POST ]; then
   POST=$(head -c "${CONTENT_LENGTH:-0}")
@@ -28,8 +67,18 @@ YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
     wgsave) ud "$(fld wg)" > /tmp/wg.in; MSG=$($V wgsave /tmp/wg.in 2>&1); rm -f /tmp/wg.in;;
     proto) MSG=$($V proto "$(fld proto)" 2>&1);;
     save) ud "$(fld link)" > /tmp/vless.in; MSG=$($V save /tmp/vless.in 2>&1); rm -f /tmp/vless.in;;
+    ausave|update)
+      AP=$(fld proto)
+      EN=0; [ "$(fld en)" = 1 ] && EN=1
+      SRC=$(fld src); INT=$(fld int)
+      AUU=$(ud "$(fld auurl)")
+      MSG=$($V autoset "$AP" "$EN" "$SRC" "$AUU" "$INT" 2>&1)
+      if [ "$A" = update ]; then
+        MSG=$($V update "$AP" 2>&1)
+      fi
+      ;;
   esac
-  case "$A" in test|speed) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Готово";; esac;; esac
+  case "$A" in test|speed|update) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Готово";; esac;; esac
 fi
 eval "$($V status | sed 's/^/S_/')"
 EXIT=""; [ "$QUERY_STRING" = ip ] && EXIT=$(curl -s -m 8 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null)
@@ -55,6 +104,11 @@ body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;margin
 button{border:0;border-radius:10px;color:#fff;background:#1565c0;padding:10px 18px;font-size:16px;cursor:pointer}
 .big{width:100%;font-size:22px;padding:18px}textarea{width:100%;box-sizing:border-box;resize:none;overflow:hidden;min-height:2.6em;font-family:monospace;font-size:12px}
 select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}td{padding:3px 8px 3px 0}
+.au{margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
+.au select,.au label{margin:4px 8px 4px 0;vertical-align:middle}
+.au .hint{color:#777;font-size:12px;margin:6px 0}
+.au .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.au button{font-size:14px;padding:8px 14px}
 </style></head><body><h2>VLESS на роутере</h2>
 HTML
 [ -n "$MSG" ] && echo "<div class=msg>$(printf '%s' "$MSG" | esc)</div>"
@@ -76,12 +130,24 @@ cat <<HTML
 <select name=mode><option value=ru $M1>Всё, кроме российских сайтов</option><option value=all $M2>Всё через VLESS</option></select>
 <button>Применить</button></form></div>
 <div class=c><form method=post><input type=hidden name=action value=save><b>Ссылка vless://</b><br>
-<textarea name=link spellcheck=false>$LINK</textarea><br><button>Сохранить</button></form></div>
+<textarea name=link spellcheck=false>$LINK</textarea><br><button>Сохранить</button></form>
+HTML
+au_block vless
+cat <<HTML
+</div>
 <div class=c><form method=post style="display:inline"><input type=hidden name=action value=proto><input type=hidden name=proto value=vless><button style="background:#6a1b9a">Подключить VLESS</button></form></div>
 <div class=c><form method=post><input type=hidden name=action value=hy2save><b>Ссылка hysteria2://</b><br>
-<textarea name=hy2 spellcheck=false>$HY2</textarea><br><button style="background:#e65100">Подключить Hysteria2</button></form></div>
+<textarea name=hy2 spellcheck=false>$HY2</textarea><br><button style="background:#e65100">Подключить Hysteria2</button></form>
+HTML
+au_block hy2
+cat <<HTML
+</div>
 <div class=c><form method=post><input type=hidden name=action value=naivesave><b>Ссылка naive+https://</b><br>
-<textarea name=nv spellcheck=false>$NV</textarea><br><button style="background:#00695c">Подключить Naive</button></form></div>
+<textarea name=nv spellcheck=false>$NV</textarea><br><button style="background:#00695c">Подключить Naive</button></form>
+HTML
+au_block naive
+cat <<HTML
+</div>
 <div class=c><form method=post><input type=hidden name=action value=wgsave><b>Конфиг WireGuard (.conf)</b><br>
 <textarea name=wg spellcheck=false placeholder="[Interface]
 PrivateKey = ...
@@ -90,7 +156,11 @@ Address = ...
 [Peer]
 PublicKey = ...
 Endpoint = ...
-AllowedIPs = 0.0.0.0/0">$WG</textarea><br><button style="background:#283593">Подключить WireGuard</button></form></div>
+AllowedIPs = 0.0.0.0/0">$WG</textarea><br><button style="background:#283593">Подключить WireGuard</button></form>
+HTML
+au_block wg
+cat <<HTML
+</div>
 <p style="color:#777;font-size:12px">IPv6 не проксируется. Прокси для отдельных программ: SOCKS5 192.168.8.1:10808, HTTP 192.168.8.1:10809.</p>
 <script>function fit(t){t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px'}document.querySelectorAll('textarea').forEach(function(t){t.rows=(t.value==''&&t.placeholder)?t.placeholder.split('\n').length:1;t.addEventListener('input',function(){fit(t)});fit(t)});window.addEventListener('resize',function(){document.querySelectorAll('textarea').forEach(fit)});</script>
 </body></html>

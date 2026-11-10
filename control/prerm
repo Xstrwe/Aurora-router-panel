@@ -1,5 +1,13 @@
 #!/bin/sh
-# Do not stop xray, hysteria, tproxy or uhttpd. Uninstall must not
+# Do not stop xray, hysteria, naive, tproxy or uhttpd. Uninstall must not
 # drop an already-working transparent proxy.
 [ -n "$IPKG_INSTROOT" ] && exit 0
+
+# Remove the autoupdate cron line on a full uninstall, before the helper
+# scripts are deleted. Leave it in place on upgrade (postinst re-adds it).
+if [ "$PKG_UPGRADE" != "1" ] && [ -f /usr/libexec/vless-panel/autoupdate-lib.sh ]; then
+	# shellcheck disable=SC1091
+	. /usr/libexec/vless-panel/autoupdate-lib.sh
+	au_cron_remove
+fi
 exit 0

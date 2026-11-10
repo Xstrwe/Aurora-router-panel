@@ -52,9 +52,19 @@ Without `xray` and the geo files the page installs, but you cannot save a link o
 
    The version is part of the file name; take the current one from the [`feed/all`](feed/all) directory. `raw.githubusercontent.com` may cache a freshly merged file for a few minutes, so check `opkg list-installed | grep aurora` after installing.
 
-3. Open `http://192.168.8.1:8088`. If the installer warned that no password is set, see [Authentication](#authentication) first.
+3. Open `http://192.168.8.1:8088`. If the installer printed a warning that no password is set, see [Authentication](#authentication) first.
 
-4. Paste a `vless://` link and press **Подключить VLESS**, then **Включить**. The page should show the transparent mode as **ВКЛЮЧЁН**. To use Hysteria2, Naive or WireGuard, save the VLESS link first (it provides the base Xray config), then press the button of the protocol you want.
+4. Paste a `vless://` link into the VLESS card, press **Подключить VLESS**, then **Включить**. The page should show the transparent mode as **ВКЛЮЧЁН**.
+
+   To use Hysteria2, Naive or WireGuard, save the VLESS link first (it provides the base Xray config), then paste the link or config of the other protocol and press its **Подключить …** button.
+
+If the router's LAN address is not `192.168.8.1`, change `uhttpd.aurora.listen_http` with `uci` (or in LuCI) and restart uhttpd:
+
+```sh
+uci -q delete uhttpd.aurora.listen_http
+uci add_list uhttpd.aurora.listen_http='<LAN-IP>:8088'
+uci commit uhttpd && /etc/init.d/uhttpd restart
+```
 
 ### Optional: Naive binary
 
@@ -87,6 +97,8 @@ Install the new `.ipk` the same way as above. Files that are not part of the pac
 
 ### The page
 
+The page itself is in Russian; button and field names are quoted below exactly as they appear.
+
 - **Status card:** transparent mode, Xray state, active protocol, server host (with its SNI), and an on-demand exit-IP check.
 - **Включить / Выключить:** turn transparent mode on or off. When off, the LAN uses the internet directly.
 - **Тест подключения / Скорость:** connection and speed tests through the tunnel.
@@ -114,15 +126,21 @@ After any change, check that `vless.sh status` shows `running=1` and `tproxy=1`.
 
 ### Authentication
 
-The package does not invent a password. Until `/etc/xray/httpd.conf` contains a basic-auth line, the page on port 8088 is open to everyone on the LAN. To enable a login:
+The package does not invent a password. On first install it only creates a placeholder `/etc/xray/httpd.conf` containing comments (it never overwrites an existing one) and prints a warning. Until the file contains a real auth line, the page on port 8088 is open to everyone on the LAN.
+
+The panel runs as its own uhttpd instance (`uhttpd.aurora`) with `config=/etc/xray/httpd.conf`. Each auth line has the form `<path-prefix>:<user>:<password>`. Add one line for the whole panel in either of these ways:
 
 ```sh
-uhttpd -m 'your-password'          # prints a password hash
-# add one line to /etc/xray/httpd.conf:  /:admin:<HASH>
-/etc/init.d/uhttpd restart
+# Option A: reuse the router's own admin password (stored in /etc/shadow).
+# "$p$root" tells uhttpd to look up the system user "root".
+echo '/:root:$p$root' >> /etc/xray/httpd.conf
+
+# Option B: a separate password. Generate a crypt hash and use it as the third field.
+uhttpd -m 'your-password'            # prints the hash
+echo '/:admin:<HASH>' >> /etc/xray/httpd.conf
 ```
 
-Never commit real passwords or hashes anywhere.
+Then restart uhttpd with `/etc/init.d/uhttpd restart` and check that `curl -s -o /dev/null -w '%{http_code}\n' http://192.168.8.1:8088/cgi-bin/vless` prints `401`. The comments in the placeholder file mention an older `/rfc2617 VLESS admin HASH` syntax; use the `/:user:password` form above instead. Never commit real passwords or hashes anywhere.
 
 ## Autoupdate
 

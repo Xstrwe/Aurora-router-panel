@@ -19,11 +19,13 @@ if [ "$REQUEST_METHOD" = POST ]; then
 IP выхода: ${IPX:-?}
 YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
       else MSG="Тест: нет подключения ❌ (код ${1:-нет ответа})"; fi;;
-    speed) PNX=VLESS; grep -q hy2 /etc/xray/proto 2>/dev/null && PNX=Hysteria2; R=$(curl -s -o /dev/null -m 20 -w '%{speed_download} %{size_download}' --socks5-hostname 127.0.0.1:10808 'https://speed.cloudflare.com/__down?bytes=50000000' 2>/dev/null)
+    speed) PNX=VLESS; grep -q hy2 /etc/xray/proto 2>/dev/null && PNX=Hysteria2; grep -q naive /etc/xray/proto 2>/dev/null && PNX=Naive; grep -q wg /etc/xray/proto 2>/dev/null && PNX=WireGuard; R=$(curl -s -o /dev/null -m 20 -w '%{speed_download} %{size_download}' --socks5-hostname 127.0.0.1:10808 'https://speed.cloudflare.com/__down?bytes=50000000' 2>/dev/null)
       set -- $R
       if [ "${2%.*}" -gt 100000 ] 2>/dev/null; then MSG="Скорость ($PNX): $(awk "BEGIN{printf \"%.1f\", $1*8/1000000}") Мбит/с (скачано $(awk "BEGIN{printf \"%.1f\", $2/1048576}") МБ)"
       else MSG="Скорость: не удалось измерить ❌"; fi;;
     hy2save) ud "$(fld hy2)" > /tmp/hy2.in; MSG=$($V hy2save /tmp/hy2.in 2>&1); rm -f /tmp/hy2.in;;
+    naivesave) ud "$(fld nv)" > /tmp/nv.in; MSG=$($V naivesave /tmp/nv.in 2>&1); rm -f /tmp/nv.in;;
+    wgsave) ud "$(fld wg)" > /tmp/wg.in; MSG=$($V wgsave /tmp/wg.in 2>&1); rm -f /tmp/wg.in;;
     proto) MSG=$($V proto "$(fld proto)" 2>&1);;
     save) ud "$(fld link)" > /tmp/vless.in; MSG=$($V save /tmp/vless.in 2>&1); rm -f /tmp/vless.in;;
   esac
@@ -32,7 +34,9 @@ fi
 eval "$($V status | sed 's/^/S_/')"
 EXIT=""; [ "$QUERY_STRING" = ip ] && EXIT=$(curl -s -m 8 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null)
 HY2=$(cat /etc/xray/hy2.txt 2>/dev/null | esc)
-PN=VLESS; [ "$S_proto" = hy2 ] && PN=Hysteria2
+NV=$(cat /etc/xray/naive.txt 2>/dev/null | esc)
+WG=$(cat /etc/xray/wg.conf 2>/dev/null | esc)
+PN=VLESS; [ "$S_proto" = hy2 ] && PN=Hysteria2; [ "$S_proto" = naive ] && PN=Naive; [ "$S_proto" = wg ] && PN=WireGuard
 LINK=$(cat /etc/xray/link.txt 2>/dev/null | esc)
 HOST=$(sed -E 's#^vless://[^@]+@([^?]+).*#\1#' /etc/xray/link.txt 2>/dev/null | esc)
 if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"; BA=off; BT="Выключить VLESS"; BC="#c62828"
@@ -74,6 +78,17 @@ cat <<HTML
 <div class=c><form method=post style="display:inline"><input type=hidden name=action value=proto><input type=hidden name=proto value=vless><button style="background:#6a1b9a">Подключить VLESS</button></form></div>
 <div class=c><form method=post><input type=hidden name=action value=hy2save><b>Ссылка hysteria2://</b><br>
 <textarea name=hy2 spellcheck=false>$HY2</textarea><br><button style="background:#e65100">Сохранить и подключить Hysteria2</button></form></div>
+<div class=c><form method=post><input type=hidden name=action value=naivesave><b>Ссылка naive+https://</b><br>
+<textarea name=nv spellcheck=false>$NV</textarea><br><button style="background:#00695c">Сохранить и подключить Naive</button></form></div>
+<div class=c><form method=post><input type=hidden name=action value=wgsave><b>Конфиг WireGuard (.conf)</b><br>
+<textarea name=wg spellcheck=false placeholder="[Interface]
+PrivateKey = ...
+Address = ...
+
+[Peer]
+PublicKey = ...
+Endpoint = ...
+AllowedIPs = 0.0.0.0/0">$WG</textarea><br><button style="background:#283593">Сохранить и подключить WireGuard</button></form></div>
 <p style="color:#777;font-size:12px">IPv6 не проксируется. Прокси для отдельных программ: SOCKS5 192.168.8.1:10808, HTTP 192.168.8.1:10809.</p>
 </body></html>
 HTML

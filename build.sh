@@ -26,13 +26,16 @@ cp -a "$ROOT/files/." "$DATA/"
 chmod 644 "$DATA/www-vless/index.html" \
           "$DATA/etc/xray/gen.uc" \
           "$DATA/etc/xray/hy2.uc"
+chmod 644 "$DATA/usr/libexec/vless-panel/autoupdate-lib.sh" \
+          "$DATA/usr/libexec/vless-panel/autoupdate-server"
 chmod 755 "$DATA/www-vless/cgi-bin/vless" \
           "$DATA/etc/xray/vless.sh" \
           "$DATA/etc/xray/tproxy.sh" \
           "$DATA/etc/init.d/xray-client" \
           "$DATA/etc/init.d/hysteria-client" \
           "$DATA/etc/init.d/naive-client" \
-          "$DATA/usr/libexec/vless-panel/install-naive.sh"
+          "$DATA/usr/libexec/vless-panel/install-naive.sh" \
+          "$DATA/usr/libexec/vless-panel/autoupdate-run.sh"
 
 # Syntax-check shipped shell scripts (POSIX sh).
 for s in \
@@ -43,6 +46,8 @@ for s in \
   "$DATA/etc/init.d/hysteria-client" \
   "$DATA/etc/init.d/naive-client" \
   "$DATA/usr/libexec/vless-panel/install-naive.sh" \
+  "$DATA/usr/libexec/vless-panel/autoupdate-run.sh" \
+  "$DATA/usr/libexec/vless-panel/autoupdate-lib.sh" \
   "$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm" \
   "$ROOT/build.sh"
 do
@@ -63,6 +68,14 @@ do
     exit 1
   fi
 done
+if [ -d "$DATA/etc/xray/autoupdate" ]; then
+  echo "ERROR: refusing to ship user autoupdate state under etc/xray/autoupdate" >&2
+  exit 1
+fi
+if grep -qE '^[[:space:]]*https?://' "$DATA/usr/libexec/vless-panel/autoupdate-server"; then
+  echo "ERROR: packaged autoupdate-server URL must stay empty" >&2
+  exit 1
+fi
 
 # Installed-Size is unpacked payload size in KiB (1024-byte).
 UNPACKED=$(find "$DATA" -type f -exec stat -c %s {} + | awk '{s+=$1} END {print s+0}')
@@ -126,6 +139,9 @@ test -x "$VERIFY/data/etc/init.d/xray-client"
 test -x "$VERIFY/data/etc/init.d/hysteria-client"
 test -x "$VERIFY/data/etc/init.d/naive-client"
 test -x "$VERIFY/data/usr/libexec/vless-panel/install-naive.sh"
+test -x "$VERIFY/data/usr/libexec/vless-panel/autoupdate-run.sh"
+test -f "$VERIFY/data/usr/libexec/vless-panel/autoupdate-lib.sh"
+test -f "$VERIFY/data/usr/libexec/vless-panel/autoupdate-server"
 test -f "$VERIFY/data/www-vless/index.html"
 test -f "$VERIFY/data/etc/xray/gen.uc"
 test -f "$VERIFY/data/etc/xray/hy2.uc"
@@ -150,6 +166,10 @@ case "$UID0" in
     exit 1
     ;;
 esac
+
+if [ -x "$ROOT/tests/autoupdate.sh" ]; then
+  "$ROOT/tests/autoupdate.sh" || { echo "ERROR: autoupdate tests failed" >&2; exit 1; }
+fi
 
 echo "Built $FEED/$IPK_NAME"
 echo "Size: $SIZE"

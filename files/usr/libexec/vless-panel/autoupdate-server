@@ -1,0 +1,5 @@
+# Default subscription URL for the "с нашего сервера" autoupdate source.
+# Left empty in the package: the server endpoint does not exist yet.
+# When it does, put a single http(s) URL on its own line (no quotes).
+# Comments and blank lines are ignored. This file is not user state;
+# user URLs live in /etc/xray/autoupdate/<proto>.conf.

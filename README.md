@@ -1,6 +1,6 @@
 # vless-router-panel
 
-Панель **«VLESS на роутере»** для OpenWrt / GL.iNet: веб-страница на `http://192.168.8.1:8088` для включения и выключения прозрачного прокси, теста подключения и скорости, сохранения ссылок `vless://`, `hysteria2://`, `naive+https://` и конфига WireGuard (`.conf`).
+Панель **«VLESS на роутере»** для OpenWrt / GL.iNet: веб-страница на `http://192.168.8.1:8088` для включения и выключения прозрачного прокси, теста подключения и скорости, сохранения ссылок `vless://`, `hysteria2://`, `naive+https://` и конфига WireGuard (`.conf`), и автообновления этих конфигов по ссылке или с нашего сервера.
 
 Это пакет **`.ipk`** для `opkg`, не `.deb`. На OpenWrt (в том числе GL.iNet GL-BE6500, OpenWrt 23.05, `aarch64_cortex-a53`) пакеты ставятся через `opkg`. Архитектура пакета — `all`: внутри только скрипты. Бинарь `naive` (~13 МБ) в пакет **не входит** — его ставит скрипт `install-naive.sh`.
 
@@ -24,7 +24,7 @@ A small OpenWrt web panel for toggling a transparent VLESS / Hysteria2 / Naive /
 
    ```sh
    opkg update
-   opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.2_all.ipk
+   opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.2.0_all.ipk
    ```
 
 3. Откройте в браузере `http://192.168.8.1:8088`. Если установщик написал предупреждение про пароль, значит вход на страницу ещё не настроен — см. раздел [Auth / Пароль на страницу](#auth--пароль-на-страницу).
@@ -67,7 +67,30 @@ opkg update && opkg install xz
 
 Вставьте в поле целиком свой `.conf` (блоки `[Interface]` с `PrivateKey` и `Address` и `[Peer]` с `PublicKey`, `Endpoint` и `AllowedIPs`) и нажмите **«Подключить WireGuard»**. Туннель поднимается через встроенный outbound WireGuard в Xray, отдельный `wireguard-tools` не требуется. Обычный WireGuard в некоторых сетях могут блокировать — если не заработает, нажмите **«Подключить VLESS»**.
 
+## Автообновление конфигов
+
+Под каждым протоколом на странице (VLESS, Hysteria2, Naive, WireGuard) есть блок **«Автообновление»**:
+
+- поле для ссылки на обновление;
+- выбор источника: **с нашего сервера** или **по ссылке из поля**;
+- галочка вкл/выкл, интервал (1 час / 6 часов / 24 часа);
+- кнопки **«Сохранить»** и **«Обновить сейчас»**.
+
+Настройки хранятся в `/etc/xray/autoupdate/<протокол>.conf` и при обновлении пакета не затираются.
+
+«С нашего сервера» берёт адрес из файла `/usr/libexec/vless-panel/autoupdate-server`. В пакете он **пустой** (точки на сервере ещё нет) — на странице тогда написано **«не задан»**. Когда адрес появится, его можно будет прописать в этот файл одной строкой `https://…`.
+
+По расписанию раз в час cron запускает `/usr/libexec/vless-panel/autoupdate-run.sh`: если у протокола включено автообновление и прошёл выбранный интервал, скрипт скачивает ссылку (с таймаутом и ограничением размера). Подойдёт и обычная ссылка/конфиг, и подписка в base64 — берётся первая запись нужного протокола. Если содержимое не изменилось, файлы не трогаются. Если изменилось:
+
+- для **текущего** протокола конфиг применяется сразу (через тот же путь, что и кнопки «Сохранить» / «Подключить»);
+- для остальных только сохраняется файл, протокол сам не переключается.
+
+Если после применения активного протокола Xray не запустился или проверка `curl` через SOCKS `127.0.0.1:10808` на `https://www.google.com/generate_204` не прошла, всё откатывается к предыдущим файлам и службы перезапускаются — роутер не должен остаться без интернета. Прозрачный режим при этом сохраняется как был (если не было файла `/etc/xray/tproxy.disabled`, tproxy остаётся включённым).
+
+Строка cron добавляется и убирается пакетом сама, повторная установка её не дублирует. Сами расписания и ссылки пакет не включает: по умолчанию автообновление выключено, пока вы его не сохраните на странице.
+
 ## Requirements / Требования
+
 
 Ставятся из обычных фидов OpenWrt (зависимости пакета):
 
@@ -108,7 +131,7 @@ echo 'src/gz vless_panel https://raw.githubusercontent.com/Xstrwe/vless-router-p
 ## Update / Обновление
 
 ```sh
-opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.2_all.ipk
+opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.2.0_all.ipk
 ```
 
 Либо, если фид настроен и проверка подписи временно снята: `opkg update && opkg upgrade vless-router-panel`.
@@ -121,6 +144,7 @@ opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/fe
 - `/etc/xray/httpd.conf`
 - `/etc/hysteria/client.yaml`
 - `/etc/naive/config.json`
+- `/etc/xray/autoupdate/*.conf` и метки времени `.stamp`
 
 Секция `uhttpd.vless`, если вы её уже меняли, тоже не трогается. Бинарь `/usr/bin/naive` пакет не удаляет и не заменяет.
 
@@ -130,7 +154,7 @@ opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/fe
 opkg remove vless-router-panel
 ```
 
-Удаляется секция `uhttpd.vless` (страница на :8088 перестаёт слушаться). Службы `xray`, Hysteria и Naive пакет сам не останавливает, чтобы не сбить уже работающий прозрачный режим. Пользовательские файлы из списка выше и `/usr/bin/naive` остаются на роутере; сотрите их вручную, если они больше не нужны.
+Удаляется секция `uhttpd.vless` (страница на :8088 перестаёт слушаться) и строка cron автообновления. Службы `xray`, Hysteria и Naive пакет сам не останавливает, чтобы не сбить уже работающий прозрачный режим. Пользовательские файлы из списка выше и `/usr/bin/naive` остаются на роутере; сотрите их вручную, если они больше не нужны.
 
 ## Auth / Пароль на страницу
 

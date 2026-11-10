@@ -40,4 +40,12 @@ if ! uci -q get uhttpd.vless >/dev/null; then
 fi
 
 /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+
+mkdir -p /etc/xray/autoupdate
+# Install the hourly autoupdate cron line (idempotent). Does not enable any proto.
+if [ -f /usr/libexec/vless-panel/autoupdate-lib.sh ]; then
+	# shellcheck disable=SC1091
+	. /usr/libexec/vless-panel/autoupdate-lib.sh
+	au_cron_install
+fi
 exit 0

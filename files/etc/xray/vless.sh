@@ -1,8 +1,8 @@
 #!/bin/sh
 # vless.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
 #         | store vless|hy2|naive|wg <file> | proto vless|hy2|naive|wg | mode ru|all
-#         | on | off | status | autoset <proto> <0|1> <url> <1h|6h|24h>
-#         | update <proto>
+#         | on | off | status | autoset <proto> <0|1> <1h|6h|24h>
+#         | src <proto> <infile> <outfile> <0|1> | update <proto>
 D=${VLESS_PANEL_DIR:-/etc/xray}
 HYD=${VLESS_HYSTERIA_DIR:-/etc/hysteria}
 NAD=${VLESS_NAIVE_DIR:-/etc/naive}
@@ -141,13 +141,32 @@ store_proto(){
     *) err "store vless|hy2|naive|wg" ;;
   esac
 }
+do_src(){ # proto infile outfile fetch(0|1)
+  # Input of a card's link field. An http(s) URL is a subscription: remember it
+  # as the auto-update source and, with fetch=1, write the extracted link/config
+  # to outfile. Anything else is copied to outfile and clears the source.
+  P=$1
+  au_ok_proto "$P" || err "src vless|hy2|naive|wg <infile> <outfile> <0|1>"
+  c=$(tr -d '\r\n\t ' < "$2" | head -c 2048)
+  case "$c" in
+    http://*|https://*)
+      if [ "$4" = 1 ]; then
+        au_fetch "$c" "$2.fetch"
+        au_extract "$2.fetch" "$P" "$3" || { rm -f "$2.fetch"; err "в ответе нет конфига для $P"; }
+        rm -f "$2.fetch"
+      fi
+      au_src_set "$P" "$c" ;;
+    *) cat "$2" > "$3"; au_src_clear "$P" ;;
+  esac
+  echo OK
+}
 do_update(){
   P=$1
   au_ok_proto "$P" || err "update vless|hy2|naive|wg"
   au_load "$P"
   URL=$(au_resolve_url "$P")
   if [ -z "$URL" ]; then
-    echo "нечего обновлять: укажите ссылку автообновления под этим протоколом"
+    echo "нечего обновлять: сохранённая ссылка подключения не является http(s)-подпиской"
     return 0
   fi
   IN=/tmp/vless-au-$P.in
@@ -227,8 +246,9 @@ status)
   echo "tproxy=$(nft list table inet xray >/dev/null 2>&1 && echo 1 || echo 0)"
   echo "mode=$MODE"; echo "proto=$PROTO"; echo "server_ip=$(cat $D/server_ip 2>/dev/null)";;
 autoset)
-  au_save_conf "$2" "$3" "$4" "$5" || err "autoset <proto> <0|1> <url> <1h|6h|24h>"
+  au_save_conf "$2" "$3" "$4" || err "autoset <proto> <0|1> <1h|6h|24h>"
   echo OK;;
+src) do_src "$2" "$3" "$4" "$5";;
 update) do_update "$2";;
 *) err "usage";;
 esac

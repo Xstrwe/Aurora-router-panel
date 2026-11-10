@@ -16,10 +16,9 @@ AU_SH=${VLESS_SH:-/etc/xray/vless.sh}
 au_ok_proto() { case "$1" in vless|hy2|naive|wg) return 0;; *) return 1;; esac; }
 
 # Read /etc/xray/autoupdate/<proto>.conf without sourcing it.
-# Sets AU_ENABLED AU_URL AU_INTERVAL. Old "source=" lines are ignored.
+# Sets AU_ENABLED AU_INTERVAL. Old "source=" and "url=" lines are ignored.
 au_load() {
 	AU_ENABLED=0
-	AU_URL=
 	AU_INTERVAL=24h
 	[ -n "$1" ] && au_ok_proto "$1" || return 1
 	[ -f "$AU_DIR/$1.conf" ] || return 0
@@ -27,37 +26,52 @@ au_load() {
 		case "$line" in
 			enabled=0|enabled=1) AU_ENABLED=${line#enabled=} ;;
 			interval=1h|interval=6h|interval=24h) AU_INTERVAL=${line#interval=} ;;
-			url=*) AU_URL=${line#url=} ;;
 		esac
 	done < "$AU_DIR/$1.conf"
 	return 0
 }
 
 au_save_conf() {
-	# proto enabled url interval
+	# proto enabled interval
 	au_ok_proto "$1" || return 1
 	case "$2" in 0|1) ;; *) return 1;; esac
-	case "$4" in 1h|6h|24h) ;; *) return 1;; esac
+	case "$3" in 1h|6h|24h) ;; *) return 1;; esac
 	mkdir -p "$AU_DIR"
 	umask 077
 	{
 		printf 'enabled=%s\n' "$2"
-		printf 'url=%s\n' "$3"
-		printf 'interval=%s\n' "$4"
+		printf 'interval=%s\n' "$3"
 	} > "$AU_DIR/$1.conf"
 	chmod 600 "$AU_DIR/$1.conf" 2>/dev/null || true
 }
 
-# Resolve the fetch URL for a proto (after au_load). Prints URL or nothing.
-# 1) the autoupdate link saved under the protocol block;
-# 2) otherwise the protocol's own saved connection link, but only if it is
-#    an http(s) subscription URL (a vless:// etc. link has nothing to re-fetch).
+# Subscription source of a protocol: when the link field of a card holds an
+# http(s) URL, the URL is kept in <proto>.src and the extracted link or config is
+# what actually gets applied.
+au_src_file() { printf '%s\n' "$AU_DIR/$1.src"; }
+
+au_src_set() {
+	au_ok_proto "$1" || return 1
+	mkdir -p "$AU_DIR"
+	( umask 077; printf '%s\n' "$2" > "$AU_DIR/$1.src" )
+	chmod 600 "$AU_DIR/$1.src" 2>/dev/null || true
+}
+
+au_src_clear() { rm -f "$AU_DIR/$1.src"; }
+
+# Resolve the fetch URL for a proto. Prints the URL or nothing.
+# The only source is the protocol's own saved connection link: the subscription
+# URL saved from its card (<proto>.src), or the saved link file itself when it
+# is an http(s) URL. A vless:// (etc.) link has nothing to re-fetch.
 au_resolve_url() {
-	if [ -n "$AU_URL" ]; then
-		printf '%s\n' "$AU_URL"
-		return 0
-	fi
 	[ -n "${1:-}" ] || return 0
+	sf=$(au_src_file "$1")
+	if [ -f "$sf" ]; then
+		c=$(head -c 2048 "$sf" | tr -d '\r\n\t ')
+		case "$c" in
+			http://*|https://*) printf '%s\n' "$c"; return 0 ;;
+		esac
+	fi
 	f=$(au_current_file "$1") || return 0
 	[ -f "$f" ] || return 0
 	c=$(head -c 2048 "$f" | tr -d '\r\n\t ')

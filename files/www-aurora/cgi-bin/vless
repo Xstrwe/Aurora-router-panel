@@ -6,33 +6,25 @@ AU_LIB=/usr/libexec/aurora-panel/autoupdate-lib.sh
 esc(){ sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
 ud(){ printf '%b' "$(printf '%s' "$1" | sed -e 's/+/ /g' -e 's/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g')"; }
 fld(){ printf '%s' "$POST" | tr '&' '\n' | sed -n "s/^$1=//p" | head -1; }
-au_block(){
-  # $1 proto — HTML row under that protocol's card
+# $1 proto: the "Автообновление" row (checkbox + interval, one line) inside a card form
+au_row(){
   au_load "$1"
-  URL=$(printf '%s' "$AU_URL" | esc)
   EN=""; [ "$AU_ENABLED" = 1 ] && EN=checked
   I1=""; I6=""; I24=""
   case "$AU_INTERVAL" in 1h) I1=selected ;; 6h) I6=selected ;; *) I24=selected ;; esac
   cat <<BLK
-<div class=au><form method=post>
-<input type=hidden name=proto value="$1">
-<b>Автообновление</b>
+<div class=au><b>Автообновление</b>
 <label><input type=checkbox name=en value=1 $EN> вкл</label>
-<textarea name=auurl spellcheck=false placeholder="https://… ссылка на обновление">$URL</textarea>
-<div class=hint>Пусто — обновление берётся из сохранённой ссылки подключения (если это http(s)-подписка).</div>
-<label>Интервал
-<select name=int>
+<label>Интервал <select name=int>
 <option value=1h $I1>1 час</option>
 <option value=6h $I6>6 часов</option>
 <option value=24h $I24>24 часа</option>
-</select>
-</label>
-<div class=btns>
-<button type=submit name=action value=ausave>Сохранить</button>
-<button type=submit name=action value=update>Обновить сейчас</button>
-</div>
-</form></div>
+</select></label></div>
 BLK
+}
+# $1 proto: text of the link field = subscription URL if one is saved, else the saved link
+field_raw(){
+  if [ -f "$AU_DIR/$1.src" ]; then cat "$AU_DIR/$1.src"; else cat "$(au_current_file "$1")"; fi 2>/dev/null
 }
 MSG=""
 if [ "$REQUEST_METHOD" = POST ]; then
@@ -54,31 +46,45 @@ YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
       set -- $R
       if [ "${2%.*}" -gt 100000 ] 2>/dev/null; then MSG="Скорость ($PNX): $(awk "BEGIN{printf \"%.1f\", $1*8/1000000}") Мбит/с (скачано $(awk "BEGIN{printf \"%.1f\", $2/1048576}") МБ)"
       else MSG="Скорость: не удалось измерить ❌"; fi;;
-    hy2save) ud "$(fld hy2)" > /tmp/hy2.in; MSG=$($V hy2save /tmp/hy2.in 2>&1); rm -f /tmp/hy2.in;;
-    naivesave) ud "$(fld nv)" > /tmp/nv.in; MSG=$($V naivesave /tmp/nv.in 2>&1); rm -f /tmp/nv.in;;
-    wgsave) ud "$(fld wg)" > /tmp/wg.in; MSG=$($V wgsave /tmp/wg.in 2>&1); rm -f /tmp/wg.in;;
     proto) MSG=$($V proto "$(fld proto)" 2>&1);;
-    save) ud "$(fld link)" > /tmp/vless.in; MSG=$($V save /tmp/vless.in 2>&1); rm -f /tmp/vless.in;;
-    ausave|update)
+    save|hy2save|naivesave|wgsave|update)
+      # One form per protocol card: link field + auto-update row + two buttons.
       AP=$(fld proto)
-      EN=0; [ "$(fld en)" = 1 ] && EN=1
-      INT=$(fld int)
-      AUU=$(ud "$(fld auurl)")
-      MSG=$($V autoset "$AP" "$EN" "$AUU" "$INT" 2>&1)
-      if [ "$A" = update ]; then
-        MSG=$($V update "$AP" 2>&1)
-      fi
-      ;;
+      case "$AP" in vless) FN=link; CMD=save;; hy2) FN=hy2; CMD=hy2save;; naive) FN=nv; CMD=naivesave;; wg) FN=wg; CMD=wgsave;; *) AP=""; MSG="ERROR: неизвестный протокол";; esac
+      if [ -n "$AP" ]; then
+        EN=0; [ "$(fld en)" = 1 ] && EN=1
+        INT=$(fld int); case "$INT" in 1h|6h|24h) ;; *) INT=24h;; esac
+        MSG=$($V autoset "$AP" "$EN" "$INT" 2>&1)
+        case "$MSG" in *ERROR*) ;; *)
+          IN=/tmp/cgi-$AP.in; OUT=/tmp/cgi-$AP.out
+          ud "$(fld $FN)" > $IN
+          NEW=$(tr -d '\r\n\t ' < $IN)
+          OLD=$(field_raw "$AP" | tr -d '\r\n\t ')
+          if [ "$A" = update ] && { [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; }; then
+            # Nothing new in the field: just re-fetch from the saved link.
+            MSG=$($V update "$AP" 2>&1)
+          elif [ "$A" = update ] && case "$NEW" in http://*|https://*) true;; *) false;; esac; then
+            # New subscription URL: save it as the source, then update from it.
+            MSG=$($V src "$AP" $IN $OUT 0 2>&1)
+            case "$MSG" in *ERROR*) ;; *) MSG=$($V update "$AP" 2>&1);; esac
+          else
+            # Connect, or "update now" with a new direct link: save it and apply.
+            MSG=$($V src "$AP" $IN $OUT 1 2>&1)
+            case "$MSG" in *ERROR*) ;; *) MSG=$($V $CMD $OUT 2>&1);; esac
+          fi
+          rm -f $IN $OUT;;
+        esac
+      fi;;
   esac
   case "$A" in test|speed|update) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Готово";; esac;; esac
 fi
 eval "$($V status | sed 's/^/S_/')"
 EXIT=""; [ "$QUERY_STRING" = ip ] && EXIT=$(curl -s -m 8 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null)
-HY2=$(cat /etc/xray/hy2.txt 2>/dev/null | esc)
-NV=$(cat /etc/xray/naive.txt 2>/dev/null | esc)
-WG=$(cat /etc/xray/wg.conf 2>/dev/null | esc)
+HY2=$(field_raw hy2 | esc)
+NV=$(field_raw naive | esc)
+WG=$(field_raw wg | esc)
 PN=VLESS; [ "$S_proto" = hy2 ] && PN=Hysteria2; [ "$S_proto" = naive ] && PN=Naive; [ "$S_proto" = wg ] && PN=WireGuard
-LINK=$(cat /etc/xray/link.txt 2>/dev/null | esc)
+LINK=$(field_raw vless | esc)
 case "$S_proto" in hy2) F=/etc/xray/hy2.txt;; naive) F=/etc/xray/naive.txt;; wg) F=;; *) F=/etc/xray/link.txt;; esac
 if [ -n "$F" ]; then HOST=$(sed -E 's#^[a-z0-9+]+://[^@]+@([^/?\#]+).*#\1#' $F 2>/dev/null | head -1 | esc); SNI=$(sed -nE 's#.*[?&]sni=([^&\#]+).*#\1#p' $F 2>/dev/null | head -1 | esc); [ -n "$SNI" ] || SNI=${HOST%:*}
 else HOST=$(jq -r '.settings.peers[0].endpoint' /etc/xray/wg.json 2>/dev/null | esc); SNI="без SNI"; fi
@@ -96,14 +102,12 @@ body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:1040px;margi
 button{border:0;border-radius:10px;color:#fff;background:#1565c0;padding:10px 18px;font-size:16px;cursor:pointer}
 .big{width:100%;font-size:22px;padding:18px}textarea{width:100%;box-sizing:border-box;resize:none;overflow:hidden;min-height:2.6em;font-family:monospace;font-size:12px}
 select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}td{padding:3px 8px 3px 0}
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;margin:14px 0}
-.grid .c{margin:0}
-@media(max-width:760px){.grid{grid-template-columns:1fr}}
-.au{margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
-.au select,.au label{margin:4px 8px 4px 0;vertical-align:middle}
-.au .hint{color:#777;font-size:12px;margin:6px 0}
-.au .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-.au button{font-size:14px;padding:8px 14px}
+.grid{column-count:2;column-gap:14px;margin:14px 0}
+.grid .c{margin:0 0 14px;break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid}
+@media(max-width:760px){.grid{column-count:1}}
+.au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
+.au select{font-size:14px;padding:4px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 </style></head><body><h2>Aurora router panel</h2>
 HTML
 [ -n "$MSG" ] && echo "<div class=msg>$(printf '%s' "$MSG" | esc)</div>"
@@ -125,25 +129,25 @@ cat <<HTML
 <select name=mode><option value=ru $M1>Всё, кроме российских сайтов</option><option value=all $M2>Всё через VLESS</option></select>
 <button>Применить</button></form></div>
 <div class=grid>
-<div class=c><form method=post><input type=hidden name=action value=save><b>Ссылка vless://</b><br>
-<textarea name=link spellcheck=false>$LINK</textarea><br><button style="background:#6a1b9a">Подключить VLESS</button></form>
+<div class=c><form method=post><input type=hidden name=proto value=vless><b>Ссылка vless://</b><br>
+<textarea name=link spellcheck=false>$LINK</textarea>
 HTML
-au_block vless
+au_row vless
 cat <<HTML
-</div>
-<div class=c><form method=post><input type=hidden name=action value=hy2save><b>Ссылка hysteria2://</b><br>
-<textarea name=hy2 spellcheck=false>$HY2</textarea><br><button style="background:#e65100">Подключить Hysteria2</button></form>
+<div class=btns><button type=submit name=action value=save style="background:#6a1b9a">Подключить VLESS</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
+<div class=c><form method=post><input type=hidden name=proto value=hy2><b>Ссылка hysteria2://</b><br>
+<textarea name=hy2 spellcheck=false>$HY2</textarea>
 HTML
-au_block hy2
+au_row hy2
 cat <<HTML
-</div>
-<div class=c><form method=post><input type=hidden name=action value=naivesave><b>Ссылка naive+https://</b><br>
-<textarea name=nv spellcheck=false>$NV</textarea><br><button style="background:#00695c">Подключить Naive</button></form>
+<div class=btns><button type=submit name=action value=hy2save style="background:#e65100">Подключить Hysteria2</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
+<div class=c><form method=post><input type=hidden name=proto value=naive><b>Ссылка naive+https://</b><br>
+<textarea name=nv spellcheck=false>$NV</textarea>
 HTML
-au_block naive
+au_row naive
 cat <<HTML
-</div>
-<div class=c><form method=post><input type=hidden name=action value=wgsave><b>Конфиг WireGuard (.conf)</b><br>
+<div class=btns><button type=submit name=action value=naivesave style="background:#00695c">Подключить Naive</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
+<div class=c><form method=post><input type=hidden name=proto value=wg><b>Конфиг WireGuard (.conf)</b><br>
 <textarea name=wg spellcheck=false placeholder="[Interface]
 PrivateKey = ...
 Address = ...
@@ -151,11 +155,11 @@ Address = ...
 [Peer]
 PublicKey = ...
 Endpoint = ...
-AllowedIPs = 0.0.0.0/0">$WG</textarea><br><button style="background:#283593">Подключить WireGuard</button></form>
+AllowedIPs = 0.0.0.0/0">$WG</textarea>
 HTML
-au_block wg
+au_row wg
 cat <<HTML
-</div>
+<div class=btns><button type=submit name=action value=wgsave style="background:#283593">Подключить WireGuard</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
 </div>
 <p style="color:#777;font-size:12px">IPv6 не проксируется. Прокси для отдельных программ: SOCKS5 192.168.8.1:10808, HTTP 192.168.8.1:10809.</p>
 <script>function fit(t){t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px'}document.querySelectorAll('textarea').forEach(function(t){t.rows=(t.value==''&&t.placeholder)?t.placeholder.split('\n').length:1;t.addEventListener('input',function(){fit(t)});fit(t)});window.addEventListener('resize',function(){document.querySelectorAll('textarea').forEach(fit)});</script>

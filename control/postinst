@@ -1,0 +1,43 @@
+#!/bin/sh
+# Runs on the router after install or upgrade. Do not overwrite user state.
+[ -n "$IPKG_INSTROOT" ] && exit 0
+
+mkdir -p /etc/xray
+
+if [ ! -f /etc/xray/httpd.conf ]; then
+	cat > /etc/xray/httpd.conf <<'CONF'
+# Authentication for the VLESS panel (uhttpd basic-auth).
+#
+# This package does not set a password. Until you add a /rfc2617 line
+# below, the page on port 8088 is open to anyone on the LAN (no login).
+#
+# To enable basic auth:
+#   1. Generate a hash on the router:
+#        uhttpd -m 'your-password'
+#   2. Add a line (replace HASH with the output, and admin with your login):
+#        /rfc2617 VLESS admin HASH
+#   3. Restart:
+#        /etc/init.d/uhttpd restart
+#
+# Do not put real passwords or hashes into the package or into git.
+CONF
+fi
+
+if ! grep -q '^/rfc2617' /etc/xray/httpd.conf 2>/dev/null; then
+	echo "WARNING: /etc/xray/httpd.conf has no basic-auth entry; the panel on :8088 is reachable without a password. See the comments in that file."
+fi
+
+if ! uci -q get uhttpd.vless >/dev/null; then
+	uci set uhttpd.vless=uhttpd
+	uci add_list uhttpd.vless.listen_http='192.168.8.1:8088'
+	uci set uhttpd.vless.home='/www-vless'
+	uci set uhttpd.vless.cgi_prefix='/cgi-bin'
+	uci set uhttpd.vless.config='/etc/xray/httpd.conf'
+	uci set uhttpd.vless.realm='VLESS'
+	uci set uhttpd.vless.script_timeout='90'
+	uci set uhttpd.vless.max_requests='3'
+	uci commit uhttpd
+fi
+
+/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+exit 0

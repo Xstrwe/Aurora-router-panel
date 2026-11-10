@@ -1,0 +1,33 @@
+name: Build package and feed
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'files/**'
+      - 'control/**'
+      - 'build.sh'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ipk and feed index
+        run: ./build.sh
+      - name: Commit feed if it changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feed/
+          if git diff --staged --quiet; then
+            echo "Feed is already up to date."
+            exit 0
+          fi
+          git commit -m "chore: rebuild ipk and feed index"
+          git push

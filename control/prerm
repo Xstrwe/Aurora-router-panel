@@ -1,0 +1,5 @@
+#!/bin/sh
+# Do not stop xray, hysteria, tproxy or uhttpd. Uninstall must not
+# drop an already-working transparent proxy.
+[ -n "$IPKG_INSTROOT" ] && exit 0
+exit 0

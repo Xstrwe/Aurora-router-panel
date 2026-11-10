@@ -1,0 +1,13 @@
+#!/bin/sh
+# Remove the uhttpd 'vless' instance only on a full uninstall, not on upgrade.
+# Leave user state (/etc/xray/link.txt, config.json, hy2.txt, server_ip,
+# mode, proto, httpd.conf, /etc/hysteria/client.yaml) in place.
+[ -n "$IPKG_INSTROOT" ] && exit 0
+[ "$PKG_UPGRADE" = "1" ] && exit 0
+
+if uci -q get uhttpd.vless >/dev/null; then
+	uci -q delete uhttpd.vless
+	uci commit uhttpd
+	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+fi
+exit 0

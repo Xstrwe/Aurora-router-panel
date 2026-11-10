@@ -1,14 +1,71 @@
 # vless-router-panel
 
-Панель **«VLESS на роутере»** для OpenWrt / GL.iNet: веб-страница на `http://192.168.8.1:8088` для включения и выключения прозрачного прокси, теста подключения и скорости, сохранения ссылок `vless://` и `hysteria2://`.
+Панель **«VLESS на роутере»** для OpenWrt / GL.iNet: веб-страница на `http://192.168.8.1:8088` для включения и выключения прозрачного прокси, теста подключения и скорости, сохранения ссылок `vless://`, `hysteria2://`, `naive+https://` и конфига WireGuard (`.conf`).
 
-Это пакет **`.ipk`** для `opkg`, не `.deb`. На OpenWrt (в том числе GL.iNet GL-BE6500, OpenWrt 23.05, `aarch64_cortex-a53`) пакеты ставятся через `opkg`. Архитектура пакета — `all`: внутри только скрипты.
+Это пакет **`.ipk`** для `opkg`, не `.deb`. На OpenWrt (в том числе GL.iNet GL-BE6500, OpenWrt 23.05, `aarch64_cortex-a53`) пакеты ставятся через `opkg`. Архитектура пакета — `all`: внутри только скрипты. Бинарь `naive` (~13 МБ) в пакет **не входит** — его ставит скрипт `install-naive.sh`.
 
-Репозиторий публичный и не содержит секретов: ни ссылок, ни паролей, ни `config.json`.
+Репозиторий публичный и не содержит секретов: ни ссылок, ни паролей, ни ключей, ни `config.json`.
 
 ---
 
-A small OpenWrt web panel for toggling a transparent VLESS/Hysteria2 proxy, testing the connection and speed, and saving `vless://` / `hysteria2://` links. Ships as an `.ipk` (`Architecture: all`) and an unsigned `opkg` feed. No user secrets are included in the package or this repository.
+A small OpenWrt web panel for toggling a transparent VLESS / Hysteria2 / Naive / WireGuard proxy, testing the connection and speed, and saving protocol links or a WireGuard `.conf`. Ships as an `.ipk` (`Architecture: all`) and an unsigned `opkg` feed. The `naive` binary is not bundled; see `install-naive.sh`. No user secrets are included in the package or this repository.
+
+## Установка на GL.iNet GL-BE6500
+
+1. Подключитесь к роутеру. На маке откройте Терминал и введите:
+
+   ```sh
+   ssh root@192.168.8.1
+   ```
+
+   Пароль тот же, что от админки роутера. Если вы не дома, можно зайти через GoodCloud: Remote SSH.
+
+2. Обновите список пакетов и поставьте панель одной командой:
+
+   ```sh
+   opkg update
+   opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.0_all.ipk
+   ```
+
+3. Откройте в браузере `http://192.168.8.1:8088`. Если установщик написал предупреждение про пароль, значит вход на страницу ещё не настроен — см. раздел [Auth / Пароль на страницу](#auth--пароль-на-страницу).
+
+4. Вставьте ссылку в поле и нажмите **«Сохранить»**, потом **«Включить»**. Проверьте, что «Прозрачный режим» показывает **ВКЛЮЧЁН**.
+
+5. Новая версия ставится той же командой, только с новой ссылкой на `.ipk` (смотрите номер версии в имени файла). Ваши ссылки и настройки при обновлении сохраняются.
+
+6. Удалить пакет:
+
+   ```sh
+   opkg remove vless-router-panel
+   ```
+
+Если LAN-адрес роутера не `192.168.8.1`, поправьте `uhttpd.vless.listen_http` через `uci` и перезапустите `uhttpd`.
+
+Для Hysteria2, Naive и WireGuard сначала сохраните обычную ссылку `vless://` (по ней собирается базовый конфиг Xray), а уже потом нажимайте кнопку нужного протокола.
+
+### Naive
+
+Бинарный файл `naive` в пакет не входит. На GL-BE6500 нужна статическая сборка `openwrt-aarch64_cortex-a53-static` с [релизов klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy/releases). На роутере:
+
+```sh
+opkg update && opkg install xz
+/usr/libexec/vless-panel/install-naive.sh
+```
+
+Скрипт сам определит архитектуру, скачает последний релиз и положит бинарь в `/usr/bin/naive`. Уже существующий `/etc/naive/config.json` он не трогает. Если GitHub с роутера недоступен, скачайте архив на компьютере и укажите URL или скопируйте бинарь вручную:
+
+```sh
+/usr/libexec/vless-panel/install-naive.sh https://github.com/klzgrad/naiveproxy/releases/download/v154.0.8037.49-5/naiveproxy-v154.0.8037.49-5-openwrt-aarch64_cortex-a53-static.tar.xz
+# или:
+# scp naive root@192.168.8.1:/usr/bin/naive
+# ssh root@192.168.8.1 chmod 755 /usr/bin/naive
+```
+
+Переустановка: `/usr/libexec/vless-panel/install-naive.sh --force`. После этого вставьте ссылку `naive+https://` на странице и нажмите **«Сохранить и подключить Naive»**.
+
+### WireGuard
+
+Вставьте в поле целиком свой `.conf` (блоки `[Interface]` с `PrivateKey` и `Address` и `[Peer]` с `PublicKey`, `Endpoint` и `AllowedIPs`) и нажмите **«Сохранить и подключить WireGuard»**. Туннель поднимается через встроенный outbound WireGuard в Xray, отдельный `wireguard-tools` не требуется. Обычный WireGuard в некоторых сетях могут блокировать — если не заработает, нажмите **«Подключить VLESS»**.
 
 ## Requirements / Требования
 
@@ -22,21 +79,11 @@ A small OpenWrt web panel for toggling a transparent VLESS/Hysteria2 proxy, test
 - `xray` в `/usr/bin/xray`
 - `geoip` и `geosite` в `/usr/share/xray/` (файлы `geoip.dat`, `geosite.dat`)
 - по желанию: `hysteria` в `/usr/bin/hysteria` — только если пользуетесь кнопкой Hysteria2
+- по желанию: `naive` в `/usr/bin/naive` — только если пользуетесь кнопкой Naive; ставится скриптом выше. Для распаковки архива нужен пакет `xz`.
 
 Без `xray` и geo-файлов страница установится, но сохранить ссылку и включить прозрачный режим не получится.
 
-## Install / Установка
-
-Рекомендуемый способ — прямая установка `.ipk` по URL. Так не нужно отключать проверку подписей фидов:
-
-```sh
-opkg update
-opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.0.0_all.ipk
-```
-
-После установки откройте `http://192.168.8.1:8088`. Если LAN-адрес роутера другой, поправьте `uhttpd.vless.listen_http` через `uci` и перезапустите `uhttpd`.
-
-### Репозиторий пакетов (опционально)
+## Репозиторий пакетов (опционально)
 
 Адрес фида:
 
@@ -50,7 +97,7 @@ echo 'src/gz vless_panel https://raw.githubusercontent.com/Xstrwe/vless-router-p
 
 Что можно сделать:
 
-1. **Лучше не добавлять фид**, а ставить и обновлять пакет по прямой ссылке на `.ipk` (команда выше). Для установки по URL подпись фида не нужна.
+1. **Лучше не добавлять фид**, а ставить и обновлять пакет по прямой ссылке на `.ipk` (команда в начале README). Для установки по URL подпись фида не нужна.
 2. Если всё же хотите `opkg update` / `opkg upgrade vless-router-panel`:
    - временно закомментируйте `option check_signature 1` в `/etc/opkg.conf`;
    - выполните `opkg update && opkg install vless-router-panel`;
@@ -61,7 +108,7 @@ echo 'src/gz vless_panel https://raw.githubusercontent.com/Xstrwe/vless-router-p
 ## Update / Обновление
 
 ```sh
-opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.0.0_all.ipk
+opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/feed/all/vless-router-panel_1.1.0_all.ipk
 ```
 
 Либо, если фид настроен и проверка подписи временно снята: `opkg update && opkg upgrade vless-router-panel`.
@@ -69,11 +116,13 @@ opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/fe
 При обновлении **не перезаписываются** пользовательские файлы, которых нет в пакете:
 
 - `/etc/xray/link.txt`, `/etc/xray/config.json`, `/etc/xray/hy2.txt`
+- `/etc/xray/naive.txt`, `/etc/xray/wg.conf`, `/etc/xray/wg.json`
 - `/etc/xray/server_ip`, `/etc/xray/mode`, `/etc/xray/proto`
 - `/etc/xray/httpd.conf`
 - `/etc/hysteria/client.yaml`
+- `/etc/naive/config.json`
 
-Секция `uhttpd.vless`, если вы её уже меняли, тоже не трогается.
+Секция `uhttpd.vless`, если вы её уже меняли, тоже не трогается. Бинарь `/usr/bin/naive` пакет не удаляет и не заменяет.
 
 ## Uninstall / Удаление
 
@@ -81,7 +130,7 @@ opkg install https://raw.githubusercontent.com/Xstrwe/vless-router-panel/main/fe
 opkg remove vless-router-panel
 ```
 
-Удаляется секция `uhttpd.vless` (страница на :8088 перестаёт слушаться). Службы `xray` и Hysteria пакет сам не останавливает, чтобы не сбить уже работающий прозрачный режим. Пользовательские файлы из списка выше остаются на роутере; сотрите их вручную, если они больше не нужны.
+Удаляется секция `uhttpd.vless` (страница на :8088 перестаёт слушаться). Службы `xray`, Hysteria и Naive пакет сам не останавливает, чтобы не сбить уже работающий прозрачный режим. Пользовательские файлы из списка выше и `/usr/bin/naive` остаются на роутере; сотрите их вручную, если они больше не нужны.
 
 ## Auth / Пароль на страницу
 
@@ -102,7 +151,7 @@ uhttpd -m 'your-password'
 ./build.sh
 ```
 
-Собирает воспроизводимый `.ipk` (внешний tar.gz с `./debian-binary`, `./control.tar.gz`, `./data.tar.gz`, владелец `root:root`) и индекс фида `feed/all/Packages` + `Packages.gz`. Скрипт сам распаковывает пакет и проверяет состав и права.
+Собирает воспроизводимый `.ipk` (внешний tar.gz с `./debian-binary`, `./control.tar.gz`, `./data.tar.gz`, владелец `root:root`) и индекс фида `feed/all/Packages` + `Packages.gz`. Скрипт сам распаковывает пакет и проверяет состав, права и синтаксис shell-скриптов (`sh -n`).
 
 Исходники страницы и скриптов лежат в `files/`.
 

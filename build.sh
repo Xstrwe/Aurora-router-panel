@@ -30,13 +30,33 @@ chmod 755 "$DATA/www-vless/cgi-bin/vless" \
           "$DATA/etc/xray/vless.sh" \
           "$DATA/etc/xray/tproxy.sh" \
           "$DATA/etc/init.d/xray-client" \
-          "$DATA/etc/init.d/hysteria-client"
+          "$DATA/etc/init.d/hysteria-client" \
+          "$DATA/etc/init.d/naive-client" \
+          "$DATA/usr/libexec/vless-panel/install-naive.sh"
+
+# Syntax-check shipped shell scripts (POSIX sh).
+for s in \
+  "$DATA/www-vless/cgi-bin/vless" \
+  "$DATA/etc/xray/vless.sh" \
+  "$DATA/etc/xray/tproxy.sh" \
+  "$DATA/etc/init.d/xray-client" \
+  "$DATA/etc/init.d/hysteria-client" \
+  "$DATA/etc/init.d/naive-client" \
+  "$DATA/usr/libexec/vless-panel/install-naive.sh" \
+  "$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm" \
+  "$ROOT/build.sh"
+do
+  sh -n "$s" || { echo "ERROR: sh -n failed for $s" >&2; exit 1; }
+done
 
 # Fail if we accidentally staged user-state files.
+
 for f in \
   etc/xray/link.txt etc/xray/config.json etc/xray/hy2.txt \
+  etc/xray/naive.txt etc/xray/wg.conf etc/xray/wg.json \
   etc/xray/server_ip etc/xray/mode etc/xray/proto \
-  etc/xray/httpd.conf etc/hysteria/client.yaml
+  etc/xray/httpd.conf etc/hysteria/client.yaml \
+  etc/naive/config.json
 do
   if [ -e "$DATA/$f" ]; then
     echo "ERROR: refusing to ship user-state file $f" >&2
@@ -97,14 +117,23 @@ gzip -dc "$VERIFY/outer/control.tar.gz" | tar -C "$VERIFY/ctrl" -xf -
 gzip -dc "$VERIFY/outer/data.tar.gz" | tar -C "$VERIFY/data" -xf -
 
 # Check required data paths and modes.
+# Syntax-check every shipped shell script before packing is enough
+# on the host; also verify modes after extract.
 test -x "$VERIFY/data/www-vless/cgi-bin/vless"
 test -x "$VERIFY/data/etc/xray/vless.sh"
 test -x "$VERIFY/data/etc/xray/tproxy.sh"
 test -x "$VERIFY/data/etc/init.d/xray-client"
 test -x "$VERIFY/data/etc/init.d/hysteria-client"
+test -x "$VERIFY/data/etc/init.d/naive-client"
+test -x "$VERIFY/data/usr/libexec/vless-panel/install-naive.sh"
 test -f "$VERIFY/data/www-vless/index.html"
 test -f "$VERIFY/data/etc/xray/gen.uc"
 test -f "$VERIFY/data/etc/xray/hy2.uc"
+# The naive binary must never be inside the package.
+if find "$VERIFY/data" -type f -name naive | grep -q .; then
+  echo "ERROR: refusing to ship a naive binary in the package" >&2
+  exit 1
+fi
 test -x "$VERIFY/ctrl/postinst"
 test -x "$VERIFY/ctrl/prerm"
 test -x "$VERIFY/ctrl/postrm"

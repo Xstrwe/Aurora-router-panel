@@ -29,7 +29,7 @@ jobs:
       - name: Upload ipk and feed
         uses: actions/upload-artifact@v4
         with:
-          name: vless-router-panel-feed
+          name: aurora-router-panel-feed
           path: feed/all/
       - name: Commit feed if it changed
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

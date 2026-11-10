@@ -23,30 +23,30 @@ mkdir -p "$DATA"
 # Copy tree, then re-apply permissions so a checkout without the exec bit
 # (e.g. on some CI runners) still produces a correct package.
 cp -a "$ROOT/files/." "$DATA/"
-chmod 644 "$DATA/www-vless/index.html" \
+chmod 644 "$DATA/www-aurora/index.html" \
           "$DATA/etc/xray/gen.uc" \
           "$DATA/etc/xray/hy2.uc"
-chmod 644 "$DATA/usr/libexec/vless-panel/autoupdate-lib.sh"
-chmod 755 "$DATA/www-vless/cgi-bin/vless" \
+chmod 644 "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh"
+chmod 755 "$DATA/www-aurora/cgi-bin/vless" \
           "$DATA/etc/xray/vless.sh" \
           "$DATA/etc/xray/tproxy.sh" \
           "$DATA/etc/init.d/xray-client" \
           "$DATA/etc/init.d/hysteria-client" \
           "$DATA/etc/init.d/naive-client" \
-          "$DATA/usr/libexec/vless-panel/install-naive.sh" \
-          "$DATA/usr/libexec/vless-panel/autoupdate-run.sh"
+          "$DATA/usr/libexec/aurora-panel/install-naive.sh" \
+          "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh"
 
 # Syntax-check shipped shell scripts (POSIX sh).
 for s in \
-  "$DATA/www-vless/cgi-bin/vless" \
+  "$DATA/www-aurora/cgi-bin/vless" \
   "$DATA/etc/xray/vless.sh" \
   "$DATA/etc/xray/tproxy.sh" \
   "$DATA/etc/init.d/xray-client" \
   "$DATA/etc/init.d/hysteria-client" \
   "$DATA/etc/init.d/naive-client" \
-  "$DATA/usr/libexec/vless-panel/install-naive.sh" \
-  "$DATA/usr/libexec/vless-panel/autoupdate-run.sh" \
-  "$DATA/usr/libexec/vless-panel/autoupdate-lib.sh" \
+  "$DATA/usr/libexec/aurora-panel/install-naive.sh" \
+  "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh" \
+  "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh" \
   "$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm" \
   "$ROOT/build.sh"
 do
@@ -130,20 +130,20 @@ gzip -dc "$VERIFY/outer/data.tar.gz" | tar -C "$VERIFY/data" -xf -
 # Check required data paths and modes.
 # Syntax-check every shipped shell script before packing is enough
 # on the host; also verify modes after extract.
-test -x "$VERIFY/data/www-vless/cgi-bin/vless"
+test -x "$VERIFY/data/www-aurora/cgi-bin/vless"
 test -x "$VERIFY/data/etc/xray/vless.sh"
 test -x "$VERIFY/data/etc/xray/tproxy.sh"
 test -x "$VERIFY/data/etc/init.d/xray-client"
 test -x "$VERIFY/data/etc/init.d/hysteria-client"
 test -x "$VERIFY/data/etc/init.d/naive-client"
-test -x "$VERIFY/data/usr/libexec/vless-panel/install-naive.sh"
-test -x "$VERIFY/data/usr/libexec/vless-panel/autoupdate-run.sh"
-test -f "$VERIFY/data/usr/libexec/vless-panel/autoupdate-lib.sh"
-if [ -e "$VERIFY/data/usr/libexec/vless-panel/autoupdate-server" ]; then
+test -x "$VERIFY/data/usr/libexec/aurora-panel/install-naive.sh"
+test -x "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-run.sh"
+test -f "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-lib.sh"
+if [ -e "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-server" ]; then
   echo "ERROR: autoupdate-server must not be shipped (server source removed)" >&2
   exit 1
 fi
-test -f "$VERIFY/data/www-vless/index.html"
+test -f "$VERIFY/data/www-aurora/index.html"
 test -f "$VERIFY/data/etc/xray/gen.uc"
 test -f "$VERIFY/data/etc/xray/hy2.uc"
 # The naive binary must never be inside the package.

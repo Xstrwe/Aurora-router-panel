@@ -2,6 +2,15 @@
 
 ## 1.3.0
 
+- Renamed the project to Aurora-router-panel: package `aurora-router-panel`
+  (declares `Replaces`/`Conflicts: vless-router-panel`), page title, README,
+  feed URLs and the GitHub repository (Xstrwe/Aurora-router-panel; the old URL
+  redirects). Files moved to `/usr/libexec/aurora-panel` and `/www-aurora`, the
+  uhttpd section is now `uhttpd.aurora` (same listen address), and the
+  autoupdate cron line is rewritten for the new path (the legacy line is
+  removed). `/etc/xray/vless.sh`, `/cgi-bin/vless` and all user state under
+  `/etc/xray`, `/etc/hysteria` and `/etc/naive` are unchanged.
+
 - Removed the "our server" autoupdate source: the UI line and select, the
   `autoupdate-server` file, and the related code in the autoupdate library,
   CGI and `vless.sh`. Autoupdate now takes the fresh config from the

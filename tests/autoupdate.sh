@@ -163,6 +163,16 @@ if [ "$(grep -c '>Обновить сейчас<' "$CGI")" = 4 ] && [ "$(grep -c
 else
 	bad "CGI button count"
 fi
+if [ "$(grep -c 'link_field ' "$CGI")" = 4 ] \
+   && grep -q 'type=button class=add' "$CGI" \
+   && grep -q '>Добавить<' "$CGI" \
+   && grep -q 'function fit(' "$CGI" \
+   && grep -q 'overflow:hidden' "$CGI" \
+   && ! grep -q 'textarea{[^}]*[^-]height:[0-9]' "$CGI"; then
+	ok "CGI auto-expands link fields and has Add when empty"
+else
+	bad "CGI link field UI (Add button / auto-expand)"
+fi
 
 # --- interval / stamp ---
 au_save_conf hy2 1 1h

@@ -19,6 +19,14 @@
   `/etc/xray/autoupdate/*.conf` are ignored, so a URL that was only typed into
   the old field must be pasted into the link field again.
 - Tests cover the new source handling and the page layout.
+- Versioning: versions `X.Y.Z<letter><digits>` (such as this `1.3.0a1`) are
+  published as GitHub pre-releases (`vX.Y.Za1` with `.ipk` and `.sha256`); round
+  `X.Y.0` stays a full Release. The signed Pages feed now keeps every published
+  `.ipk` and its `Packages` lists the newest version (opkg ordering:
+  `1.3.0 < 1.3.0a1 < 1.3.0a2 < 1.3.0a10 < 1.3.0b1 < 1.4.0`). New
+  `tools/vercmp.sh` (port of opkg's `verrevcmp`), `tools/mkfeed.sh` and
+  `tests/version-order.sh`, which runs in CI through `build.sh`. See the
+  README section "Versioning".
 
 ## 1.3.0
 

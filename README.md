@@ -338,7 +338,19 @@ opkg install aurora-router-panel
 
 Check that the key you downloaded is the right one: `cat /etc/opkg/keys/2fa6e8de3e3e6f05` must print the same second line as [`keys/aurora-router-panel.pub`](keys/aurora-router-panel.pub), `RWQvpujePj5vBTDs4E+JxMS904WhmHAzCtyBztpBnRiLTeSU5iMaIdFj`. The feed needs HTTPS support in opkg's downloader (`ca-bundle` and `libustream-*`, present on stock OpenWrt and GL.iNet firmware).
 
-The feed holds only the latest release. To pin or roll back a version, install the `.ipk` of that release from the GitHub Releases page.
+`Packages` lists only the newest version (pre-releases included); older `.ipk` files stay in the same directory. To pin or roll back a version, install the `.ipk` of that release from the GitHub Releases page. See [Versioning](#versioning).
+
+## Versioning
+
+- **Release versions** are `X.Y.0` (for example `1.3.0`, `1.4.0`). Each one is published as a full GitHub Release.
+- **Pre-releases** are `X.Y.Z` followed by one letter and a number, for example `1.3.0a1`, `1.3.0a2`, `1.3.0b1`. Each one is published as a GitHub **pre-release** with the same assets (`.ipk` and `.sha256`).
+- Any other version string (such as a plain `1.3.1`) is built by CI but not published.
+
+opkg compares versions like dpkg: digit groups numerically, and a letter suffix sorts *after* the bare version. So `1.3.0 < 1.3.0a1 < 1.3.0a2 < 1.3.0a10 < 1.3.0b1 < 1.4.0`. This means a pre-release is *newer* than the round release with the same numbers: `1.3.0a1` is the first build after `1.3.0`, and the next round release is `1.4.0`. Use `a` for alpha and `b` for beta. `tests/version-order.sh` checks the ordering with a port of opkg's `verrevcmp` (`tools/vercmp.sh`) and, where `dpkg` is installed, cross-checks it against dpkg.
+
+The signed Pages feed holds **every published version** as an `.ipk` file. `Packages` lists only the newest one, pre-releases included, so a router on the feed gets pre-releases with `opkg upgrade`. To stay on a full release, install its `.ipk` from the GitHub Releases page instead of using the feed, or pin the feed's package with `opkg flag hold aurora-router-panel`. An older version can always be downloaded by name from `https://xstrwe.github.io/Aurora-router-panel/all/aurora-router-panel_<version>_all.ipk`.
+
+To publish: change `Version` in `control/control` (and add a `## <version>` section to `CHANGELOG.md`, which becomes the release notes), then merge to `main`; or push a matching tag `v<version>`; or run the "Release and publish opkg feed" workflow by hand from the Actions tab.
 
 ## Uninstall
 
@@ -359,7 +371,8 @@ This removes the panel, its uhttpd section and the autoupdate cron line. It does
 CI:
 
 - `.github/workflows/build.yml` runs `build.sh` on every push and pull request touching the package files. On `main` it commits the rebuilt, unsigned `feed/` if it changed (kept for the existing raw URL; new installs should use the signed Pages feed above).
-- `.github/workflows/release.yml` makes a release. It runs when `main` gets a change to `control/control` whose `Version` is a round `X.Y.0`, when a tag `vX.Y.0` is pushed (the tag must match the control `Version`), or by hand (Actions, "Run workflow"; it re-publishes the feed and refreshes the assets of an existing release). It builds the `.ipk`, signs `Packages` with the `USIGN_SECRET_KEY` Actions secret, creates the tag and a GitHub Release (notes taken from the matching `CHANGELOG.md` section, `.ipk` and `.sha256` attached) and deploys the feed to GitHub Pages. If no release exists for a version, a plain push of the version bump is enough. A `CHANGELOG.md` section named `## X.Y.0` is required.
+- `.github/workflows/release.yml` makes a release or pre-release (see [Versioning](#versioning)). It runs when `main` gets a change to `control/control` whose `Version` is `X.Y.0` or `X.Y.Z<letter><digits>`, when a matching tag `v<version>` is pushed (the tag must match the control `Version`), or by hand (Actions, "Run workflow"; it re-publishes the feed and refreshes the assets of an existing release). It builds the `.ipk` (running all tests), creates the tag and a GitHub Release (a pre-release for letter versions; notes taken from the matching `CHANGELOG.md` section, `.ipk` and `.sha256` attached), adds the `.ipk` to the files of all earlier releases, writes the index with `tools/mkfeed.sh`, signs `Packages` with the `USIGN_SECRET_KEY` Actions secret and deploys the feed to GitHub Pages. If no release exists for a version, a plain push of the version bump is enough. A `CHANGELOG.md` section named `## <version>` is required.
+- `tests/` and `tools/` changes also run `build.sh`, which runs `tests/autoupdate.sh` and `tests/version-order.sh`.
 
 Sources: `files/` (installed tree), `control/` (package metadata and maintainer scripts), `tests/`.
 

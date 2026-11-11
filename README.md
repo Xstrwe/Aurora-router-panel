@@ -111,7 +111,8 @@ The page UI is currently in Russian; this README names every button and label by
 - **Enable / Disable:** turn transparent mode on or off. When off, the LAN uses the internet directly.
 - **Test connection / Speed:** connection and speed tests through the tunnel.
 - **Mode:** "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
-- **Protocol cards** (two columns on wide screens, one on narrow; each card is only as tall as its content): a field for the link or config that grows with its content, an auto-update row (checkbox and interval on one line), and the buttons **Connect …** and **Update now** side by side. If a protocol has no saved link or config, the field is hidden behind an **Add** button; pressing it reveals the field.
+- **VPN section:** the four protocol cards in a two-column grid that starts on the same line (VLESS and Hysteria2 on the left, Naive and WireGuard on the right; one column on a narrow screen). Each card is only as tall as its content: a field for the link or config that grows with its content, an auto-update row (checkbox and interval on one line), and the buttons **Connect …** and **Update now** side by side. If a protocol has no saved link or config, the field is hidden behind an **Add** button; pressing it reveals the field. A small note at the bottom of the section says IPv6 is not proxied.
+- **Proxy section:** two cards, SOCKS5 (`192.168.8.1:10808`) and HTTP (`192.168.8.1:10809`), for configuring individual apps by hand. The proxies themselves are unchanged.
 
 ### Command line
 

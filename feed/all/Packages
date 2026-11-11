@@ -1,5 +1,5 @@
 Package: aurora-router-panel
-Version: 1.3.0a2
+Version: 1.3.0a3
 Depends: curl, jq, ucode, uhttpd, kmod-nft-tproxy
 Replaces: vless-router-panel
 Conflicts: vless-router-panel
@@ -17,7 +17,7 @@ Description: Aurora router panel (formerly "VLESS на роутере") for Open
  an http(s) subscription URL). Requires a manually
  installed xray binary in /usr/bin and geoip/geosite in /usr/share/xray.
  hysteria and naive binaries are optional; install naive with /usr/libexec/aurora-panel/install-naive.sh.
-Filename: aurora-router-panel_1.3.0a2_all.ipk
-Size: 19384
-SHA256sum: 3f3f419fe24bfd0f728764390cc822a4575a3bf8f54ead282c505ea725c87f48
+Filename: aurora-router-panel_1.3.0a3_all.ipk
+Size: 19542
+SHA256sum: c00cbf645b6ba906178bed6b8df74450f8fc42756a4866ab80fa4f55246b0561
 

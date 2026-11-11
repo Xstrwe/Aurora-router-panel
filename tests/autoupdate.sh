@@ -173,6 +173,22 @@ if [ "$(grep -c 'link_field ' "$CGI")" = 4 ] \
 else
 	bad "CGI link field UI (Add button / auto-expand)"
 fi
+if grep -q '<h3>VPN</h3>' "$CGI" \
+   && grep -q '<h3>Прокси</h3>' "$CGI" \
+   && [ "$(grep -c 'class=sec' "$CGI")" = 2 ] \
+   && [ "$(grep -c 'class=col' "$CGI")" = 2 ] \
+   && grep -q '192.168.8.1:10808' "$CGI" \
+   && grep -q '192.168.8.1:10809' "$CGI" \
+   && grep -q '>SOCKS5<' "$CGI" \
+   && grep -q '>HTTP<' "$CGI" \
+   && grep -q 'Для ручной настройки отдельных программ' "$CGI" \
+   && grep -q 'IPv6 не проксируется.' "$CGI" \
+   && ! grep -q 'Прокси для отдельных программ' "$CGI" \
+   && ! grep -q 'column-count' "$CGI"; then
+	ok "CGI has VPN and Proxy sections, aligned two-column grid"
+else
+	bad "CGI VPN/Proxy section layout"
+fi
 
 # --- interval / stamp ---
 au_save_conf hy2 1 1h

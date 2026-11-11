@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.3.0a3
+
+- Web page: the four protocol cards sit in a **VPN** section (heading at
+  the top). The two-column layout is a CSS grid, so both columns start on
+  the same line (the previous multi-column layout left a gap above the
+  right column). Cards still size to their content: VLESS and Hysteria2
+  on the left, Naive and WireGuard on the right (one column on a narrow
+  screen).
+- A **Прокси** section below it has two cards in the same grid: SOCKS5
+  (`192.168.8.1:10808`) and HTTP (`192.168.8.1:10809`), each with a short
+  note that the address is for configuring individual apps by hand. Proxy
+  behaviour is unchanged.
+- The old footer line about proxies is removed. A small "IPv6 не
+  проксируется." note stays at the bottom of the VPN section.
+
+
 ## 1.3.0a2
 
 - Web page: the vless / hysteria2 / naive link fields and the WireGuard

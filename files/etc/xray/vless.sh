@@ -1,8 +1,10 @@
 #!/bin/sh
 # vless.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
-#         | store vless|hy2|naive|wg <file> | proto vless|hy2|naive|wg | mode ru|all
-#         | on | off | status | autoset <proto> <0|1> <1h|6h|24h>
+#         | sockssave <json> | httpsave <json>
+#         | store vless|hy2|naive|wg|socks|http <file> | proto vless|hy2|naive|wg|socks|http
+#         | mode ru|all | on | off | status | autoset <proto> <0|1> <1h|6h|24h>
 #         | src <proto> <infile> <outfile> <0|1> | update <proto>
+#         | mergecfg socks|http <base.json> <settings.json> <out.json>
 D=${VLESS_PANEL_DIR:-/etc/xray}
 HYD=${VLESS_HYSTERIA_DIR:-/etc/hysteria}
 NAD=${VLESS_NAIVE_DIR:-/etc/naive}
@@ -60,6 +62,36 @@ au_fetch(){
 }
 gen(){ # $1 linkfile $2 mode $3 proto
   P=${3:-$PROTO}
+  if [ "$P" = socks ] || [ "$P" = http ]; then
+    if [ ! -s "$D/$P.json" ]; then
+      [ "$P" = socks ] && err "Сначала заполни поля SOCKS5"
+      err "Сначала заполни поля HTTP"
+    fi
+    ucode $D/gen.uc --base "$2" > /tmp/vless.json 2>/tmp/vless.err || err "$(cat /tmp/vless.err)"
+    merge_proxy_cfg "$P" /tmp/vless.json "$D/$P.json" /tmp/vless.j2
+    mv /tmp/vless.j2 /tmp/vless.json
+    H=$(jq -r '.address' "$D/$P.json")
+    IP=$(resolve_host_ip "$H")
+    case "$H" in
+      *:*) ;;
+      *) [ -n "$IP" ] || err "Не удалось получить IP сервера" ;;
+    esac
+    if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
+      XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray отклонил конфиг: $(tail -3 /tmp/vless.err)"
+    else
+      jq -e . /tmp/vless.json >/dev/null 2>&1 || err "конфиг не JSON"
+    fi
+    cp $D/config.json $D/config.prev.json 2>/dev/null
+    mv /tmp/vless.json $D/config.json
+    [ -n "$IP" ] && echo "$IP" > $D/server_ip
+    echo "$2" > $D/mode
+    echo "$P" > $D/proto
+    hyup "$P"
+    xrestart || { cp $D/config.prev.json $D/config.json; echo "$PROTO" > $D/proto; echo "$MODE" > $D/mode; hyup "$PROTO"; xrestart; au_tproxy; err "Xray не запустился, конфиг откатан"; }
+    au_tproxy
+    echo OK
+    return 0
+  fi
   L=$(cat "$1" | tr -d '\r\n ')
   case "$L" in vless://*) ;; *) err "Ссылка должна начинаться с vless://";; esac
   H=$(echo "$L" | sed -E 's#^vless://[^@]+@\[?([^]:/?#]+)\]?:.*#\1#')
@@ -85,7 +117,11 @@ gen(){ # $1 linkfile $2 mode $3 proto
     [ -s $D/wg.json ] || err "Сначала сохрани конфиг WireGuard"
     jq --slurpfile w $D/wg.json '(.outbounds[] | select(.tag=="proxy")) |= ($w[0] + {tag:"proxy",streamSettings:{sockopt:{mark:255}}})' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
   fi
-  XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray отклонил конфиг: $(tail -3 /tmp/vless.err)"
+  if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
+    XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray отклонил конфиг: $(tail -3 /tmp/vless.err)"
+  else
+    jq -e . /tmp/vless.json >/dev/null 2>&1 || err "конфиг не JSON"
+  fi
   cp $D/config.json $D/config.prev.json 2>/dev/null
   mv /tmp/vless.json $D/config.json; mv /tmp/vless.link $D/link.txt; echo "$IP" > $D/server_ip; echo "$2" > $D/mode; echo "$P" > $D/proto
   hyup "$P"
@@ -132,13 +168,118 @@ store_wg(){
   jq -e . /tmp/wg.json >/dev/null 2>&1 || { rm -f /tmp/wg.conf /tmp/wg.json; err "Ошибка разбора конфига WireGuard"; }
   umask 077; mv /tmp/wg.json $D/wg.json; mv /tmp/wg.conf $D/wg.conf
 }
+# Resolve a hostname or IPv4 literal to an IPv4 address (for the tproxy bypass set).
+# IPv6 literals return empty (the bypass set is IPv4-only).
+resolve_host_ip(){
+  H=$1
+  if echo "$H" | grep -qE '^[0-9]+(\.[0-9]+){3}$'; then
+    printf '%s\n' "$H"
+    return 0
+  fi
+  # IPv6 literal (with or without brackets): no IPv4 to add to the bypass set.
+  case "$H" in *:*) return 0;; esac
+  nslookup "$H" 2>/dev/null | awk '/^Name:/{n=1} n&&/^Address/{print $NF}' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1
+}
+
+store_proxy(){
+  # proto infile — JSON with address, port, optional user/pass;
+  # for http also tls (bool), sni, allowInsecure (bool). Written 0600.
+  P=$1
+  case "$P" in socks|http) ;; *) err "store socks|http";; esac
+  [ -s "$2" ] || err "укажи адрес и порт"
+  jq -e . "$2" >/dev/null 2>&1 || err "не удалось прочитать настройки"
+  ADDR=$(jq -r '.address // empty' "$2")
+  PORT=$(jq -r '.port // empty' "$2")
+  [ -n "$ADDR" ] || err "укажи адрес"
+  printf '%s' "$ADDR" | grep -q '[[:space:]]' && err "неверный адрес"
+  [ "${#ADDR}" -le 253 ] || err "неверный адрес"
+  case "$PORT" in ''|*[!0-9]*) err "укажи порт 1-65535";; esac
+  [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || err "укажи порт 1-65535"
+  USER=$(jq -r '.user // empty' "$2")
+  PASS=$(jq -r '.pass // empty' "$2")
+  [ "${#USER}" -le 256 ] && [ "${#PASS}" -le 256 ] || err "слишком длинный логин или пароль"
+  OUT=/tmp/proxy-$P.json
+  umask 077
+  if [ "$P" = http ]; then
+    TLS=$(jq -r 'if .tls==true or .tls=="1" or .tls==1 then "true" else "false" end' "$2")
+    INS=$(jq -r 'if .allowInsecure==true or .allowInsecure=="1" or .allowInsecure==1 then "true" else "false" end' "$2")
+    SNI=$(jq -r '.sni // empty' "$2")
+    [ "${#SNI}" -le 253 ] || err "неверное SNI"
+    jq -n --arg a "$ADDR" --argjson p "$PORT" --arg u "$USER" --arg w "$PASS" --argjson tls "$TLS" --arg s "$SNI" --argjson ins "$INS" \
+      '{address:$a,port:$p,user:$u,pass:$w,tls:$tls,sni:$s,allowInsecure:$ins}' > "$OUT" || err "jq"
+  else
+    jq -n --arg a "$ADDR" --argjson p "$PORT" --arg u "$USER" --arg w "$PASS" \
+      '{address:$a,port:$p,user:$u,pass:$w}' > "$OUT" || err "jq"
+  fi
+  chmod 600 "$OUT"
+  mv "$OUT" "$D/$P.json"
+  chmod 600 "$D/$P.json"
+}
+
+# proto base.json settings.json out.json — replace the "proxy" outbound (and,
+# for http, send DNS over TCP, block QUIC, and send other UDP direct).
+merge_proxy_cfg(){
+  P=$1
+  case "$P" in socks|http) ;; *) err "mergecfg socks|http";; esac
+  [ -s "$2" ] && [ -s "$3" ] || err "нет конфига"
+  jq -e . "$2" >/dev/null 2>&1 && jq -e . "$3" >/dev/null 2>&1 || err "не удалось прочитать конфиг"
+  if [ "$P" = socks ]; then
+    jq --slurpfile s "$3" '
+      def server:
+        {address:$s[0].address, port:($s[0].port|tonumber)} as $b
+        | if (($s[0].user//"")!="" or ($s[0].pass//"")!="")
+          then $b + {users:[{user:($s[0].user//""), pass:($s[0].pass//"")}]}
+          else $b end;
+      (.outbounds[] | select(.tag=="proxy")) |= {
+        tag:"proxy", protocol:"socks",
+        settings:{servers:[server]},
+        streamSettings:{sockopt:{mark:255}}
+      }
+    ' "$2" > "$4" || err "jq"
+  else
+    jq --slurpfile s "$3" '
+      def server:
+        {address:$s[0].address, port:($s[0].port|tonumber)} as $b
+        | if (($s[0].user//"")!="" or ($s[0].pass//"")!="")
+          then $b + {users:[{user:($s[0].user//""), pass:($s[0].pass//"")}]}
+          else $b end;
+      def stream:
+        {sockopt:{mark:255}} +
+        (if $s[0].tls==true then
+          {security:"tls", tlsSettings:{
+            serverName:(if ($s[0].sni//"")!="" then $s[0].sni else $s[0].address end),
+            allowInsecure:($s[0].allowInsecure==true)
+          }}
+         else {} end);
+      (.outbounds[] | select(.tag=="proxy")) |= {
+        tag:"proxy", protocol:"http",
+        settings:{servers:[server]},
+        streamSettings:stream
+      }
+      | .outbounds += [
+          {tag:"dns-out",protocol:"dns",settings:{network:"tcp",address:"1.1.1.1",port:53}},
+          {tag:"block",protocol:"blackhole"}
+        ]
+      | .dns = {servers:["tcp://1.1.1.1","tcp://8.8.8.8"],queryStrategy:"UseIPv4"}
+      | .routing.rules = [
+          {type:"field",inboundTag:["dns-in"],outboundTag:"dns-out"},
+          {type:"field",network:"udp",port:"53",outboundTag:"dns-out"},
+          {type:"field",network:"udp",port:"443",outboundTag:"block"}
+        ] + .routing.rules[0:-1] + [
+          {type:"field",network:"udp",outboundTag:"direct"}
+        ] + .routing.rules[-1:]
+    ' "$2" > "$4" || err "jq"
+  fi
+}
+
 store_proto(){
   case "$1" in
     vless) store_vless "$2" ;;
     hy2) store_hy2 "$2" ;;
     naive) store_naive "$2" ;;
     wg) store_wg "$2" ;;
-    *) err "store vless|hy2|naive|wg" ;;
+    socks|http) store_proxy "$1" "$2" ;;
+    *) err "store vless|hy2|naive|wg|socks|http" ;;
   esac
 }
 do_src(){ # proto infile outfile fetch(0|1)
@@ -236,8 +377,11 @@ naivesave)
   [ -x /usr/bin/naive ] || err "Сначала установи naive: /usr/libexec/aurora-panel/install-naive.sh"
   store_naive "$2"; gen $D/link.txt "$MODE" naive;;
 wgsave) store_wg "$2"; gen $D/link.txt "$MODE" wg;;
+sockssave) store_proxy socks "$2"; gen $D/link.txt "$MODE" socks;;
+httpsave) store_proxy http "$2"; gen $D/link.txt "$MODE" http;;
 store) store_proto "$2" "$3"; echo OK;;
-proto) case "$2" in vless|hy2|naive|wg) ;; *) err "proto vless|hy2|naive|wg";; esac; gen $D/link.txt "$MODE" "$2";;
+mergecfg) merge_proxy_cfg "$2" "$3" "$4" "$5"; echo OK;;
+proto) case "$2" in vless|hy2|naive|wg|socks|http) ;; *) err "proto vless|hy2|naive|wg|socks|http";; esac; gen $D/link.txt "$MODE" "$2";;
 mode) case "$2" in ru|all) ;; *) err "mode ru|all";; esac; gen $D/link.txt "$2";;
 on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; xrestart || err "Xray не запустился"; echo OK;;
 off) touch $D/tproxy.disabled; $D/tproxy.sh down; echo OK;;

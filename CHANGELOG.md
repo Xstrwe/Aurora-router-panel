@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.3.0a4
+
+- **Прокси** section: SOCKS5 and HTTP are no longer static address cards.
+  Each one starts with an **Добавить** button; pressing it reveals separate
+  fields (address, port, login, password). The HTTP card also has a TLS
+  toggle, SNI, and "не проверять сертификат". **Подключить SOCKS5** /
+  **Подключить HTTP** saves the fields and switches the tunnel to that
+  upstream. There is no link field, no auto-update row and no "Обновить
+  сейчас" — these protocols have no subscription to pull from.
+- New backend protos `socks` and `http` (`vless.sh sockssave` / `httpsave`,
+  `store`, `proto`). Settings are stored in `/etc/xray/socks.json` and
+  `/etc/xray/http.json` (mode 600). The generated xray config keeps the
+  usual inbounds (SOCKS 10808, HTTP 10809, tproxy 12345/12346, DNS 5354)
+  and RU-direct routing; the `proxy` outbound is an xray socks or http
+  outbound to the given upstream (the upstream IPv4 is added to the
+  tproxy bypass set). An HTTP upstream cannot carry UDP: DNS goes over
+  TCP through the tunnel, QUIC is blocked, other UDP goes direct. The
+  local LAN addresses stay as a hint under the section.
+- `ucode gen.uc --base <mode>` builds a skeleton config without a
+  vless:// link, so a SOCKS/HTTP upstream can be used on its own.
+  `vless.sh mergecfg` is used to assemble the outbound (and is covered
+  by tests).
+
+
 ## 1.3.0a3
 
 - Web page: the four protocol cards sit in a **VPN** section (heading at

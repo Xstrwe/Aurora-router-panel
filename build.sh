@@ -58,6 +58,7 @@ done
 for f in \
   etc/xray/link.txt etc/xray/config.json etc/xray/hy2.txt \
   etc/xray/naive.txt etc/xray/wg.conf etc/xray/wg.json \
+  etc/xray/socks.json etc/xray/http.json \
   etc/xray/server_ip etc/xray/mode etc/xray/proto \
   etc/xray/httpd.conf etc/hysteria/client.yaml \
   etc/naive/config.json

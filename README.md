@@ -85,7 +85,7 @@ The script picks the static build for your architecture from the klzgrad/naivepr
 
 ## Upgrading
 
-Install the new `.ipk` the same way as above. Files that are not part of the package are kept: `/etc/xray/{link.txt,config.json,hy2.txt,naive.txt,wg.conf,wg.json,server_ip,mode,proto,httpd.conf}`, `/etc/xray/autoupdate/*`, `/etc/hysteria/client.yaml`, `/etc/naive/config.json` and `/usr/bin/naive`.
+Install the new `.ipk` the same way as above. Files that are not part of the package are kept: `/etc/xray/{link.txt,config.json,hy2.txt,naive.txt,wg.conf,wg.json,socks.json,http.json,server_ip,mode,proto,httpd.conf}`, `/etc/xray/autoupdate/*`, `/etc/hysteria/client.yaml`, `/etc/naive/config.json` and `/usr/bin/naive`.
 
 ### Upgrading from `vless-router-panel`
 
@@ -112,7 +112,7 @@ The page UI is currently in Russian; this README names every button and label by
 - **Test connection / Speed:** connection and speed tests through the tunnel.
 - **Mode:** "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
 - **VPN section:** the four protocol cards in a two-column grid that starts on the same line (VLESS and Hysteria2 on the left, Naive and WireGuard on the right; one column on a narrow screen). Each card is only as tall as its content: a field for the link or config that grows with its content, an auto-update row (checkbox and interval on one line), and the buttons **Connect …** and **Update now** side by side. If a protocol has no saved link or config, the field is hidden behind an **Add** button; pressing it reveals the field. A small note at the bottom of the section says IPv6 is not proxied.
-- **Proxy section:** two cards, SOCKS5 (`192.168.8.1:10808`) and HTTP (`192.168.8.1:10809`), for configuring individual apps by hand. The proxies themselves are unchanged.
+- **Proxy section:** two cards, SOCKS5 and HTTP, in the same two-column grid. There is no link field: an **Add** button reveals separate fields (address, port, login, password; HTTP also has a TLS toggle, SNI, and “do not verify the certificate”). **Connect SOCKS5** / **Connect HTTP** saves the fields and applies them as the tunnel’s upstream. These cards have no auto-update row and no **Update now**. A small hint under the section reminds you of the local LAN proxies for individual apps: SOCKS5 `192.168.8.1:10808` and HTTP `192.168.8.1:10809`. An HTTP upstream cannot carry UDP (QUIC is blocked, other UDP goes direct).
 
 ### Command line
 
@@ -123,7 +123,9 @@ vless.sh save <file>        # save a vless:// link and connect VLESS
 vless.sh hy2save <file>     # save a hysteria2:// link and connect Hysteria2
 vless.sh naivesave <file>   # save a naive+https:// link and connect Naive
 vless.sh wgsave <file>      # save a WireGuard .conf and connect WireGuard
-vless.sh proto vless|hy2|naive|wg   # switch to an already saved protocol
+vless.sh sockssave <file>   # save SOCKS5 upstream JSON and connect (address, port, user, pass)
+vless.sh httpsave <file>    # save HTTP upstream JSON and connect (plus tls, sni, allowInsecure)
+vless.sh proto vless|hy2|naive|wg|socks|http   # switch to an already saved protocol
 vless.sh mode ru|all
 vless.sh on | off           # transparent mode on / off
 vless.sh status             # running=, tproxy=, mode=, proto=, server_ip=

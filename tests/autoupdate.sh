@@ -158,8 +158,8 @@ if grep -q 'auurl\|ссылка на обновление\|Пусто — обн
 else
 	ok "CGI has no auto-update URL field, hint or Save button"
 fi
-if [ "$(grep -c '>Обновить сейчас<' "$CGI")" = 4 ] && [ "$(grep -c '>Подключить ' "$CGI")" = 4 ]; then
-	ok "CGI has Connect + Update now in all 4 protocol cards"
+if [ "$(grep -c '>Обновить сейчас<' "$CGI")" = 4 ] && [ "$(grep -c '>Подключить ' "$CGI")" = 6 ]; then
+	ok "CGI has Connect on 6 cards and Update now on the 4 VPN cards"
 else
 	bad "CGI button count"
 fi
@@ -181,10 +181,26 @@ if grep -q '<h3>VPN</h3>' "$CGI" \
    && grep -q '192.168.8.1:10809' "$CGI" \
    && grep -q '>SOCKS5<' "$CGI" \
    && grep -q '>HTTP<' "$CGI" \
-   && grep -q 'Для ручной настройки отдельных программ' "$CGI" \
    && grep -q 'IPv6 не проксируется.' "$CGI" \
+   && grep -q 'Локальные прокси для отдельных программ' "$CGI" \
+   && grep -q '>Подключить SOCKS5<' "$CGI" \
+   && grep -q '>Подключить HTTP<' "$CGI" \
+   && grep -q 'name=addr' "$CGI" \
+   && grep -q 'name=port' "$CGI" \
+   && grep -q 'name=user' "$CGI" \
+   && grep -q 'name=pass' "$CGI" \
+   && grep -q 'не проверять сертификат' "$CGI" \
+   && grep -q 'name=tls' "$CGI" \
+   && grep -q 'name=sni' "$CGI" \
+   && grep -q 'sockssave' "$CGI" \
+   && grep -q 'httpsave' "$CGI" \
+   && grep -q 'proxy_fields' "$CGI" \
+   && ! grep -q 'Для ручной настройки отдельных программ' "$CGI" \
    && ! grep -q 'Прокси для отдельных программ' "$CGI" \
-   && ! grep -q 'column-count' "$CGI"; then
+   && ! grep -q 'column-count' "$CGI" \
+   && ! grep -q 'Ссылка socks5' "$CGI" \
+   && ! grep -q 'au_row socks' "$CGI" \
+   && ! grep -q 'au_row http' "$CGI"; then
 	ok "CGI has VPN and Proxy sections, aligned two-column grid"
 else
 	bad "CGI VPN/Proxy section layout"
@@ -424,6 +440,141 @@ else
 	bad "src fetch=0"
 fi
 au_src_clear hy2
+
+# --- socks/http store, mergecfg, backup (no xray, no ucode) ---
+if au_ok_proto socks || au_ok_proto http; then
+	bad "au_ok_proto must not include socks/http (no autoupdate)"
+else
+	ok "au_ok_proto rejects socks/http"
+fi
+if "$SH" autoset socks 1 1h >/dev/null 2>&1; then
+	bad "autoset socks should fail"
+else
+	ok "autoset socks rejected"
+fi
+# store: valid socks, mode 600, password not leaked by the OK line
+cat > "$TMP/socks.in" <<'JSON'
+{"address":"192.0.2.80","port":1080,"user":"alice","pass":"s3cret"}
+JSON
+chmod 644 "$TMP/socks.in"
+if "$SH" store socks "$TMP/socks.in" >/tmp/store-socks.out 2>&1 \
+   && [ "$(jq -r .address "$D/socks.json")" = 192.0.2.80 ] \
+   && [ "$(jq -r .port "$D/socks.json")" = 1080 ] \
+   && [ "$(stat -c %a "$D/socks.json")" = 600 ]; then
+	ok "store socks writes 0600 JSON"
+else
+	bad "store socks"
+fi
+if grep -q s3cret /tmp/store-socks.out 2>/dev/null; then
+	bad "store socks printed a password"
+else
+	ok "store socks does not print a password"
+fi
+# store: reject a bad port (do not dump the file on failure)
+printf '{"address":"192.0.2.80","port":0}\n' > "$TMP/socks.bad"
+if "$SH" store socks "$TMP/socks.bad" >/tmp/store-socks-bad.out 2>&1; then
+	bad "store socks should reject port 0"
+else
+	ok "store socks rejects port 0"
+fi
+printf '{"address":"","port":1080}\n' > "$TMP/socks.bad"
+if "$SH" store socks "$TMP/socks.bad" >/tmp/store-socks-bad.out 2>&1; then
+	bad "store socks should reject an empty address"
+else
+	ok "store socks rejects an empty address"
+fi
+# store http with TLS
+cat > "$TMP/http.in" <<'JSON'
+{"address":"192.0.2.81","port":443,"user":"","pass":"","tls":true,"sni":"proxy.example","allowInsecure":true}
+JSON
+if "$SH" store http "$TMP/http.in" >/dev/null 2>&1 \
+   && [ "$(jq -r .tls "$D/http.json")" = true ] \
+   && [ "$(jq -r .sni "$D/http.json")" = proxy.example ] \
+   && [ "$(jq -r .allowInsecure "$D/http.json")" = true ] \
+   && [ "$(stat -c %a "$D/http.json")" = 600 ]; then
+	ok "store http writes TLS settings as 0600 JSON"
+else
+	bad "store http"
+fi
+
+# mergecfg: fixture inbounds/routing, no real credentials in the result checks
+cat > "$TMP/base.json" <<'JSON'
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [
+    {"tag": "tproxy", "port": 12345},
+    {"tag": "redir", "port": 12346},
+    {"tag": "dns-in", "port": 5354},
+    {"tag": "socks", "port": 10808},
+    {"tag": "http", "port": 10809}
+  ],
+  "outbounds": [
+    {"tag": "proxy", "protocol": "freedom"},
+    {"tag": "direct", "protocol": "freedom", "streamSettings": {"sockopt": {"mark": 255}}}
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {"type": "field", "inboundTag": ["dns-in"], "outboundTag": "proxy"},
+      {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
+      {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"}
+    ]
+  }
+}
+JSON
+if "$SH" mergecfg socks "$TMP/base.json" "$D/socks.json" "$TMP/out.socks.json" >/dev/null 2>&1 \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .protocol' "$TMP/out.socks.json")" = socks ] \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .settings.servers[0].address' "$TMP/out.socks.json")" = 192.0.2.80 ] \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .settings.servers[0].port' "$TMP/out.socks.json")" = 1080 ] \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .settings.servers[0].users[0].user' "$TMP/out.socks.json")" = alice ] \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .streamSettings.sockopt.mark' "$TMP/out.socks.json")" = 255 ] \
+   && [ "$(jq -r '.inbounds[] | select(.tag=="socks") | .port' "$TMP/out.socks.json")" = 10808 ]; then
+	ok "mergecfg socks builds a marked socks outbound and keeps inbounds"
+else
+	bad "mergecfg socks"
+fi
+# socks without auth: no users array
+jq '{address,port,user:"",pass:""}' "$D/socks.json" > "$TMP/socks.nouser.json"
+if "$SH" mergecfg socks "$TMP/base.json" "$TMP/socks.nouser.json" "$TMP/out.socks2.json" >/dev/null 2>&1 \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .settings.servers[0] | has("users")' "$TMP/out.socks2.json")" = false ]; then
+	ok "mergecfg socks omits users when login is empty"
+else
+	bad "mergecfg socks without auth"
+fi
+if "$SH" mergecfg http "$TMP/base.json" "$D/http.json" "$TMP/out.http.json" >/dev/null 2>&1 \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .protocol' "$TMP/out.http.json")" = http ] \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .streamSettings.security' "$TMP/out.http.json")" = tls ] \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .streamSettings.tlsSettings.serverName' "$TMP/out.http.json")" = proxy.example ] \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .streamSettings.tlsSettings.allowInsecure' "$TMP/out.http.json")" = true ] \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .streamSettings.sockopt.mark' "$TMP/out.http.json")" = 255 ] \
+   && [ "$(jq -r '[.routing.rules[] | select(.outboundTag=="dns-out" and .inboundTag==["dns-in"])] | length' "$TMP/out.http.json")" -ge 1 ] \
+   && [ "$(jq -r '[.routing.rules[] | select(.network=="udp" and .port=="443" and .outboundTag=="block")] | length' "$TMP/out.http.json")" -ge 1 ] \
+   && [ "$(jq -r '[.routing.rules[] | select(.network=="udp" and .outboundTag=="direct" and (.port|not))] | length' "$TMP/out.http.json")" -ge 1 ]; then
+	ok "mergecfg http uses TLS and sends UDP direct / blocks QUIC"
+else
+	bad "mergecfg http"
+fi
+# default SNI is the address when tls is on and sni is empty
+jq '.sni=""' "$D/http.json" > "$TMP/http.nosni.json"
+if "$SH" mergecfg http "$TMP/base.json" "$TMP/http.nosni.json" "$TMP/out.http2.json" >/dev/null 2>&1 \
+   && [ "$(jq -r '.outbounds[] | select(.tag=="proxy") | .streamSettings.tlsSettings.serverName' "$TMP/out.http2.json")" = 192.0.2.81 ]; then
+	ok "mergecfg http defaults SNI to the address"
+else
+	bad "mergecfg http default SNI"
+fi
+
+# backup / restore keeps socks.json and http.json
+B=$TMP/bak-proxy
+au_backup "$B"
+jq '.address="0.0.0.0"' "$D/socks.json" > "$D/socks.json.tmp" && mv "$D/socks.json.tmp" "$D/socks.json"
+rm -f "$D/http.json"
+au_restore "$B"
+if [ "$(jq -r .address "$D/socks.json")" = 192.0.2.80 ] \
+   && [ "$(jq -r .sni "$D/http.json")" = proxy.example ]; then
+	ok "au_backup/restore keeps socks.json and http.json"
+else
+	bad "au_backup/restore proxy settings"
+fi
 
 # --- sh -n of scripts ---
 for s in \

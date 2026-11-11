@@ -41,6 +41,42 @@ link_field(){
 <button type=button class=add $_btn_h>Добавить</button></div>
 BLK
 }
+# $1 proto socks|http — separate fields; empty saved config: hide and show "Добавить"
+proxy_fields(){
+  F=/etc/xray/$1.json
+  ADDR=; PORT=; USER=; PASS=; SNI=; TLS=; INS=
+  PF_H=hidden; ADD_H=
+  if [ -s "$F" ]; then
+    ADDR=$(jq -r '.address // empty' "$F" | esc)
+    PORT=$(jq -r '.port // empty' "$F" | esc)
+    USER=$(jq -r '.user // empty' "$F" | esc)
+    PASS=$(jq -r '.pass // empty' "$F" | esc)
+    SNI=$(jq -r '.sni // empty' "$F" | esc)
+    [ "$(jq -r '.tls // false' "$F")" = true ] && TLS=checked
+    [ "$(jq -r '.allowInsecure // false' "$F")" = true ] && INS=checked
+    PF_H=; ADD_H=hidden
+  fi
+  cat <<BLK
+<div class=pf $PF_H>
+<label>Адрес <input type=text name=addr value="$ADDR" autocomplete=off spellcheck=false></label>
+<label>Порт <input type=text name=port value="$PORT" inputmode=numeric autocomplete=off></label>
+<label>Логин <input type=text name=user value="$USER" autocomplete=off spellcheck=false></label>
+<label>Пароль <input type=password name=pass value="$PASS" autocomplete=new-password></label>
+BLK
+  if [ "$1" = http ]; then
+    cat <<BLK
+<label class="chk span2"><input type=checkbox name=tls value=1 $TLS> TLS</label>
+<div class="tls-extra span2" style="display:contents">
+<label>SNI <input type=text name=sni value="$SNI" autocomplete=off spellcheck=false></label>
+<label class=chk><input type=checkbox name=insecure value=1 $INS> не проверять сертификат</label>
+</div>
+BLK
+  fi
+  cat <<BLK
+</div>
+<button type=button class=add $ADD_H>Добавить</button>
+BLK
+}
 MSG=""
 if [ "$REQUEST_METHOD" = POST ]; then
   POST=$(head -c "${CONTENT_LENGTH:-0}")
@@ -57,7 +93,7 @@ if [ "$REQUEST_METHOD" = POST ]; then
 IP выхода: ${IPX:-?}
 YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
       else MSG="Тест: нет подключения ❌ (код ${1:-нет ответа})"; fi;;
-    speed) PNX=VLESS; grep -q hy2 /etc/xray/proto 2>/dev/null && PNX=Hysteria2; grep -q naive /etc/xray/proto 2>/dev/null && PNX=Naive; grep -q wg /etc/xray/proto 2>/dev/null && PNX=WireGuard; R=$(curl -s -o /dev/null -m 20 -w '%{speed_download} %{size_download}' --socks5-hostname 127.0.0.1:10808 'https://speed.cloudflare.com/__down?bytes=50000000' 2>/dev/null)
+    speed) PNX=VLESS; grep -q hy2 /etc/xray/proto 2>/dev/null && PNX=Hysteria2; grep -q naive /etc/xray/proto 2>/dev/null && PNX=Naive; grep -q wg /etc/xray/proto 2>/dev/null && PNX=WireGuard; grep -q socks /etc/xray/proto 2>/dev/null && PNX=SOCKS5; grep -q http /etc/xray/proto 2>/dev/null && PNX=HTTP; R=$(curl -s -o /dev/null -m 20 -w '%{speed_download} %{size_download}' --socks5-hostname 127.0.0.1:10808 'https://speed.cloudflare.com/__down?bytes=50000000' 2>/dev/null)
       set -- $R
       if [ "${2%.*}" -gt 100000 ] 2>/dev/null; then MSG="Скорость ($PNX): $(awk "BEGIN{printf \"%.1f\", $1*8/1000000}") Мбит/с (скачано $(awk "BEGIN{printf \"%.1f\", $2/1048576}") МБ)"
       else MSG="Скорость: не удалось измерить ❌"; fi;;
@@ -90,6 +126,27 @@ YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
           rm -f $IN $OUT;;
         esac
       fi;;
+    sockssave|httpsave)
+      AP=socks; [ "$A" = httpsave ] && AP=http
+      IN=/tmp/cgi-$AP.in
+      umask 077
+      ADDR=$(ud "$(fld addr)")
+      PORT=$(ud "$(fld port)")
+      USER=$(ud "$(fld user)")
+      PASS=$(ud "$(fld pass)")
+      if [ "$AP" = http ]; then
+        TLS=false; [ "$(fld tls)" = 1 ] && TLS=true
+        INS=false; [ "$(fld insecure)" = 1 ] && INS=true
+        SNI=$(ud "$(fld sni)")
+        jq -n --arg a "$ADDR" --arg p "$PORT" --arg u "$USER" --arg w "$PASS" --argjson tls "$TLS" --arg s "$SNI" --argjson ins "$INS"           '{address:$a,port:$p,user:$u,pass:$w,tls:$tls,sni:$s,allowInsecure:$ins}' > $IN || MSG="ERROR: не удалось собрать настройки"
+      else
+        jq -n --arg a "$ADDR" --arg p "$PORT" --arg u "$USER" --arg w "$PASS"           '{address:$a,port:$p,user:$u,pass:$w}' > $IN || MSG="ERROR: не удалось собрать настройки"
+      fi
+      chmod 600 $IN
+      if [ -z "$MSG" ]; then
+        MSG=$($V $A $IN 2>&1)
+      fi
+      rm -f $IN;;
   esac
   case "$A" in test|speed|update) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Готово";; esac;; esac
 fi
@@ -99,10 +156,26 @@ HY2=$(field_raw hy2 | esc)
 NV=$(field_raw naive | esc)
 WG=$(field_raw wg | esc)
 PN=VLESS; [ "$S_proto" = hy2 ] && PN=Hysteria2; [ "$S_proto" = naive ] && PN=Naive; [ "$S_proto" = wg ] && PN=WireGuard
+[ "$S_proto" = socks ] && PN=SOCKS5; [ "$S_proto" = http ] && PN=HTTP
 LINK=$(field_raw vless | esc)
-case "$S_proto" in hy2) F=/etc/xray/hy2.txt;; naive) F=/etc/xray/naive.txt;; wg) F=;; *) F=/etc/xray/link.txt;; esac
-if [ -n "$F" ]; then HOST=$(sed -E 's#^[a-z0-9+]+://[^@]+@([^/?\#]+).*#\1#' $F 2>/dev/null | head -1 | esc); SNI=$(sed -nE 's#.*[?&]sni=([^&\#]+).*#\1#p' $F 2>/dev/null | head -1 | esc); [ -n "$SNI" ] || SNI=${HOST%:*}
-else HOST=$(jq -r '.settings.peers[0].endpoint' /etc/xray/wg.json 2>/dev/null | esc); SNI="без SNI"; fi
+case "$S_proto" in
+  hy2) F=/etc/xray/hy2.txt;;
+  naive) F=/etc/xray/naive.txt;;
+  wg|socks|http) F=;;
+  *) F=/etc/xray/link.txt;;
+esac
+if [ -n "$F" ]; then
+  HOST=$(sed -E 's#^[a-z0-9+]+://[^@]+@([^/?\#]+).*#\1#' $F 2>/dev/null | head -1 | esc)
+  SNI=$(sed -nE 's#.*[?&]sni=([^&\#]+).*#\1#p' $F 2>/dev/null | head -1 | esc)
+  [ -n "$SNI" ] || SNI=${HOST%:*}
+elif [ "$S_proto" = socks ] || [ "$S_proto" = http ]; then
+  HOST=$(jq -r '[.address,(.port|tostring)] | join(":")' /etc/xray/$S_proto.json 2>/dev/null | esc)
+  SNI=$(jq -r 'if .tls==true then (.sni // "" | if .=="" then "TLS" else . end) else "без SNI" end' /etc/xray/$S_proto.json 2>/dev/null | esc)
+  [ -n "$HOST" ] || HOST="—"
+else
+  HOST=$(jq -r '.settings.peers[0].endpoint' /etc/xray/wg.json 2>/dev/null | esc)
+  SNI="без SNI"
+fi
 if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"; BA=off; BT="Выключить VLESS"; BC="#c62828"
 else ST="ВЫКЛЮЧЕН (интернет напрямую)"; SC="#c62828"; BA=on; BT="Включить VLESS"; BC="#1a7f37"; fi
 [ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
@@ -124,8 +197,12 @@ select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background
 .grid .c{margin:0}
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
 .hint{color:#777;font-size:12px;margin:10px 0 0}
-.addr{font-family:ui-monospace,Menlo,monospace;font-size:16px;margin:8px 0 6px}
-.note{margin:0;font-size:14px;color:#555}
+.pf{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:8px}
+.pf label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#444}
+.pf input[type=text],.pf input[type=password],.pf input[type=number]{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;font-family:inherit}
+.pf .chk{flex-direction:row;align-items:center;gap:8px}
+.pf .span2{grid-column:1/-1}
+.http-udp{color:#777;font-size:12px;margin:10px 0 0}
 .au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
 .au select{font-size:14px;padding:4px}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
@@ -196,21 +273,34 @@ cat <<HTML
 <div class=sec>
 <h3>Прокси</h3>
 <div class=grid>
-<div class=c><b>SOCKS5</b>
-<div class=addr>192.168.8.1:10808</div>
-<p class=note>Для ручной настройки отдельных программ.</p></div>
-<div class=c><b>HTTP</b>
-<div class=addr>192.168.8.1:10809</div>
-<p class=note>Для ручной настройки отдельных программ.</p></div>
+<div class=c><form method=post><input type=hidden name=proto value=socks><b>SOCKS5</b>
+HTML
+proxy_fields socks
+cat <<HTML
+<div class=btns><button type=submit name=action value=sockssave style="background:#546e7a">Подключить SOCKS5</button></div></form></div>
+<div class=c><form method=post><input type=hidden name=proto value=http><b>HTTP</b>
+HTML
+proxy_fields http
+cat <<HTML
+<p class=http-udp>UDP через HTTP-прокси не поддерживается: QUIC блокируется, остальной UDP идёт напрямую.</p>
+<div class=btns><button type=submit name=action value=httpsave style="background:#0277bd">Подключить HTTP</button></div></form></div>
 </div>
+<p class=hint>Локальные прокси для отдельных программ: SOCKS5 192.168.8.1:10808, HTTP 192.168.8.1:10809.</p>
 </div>
 <script>
 function empty(t){return !t.value.replace(/[\r\n\t ]/g,'')}
 function fit(t){if(t.hidden)return;t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px'}
-function reveal(b){var t=b.parentNode.querySelector('textarea');b.hidden=true;t.hidden=false;if(empty(t)&&t.placeholder)t.rows=t.placeholder.split('\n').length;fit(t);t.focus()}
+function reveal(b){
+  var w=b.parentNode,t=w.querySelector('textarea'),pf=w.querySelector('.pf');
+  b.hidden=true;
+  if(t){t.hidden=false;if(empty(t)&&t.placeholder)t.rows=t.placeholder.split('\n').length;fit(t);t.focus()}
+  if(pf){pf.hidden=false;var i=pf.querySelector('input[name=addr]');if(i)i.focus()}
+}
+function syncTls(c){var e=c.form&&c.form.querySelector('.tls-extra');if(!e)return;e.hidden=!c.checked}
 document.querySelectorAll('.fld').forEach(function(w){var t=w.querySelector('textarea'),b=w.querySelector('.add');t.addEventListener('input',function(){fit(t)});if(empty(t)){t.hidden=true;if(b)b.hidden=false}else{if(b)b.hidden=true;fit(t)}});
 window.addEventListener('resize',function(){document.querySelectorAll('textarea').forEach(fit)});
 document.querySelectorAll('button.add').forEach(function(b){b.addEventListener('click',function(){reveal(b)})});
+document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventListener('change',function(){syncTls(c)});syncTls(c)});
 </script>
 </body></html>
 HTML

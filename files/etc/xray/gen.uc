@@ -1,10 +1,49 @@
-// usage: ucode gen.uc <linkfile> <server_ip> <mode ru|all>  -> prints config json
+// usage: ucode gen.uc <linkfile> <server_ip> <mode ru|all>  -> prints a vless config
+//        ucode gen.uc --base <mode ru|all>                  -> inbounds, routing, placeholder proxy
 import * as fs from 'fs';
 function die(m) { warn(m + "\n"); exit(1); }
 function dec(s) {
 	s = replace(s, /\+/g, ' ');
 	return replace(s, /%([0-9A-Fa-f]{2})/g, (m, h) => chr(hex(h)));
 }
+function rules_for(mode) {
+	let rules = [ { type: 'field', inboundTag: [ 'dns-in' ], outboundTag: 'proxy' }, { type: 'field', ip: [ 'geoip:private' ], outboundTag: 'direct' } ];
+	if (mode != 'all') {
+		push(rules, { type: 'field', domain: [ 'geosite:category-ru', 'regexp:\\.(ru|su|xn--p1ai|xn--d1acj3b|moscow|tatar)$' ], outboundTag: 'direct' });
+		push(rules, { type: 'field', ip: [ 'geoip:ru' ], outboundTag: 'direct' });
+	}
+	push(rules, { type: 'field', network: 'tcp,udp', outboundTag: 'proxy' });
+	return rules;
+}
+function inbounds() {
+	let sniff = { enabled: true, destOverride: [ 'http', 'tls', 'quic' ], routeOnly: true };
+	return [
+		{ tag: 'tproxy', listen: '127.0.0.1', port: 12345, protocol: 'dokodemo-door', settings: { network: 'udp', followRedirect: true }, streamSettings: { sockopt: { tproxy: 'tproxy' } }, sniffing: sniff },
+		{ tag: 'redir', listen: '0.0.0.0', port: 12346, protocol: 'dokodemo-door', settings: { network: 'tcp', followRedirect: true }, streamSettings: { sockopt: { tproxy: 'redirect' } }, sniffing: sniff },
+		{ tag: 'dns-in', listen: '127.0.0.1', port: 5354, protocol: 'dokodemo-door', settings: { address: '1.1.1.1', port: 53, network: 'tcp,udp' } },
+		{ tag: 'socks', listen: '0.0.0.0', port: 10808, protocol: 'socks', settings: { udp: true }, sniffing: sniff },
+		{ tag: 'http', listen: '0.0.0.0', port: 10809, protocol: 'http' }
+	];
+}
+function base_cfg(mode, proxy) {
+	return {
+		log: { loglevel: 'warning' },
+		inbounds: inbounds(),
+		outbounds: [
+			proxy,
+			{ tag: 'direct', protocol: 'freedom', streamSettings: { sockopt: { mark: 255 } } }
+		],
+		routing: { domainStrategy: 'IPIfNonMatch', rules: rules_for(mode) }
+	};
+}
+
+if (ARGV[0] == '--base') {
+	let mode = ARGV[1] || 'ru';
+	let proxy = { tag: 'proxy', protocol: 'freedom', streamSettings: { sockopt: { mark: 255 } } };
+	print(sprintf("%.2J\n", base_cfg(mode, proxy)));
+	exit(0);
+}
+
 let link = trim(fs.readfile(ARGV[0]) || '');
 let sip = ARGV[1], mode = ARGV[2] || 'ru';
 let m = match(link, /^vless:\/\/([^@]+)@(\[[^\]]+\]|[^:\/?#]+):([0-9]+)\/?(\?[^#]*)?(#.*)?$/);
@@ -51,26 +90,5 @@ if (sec == 'reality') {
 	if (q.alpn) ss.tlsSettings.alpn = split(q.alpn, ',');
 	if (q.allowInsecure == '1') ss.tlsSettings.allowInsecure = true;
 } else if (sec != 'none') die("Неподдерживаемый security=" + sec);
-let rules = [ { type: 'field', inboundTag: [ 'dns-in' ], outboundTag: 'proxy' }, { type: 'field', ip: [ 'geoip:private' ], outboundTag: 'direct' } ];
-if (mode != 'all') {
-	push(rules, { type: 'field', domain: [ 'geosite:category-ru', 'regexp:\\.(ru|su|xn--p1ai|xn--d1acj3b|moscow|tatar)$' ], outboundTag: 'direct' });
-	push(rules, { type: 'field', ip: [ 'geoip:ru' ], outboundTag: 'direct' });
-}
-push(rules, { type: 'field', network: 'tcp,udp', outboundTag: 'proxy' });
-let sniff = { enabled: true, destOverride: [ 'http', 'tls', 'quic' ], routeOnly: true };
-let cfg = {
-	log: { loglevel: 'warning' },
-	inbounds: [
-		{ tag: 'tproxy', listen: '127.0.0.1', port: 12345, protocol: 'dokodemo-door', settings: { network: 'udp', followRedirect: true }, streamSettings: { sockopt: { tproxy: 'tproxy' } }, sniffing: sniff },
-		{ tag: 'redir', listen: '0.0.0.0', port: 12346, protocol: 'dokodemo-door', settings: { network: 'tcp', followRedirect: true }, streamSettings: { sockopt: { tproxy: 'redirect' } }, sniffing: sniff },
-		{ tag: 'dns-in', listen: '127.0.0.1', port: 5354, protocol: 'dokodemo-door', settings: { address: '1.1.1.1', port: 53, network: 'tcp,udp' } },
-		{ tag: 'socks', listen: '0.0.0.0', port: 10808, protocol: 'socks', settings: { udp: true }, sniffing: sniff },
-		{ tag: 'http', listen: '0.0.0.0', port: 10809, protocol: 'http' }
-	],
-	outbounds: [
-		{ tag: 'proxy', protocol: 'vless', settings: { vnext: [ { address: sip, port: port, users: [ user ] } ] }, streamSettings: ss },
-		{ tag: 'direct', protocol: 'freedom', streamSettings: { sockopt: { mark: 255 } } }
-	],
-	routing: { domainStrategy: 'IPIfNonMatch', rules: rules }
-};
-print(sprintf("%.2J\n", cfg));
+let proxy = { tag: 'proxy', protocol: 'vless', settings: { vnext: [ { address: sip, port: port, users: [ user ] } ] }, streamSettings: ss };
+print(sprintf("%.2J\n", base_cfg(mode, proxy)));

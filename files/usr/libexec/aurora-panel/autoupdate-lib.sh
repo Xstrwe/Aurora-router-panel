@@ -217,6 +217,7 @@ au_backup() {
 		"$D/config.json" "$D/config.prev.json" \
 		"$D/link.txt" "$D/hy2.txt" "$D/naive.txt" \
 		"$D/wg.conf" "$D/wg.json" \
+		"$D/socks.json" "$D/http.json" \
 		"$D/proto" "$D/server_ip" "$D/mode" \
 		"$HYD/client.yaml" "$HYD/client.yaml.prev"
 	do
@@ -224,6 +225,7 @@ au_backup() {
 	done
 	[ -e "$NAD/config.json" ] && cp -a "$NAD/config.json" "$B/naive-config.json"
 	[ -e "$NAD/config.json.prev" ] && cp -a "$NAD/config.json.prev" "$B/naive-config.json.prev"
+	return 0
 }
 
 au_restore_file() {
@@ -244,6 +246,8 @@ au_restore() {
 	au_restore_file "$B" "$D/naive.txt"
 	au_restore_file "$B" "$D/wg.conf"
 	au_restore_file "$B" "$D/wg.json"
+	au_restore_file "$B" "$D/socks.json"
+	au_restore_file "$B" "$D/http.json"
 	au_restore_file "$B" "$D/proto"
 	au_restore_file "$B" "$D/server_ip"
 	au_restore_file "$B" "$D/mode"

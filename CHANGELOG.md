@@ -1,5 +1,73 @@
 # Changelog
 
+## 1.4.0
+
+Round release after 1.3.0a4: a reworked status card, equal-size VPN cards,
+proxy cards behind buttons, a sturdier restart, and a private test mirror.
+
+### Status card
+
+- **Режим** (the routing mode selector) is the first row of the status card,
+  above «Прозрачный режим для сети». The separate mode card is gone; the
+  selector works as before.
+- **Служба (демон)** (was «Служба Xray») lists every service behind the VPN
+  cards in one row, separated by ` / `: **Xray** (`xray-client`), **Naive**
+  (`naive-client`, the router's naive client), **Hysteria** (`hysteria-client`)
+  and **WireGuard**. A running service is green; a stopped or missing one is
+  red and bold, and the tooltip says "работает", "не запущен" or
+  "не установлен". WireGuard has no process of its own, it is an outbound
+  inside Xray: it is green when Xray runs and WireGuard is the connected
+  protocol, and its button restarts Xray.
+- Each service has its own small square **↻** restart button, 1.2 em (about
+  the line height of the label), centred on the capital letters, with a small
+  gap before the `/`. The old single big restart button is gone.
+- A button restarts only that service: `vless.sh restart-svc
+  xray|naive|hysteria|wireguard`, with a fixed whitelist of names (POST only,
+  nothing typed reaches the shell). It never changes the active protocol, and
+  restarting a service that is not the active protocol does not enable it at
+  boot.
+- If a restart fails, a banner at the very top of the page shows the reason in
+  red uppercase and a concrete fix in green uppercase (config test failure,
+  missing binary or config, busy port, permissions, daemon died, transparent
+  mode down).
+- **Протокол** shows the protocol last applied by a Connect button (VLESS,
+  Hysteria2, Naive, WireGuard, SOCKS5 or HTTP).
+- **IP выхода** (was «IP выхода через VLESS») is the final egress address: an
+  echo request through the live tunnel (Xray SOCKS `10808`, the entry of the
+  chain), so it is correct through several hops and is never the first server
+  address saved in the config. It is fetched after the page has loaded
+  (`GET ?ip`, one probe with a 3 s limit, cached for 60 s and dropped on
+  restart), so a dead tunnel shows "не удалось определить" instead of hanging
+  the page or the restart response.
+
+### VPN and proxy cards
+
+- The VPN cards are one equal-size grid. Every link field, including the
+  WireGuard config, is a field of exactly two visible lines; longer text
+  scrolls inside it. The WireGuard card has no «Добавить» button, only the
+  same two-line field.
+- **Добавить SOCKS5** and **Добавить HTTP** reveal the proxy cards; a proxy
+  that is already saved is shown expanded. The footer notes stay.
+- A failed SOCKS5 / HTTP save keeps the card open with the typed values.
+- Fix: on the HTTP card, SNI and «не проверять сертификат» are shown only while
+  TLS is checked (an inline `display:contents` had overridden `hidden`).
+
+### Restart robustness
+
+- Each daemon must still be the same process 3 s after start. After an Xray
+  restart the transparent mode (`nft` table `inet xray`) must be up unless it
+  was switched off.
+- The CLI `vless.sh restart` (active protocol) restarts Hysteria or Naive
+  before Xray, because the Xray outbound points at them.
+- Removed a dead "address already in use" branch and unused variables in the
+  page script.
+
+### Repository
+
+- The release workflow only runs in `Xstrwe/Aurora-router-panel`
+  (`github.repository` guard), so the private `Xstrwe/Aurora-router-panel-dev`
+  mirror, where updates are tested first, never tries to publish.
+
 ## 1.3.0a4
 
 - **Прокси** section: SOCKS5 and HTTP are no longer static address cards.

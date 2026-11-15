@@ -164,19 +164,24 @@ else
 	bad "CGI button count"
 fi
 if [ "$(grep -c 'link_field ' "$CGI")" = 4 ] \
-   && grep -q 'type=button class=add' "$CGI" \
-   && grep -q '>Добавить<' "$CGI" \
-   && grep -q 'function fit(' "$CGI" \
-   && grep -q 'overflow:hidden' "$CGI" \
-   && ! grep -q 'textarea{[^}]*[^-]height:[0-9]' "$CGI"; then
-	ok "CGI auto-expands link fields and has Add when empty"
+   && grep -q 'rows=2' "$CGI" \
+   && grep -q 'overflow:auto' "$CGI" \
+   && grep -q 'field-sizing:fixed' "$CGI" \
+   && grep -q 'function eqCards(' "$CGI" \
+   && grep -q '>Добавить SOCKS5<' "$CGI" \
+   && grep -q '>Добавить HTTP<' "$CGI" \
+   && ! grep -q 'function fit(' "$CGI" \
+   && ! grep -q 'field-sizing:content' "$CGI" \
+   && ! grep -q '>Добавить<' "$CGI"; then
+	ok "CGI uses a fixed 2-line link field and proxy Add buttons"
 else
-	bad "CGI link field UI (Add button / auto-expand)"
+	bad "CGI link field / proxy add UI"
 fi
 if grep -q '<h3>VPN</h3>' "$CGI" \
    && grep -q '<h3>Прокси</h3>' "$CGI" \
    && [ "$(grep -c 'class=sec' "$CGI")" = 2 ] \
-   && [ "$(grep -c 'class=col' "$CGI")" = 2 ] \
+   && grep -q 'class="grid vpn"' "$CGI" \
+   && ! grep -q 'class=col' "$CGI" \
    && grep -q '192.168.8.1:10808' "$CGI" \
    && grep -q '192.168.8.1:10809' "$CGI" \
    && grep -q '>SOCKS5<' "$CGI" \
@@ -195,6 +200,13 @@ if grep -q '<h3>VPN</h3>' "$CGI" \
    && grep -q 'sockssave' "$CGI" \
    && grep -q 'httpsave' "$CGI" \
    && grep -q 'proxy_fields' "$CGI" \
+   && grep -q 'Служба (демон)' "$CGI" \
+   && grep -q 'name=action value=restartsvc' "$CGI" \
+   && ! grep -q 'Перезапустить службу' "$CGI" \
+   && grep -q '>IP выхода:<' "$CGI" \
+   && grep -q 'class=banner' "$CGI" \
+   && ! grep -q 'IP выхода через VLESS' "$CGI" \
+   && ! grep -q 'Служба Xray' "$CGI" \
    && ! grep -q 'Для ручной настройки отдельных программ' "$CGI" \
    && ! grep -q 'Прокси для отдельных программ' "$CGI" \
    && ! grep -q 'column-count' "$CGI" \

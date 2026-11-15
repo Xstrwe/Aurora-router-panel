@@ -1,6 +1,7 @@
 #!/bin/sh
-V=/etc/xray/vless.sh
-AU_LIB=/usr/libexec/aurora-panel/autoupdate-lib.sh
+D=${VLESS_PANEL_DIR:-/etc/xray}
+V=${VLESS_SH:-$D/vless.sh}
+AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
 # shellcheck disable=SC1090
 [ -f "$AU_LIB" ] && . "$AU_LIB"
 esc(){ sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
@@ -27,26 +28,29 @@ field_raw(){
   if [ -f "$AU_DIR/$1.src" ]; then cat "$AU_DIR/$1.src"; else cat "$(au_current_file "$1")"; fi 2>/dev/null
 }
 # $1 field name, $2 HTML-escaped value, $3 optional raw placeholder.
-# Empty saved value: hide the field and show "Добавить"; the button reveals it.
+# Always a 2-line field; longer text scrolls inside it.
 link_field(){
   _n="$1"; _v="$2"; _ph="$3"
-  _ta_h=; _btn_h=hidden
-  [ -z "$(printf '%s' "$_v" | tr -d '\r\n\t ')" ] && { _ta_h=hidden; _btn_h=; }
   _pha=
   if [ -n "$_ph" ]; then
     _pha=" placeholder=\"$(printf '%s' "$_ph" | esc)\""
   fi
   cat <<BLK
-<div class=fld><textarea name=$_n spellcheck=false$_pha $_ta_h>$_v</textarea>
-<button type=button class=add $_btn_h>Добавить</button></div>
+<div class=fld><textarea name=$_n rows=2 spellcheck=false$_pha>$_v</textarea></div>
 BLK
 }
-# $1 proto socks|http — separate fields; empty saved config: hide and show "Добавить"
+# $1 proto socks|http — separate fields, always visible (the card itself is revealed separately)
 proxy_fields(){
-  F=/etc/xray/$1.json
+  F=$D/$1.json
   ADDR=; PORT=; USER=; PASS=; SNI=; TLS=; INS=
-  PF_H=hidden; ADD_H=
-  if [ -s "$F" ]; then
+  if [ "$PF_BAD" = "$1" ]; then
+    # The save failed: keep what was typed.
+    ADDR=$(printf '%s' "$PF_ADDR" | esc); PORT=$(printf '%s' "$PF_PORT" | esc)
+    USER=$(printf '%s' "$PF_USER" | esc); PASS=$(printf '%s' "$PF_PASS" | esc)
+    SNI=$(printf '%s' "$PF_SNI" | esc)
+    [ "$PF_TLS" = true ] && TLS=checked
+    [ "$PF_INS" = true ] && INS=checked
+  elif [ -s "$F" ]; then
     ADDR=$(jq -r '.address // empty' "$F" | esc)
     PORT=$(jq -r '.port // empty' "$F" | esc)
     USER=$(jq -r '.user // empty' "$F" | esc)
@@ -54,19 +58,19 @@ proxy_fields(){
     SNI=$(jq -r '.sni // empty' "$F" | esc)
     [ "$(jq -r '.tls // false' "$F")" = true ] && TLS=checked
     [ "$(jq -r '.allowInsecure // false' "$F")" = true ] && INS=checked
-    PF_H=; ADD_H=hidden
   fi
   cat <<BLK
-<div class=pf $PF_H>
+<div class=pf>
 <label>Адрес <input type=text name=addr value="$ADDR" autocomplete=off spellcheck=false></label>
 <label>Порт <input type=text name=port value="$PORT" inputmode=numeric autocomplete=off></label>
 <label>Логин <input type=text name=user value="$USER" autocomplete=off spellcheck=false></label>
 <label>Пароль <input type=password name=pass value="$PASS" autocomplete=new-password></label>
 BLK
   if [ "$1" = http ]; then
+    TLSX_H=" hidden"; [ -n "$TLS" ] && TLSX_H=
     cat <<BLK
 <label class="chk span2"><input type=checkbox name=tls value=1 $TLS> TLS</label>
-<div class="tls-extra span2" style="display:contents">
+<div class="tls-extra span2"$TLSX_H>
 <label>SNI <input type=text name=sni value="$SNI" autocomplete=off spellcheck=false></label>
 <label class=chk><input type=checkbox name=insecure value=1 $INS> не проверять сертификат</label>
 </div>
@@ -74,15 +78,46 @@ BLK
   fi
   cat <<BLK
 </div>
-<button type=button class=add $ADD_H>Добавить</button>
 BLK
 }
+# One entry of the service row: $1 whitelist key, $2 label, $3 1 if running,
+# $4 tooltip. Running = green, not running = red bold, then a tiny restart button.
+svc_item(){
+  if [ "$3" = 1 ]; then
+    _st="color:#1a7f37"
+  else
+    _st="color:#c62828;font-weight:700"
+  fi
+  _t=$(printf '%s' "$4" | esc)
+  printf '<span class=svc><span style="%s" title="%s">%s</span><form method=post class=svcb><input type=hidden name=action value=restartsvc><input type=hidden name=svc value=%s><button type=submit class=rb title="Перезапустить: %s" aria-label="Перезапустить %s"><span class=rg>&#8635;</span></button></form></span>' "$_st" "$_t" "$2" "$1" "$2" "$2"
+}
+# GET ?ip: the page asks for the egress IP after it has loaded, so a dead tunnel
+# never delays the page itself (one probe, 3 s limit, cached for 60 s).
+if [ "$REQUEST_METHOD" != POST ] && [ "$QUERY_STRING" = ip ]; then
+  echo "Content-Type: text/plain; charset=utf-8"
+  echo "Cache-Control: no-store"
+  echo
+  $V egress 2>/dev/null | tr -d '\r\n\t ' | head -c 80
+  exit 0
+fi
 MSG=""
+A=""
+PF_BAD=""
 if [ "$REQUEST_METHOD" = POST ]; then
   POST=$(head -c "${CONTENT_LENGTH:-0}")
   A=$(fld action)
   case "$A" in
     on|off) MSG=$($V $A 2>&1);;
+    restartsvc)
+      # Fixed whitelist: the value is never passed to the shell as typed.
+      case "$(fld svc)" in
+        xray) MSG=$($V restart-svc xray 2>&1);;
+        naive) MSG=$($V restart-svc naive 2>&1);;
+        hysteria) MSG=$($V restart-svc hysteria 2>&1);;
+        wireguard) MSG=$($V restart-svc wireguard 2>&1);;
+        *) MSG="ERROR: НЕИЗВЕСТНАЯ СЛУЖБА
+HINT: ВЫБЕРИТЕ СЛУЖБУ КНОПКОЙ РЯДОМ С ЕЁ НАЗВАНИЕМ";;
+      esac;;
     mode) MSG=$($V mode "$(fld mode)" 2>&1);;
     test) T=$(curl -s -o /dev/null -m 10 -w '%{http_code} %{time_total}' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204 2>/dev/null)
       Y=$(curl -s -o /dev/null -m 10 -w '%{http_code}' --socks5-hostname 127.0.0.1:10808 https://www.youtube.com 2>/dev/null)
@@ -93,7 +128,7 @@ if [ "$REQUEST_METHOD" = POST ]; then
 IP выхода: ${IPX:-?}
 YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
       else MSG="Тест: нет подключения ❌ (код ${1:-нет ответа})"; fi;;
-    speed) PNX=VLESS; grep -q hy2 /etc/xray/proto 2>/dev/null && PNX=Hysteria2; grep -q naive /etc/xray/proto 2>/dev/null && PNX=Naive; grep -q wg /etc/xray/proto 2>/dev/null && PNX=WireGuard; grep -q socks /etc/xray/proto 2>/dev/null && PNX=SOCKS5; grep -q http /etc/xray/proto 2>/dev/null && PNX=HTTP; R=$(curl -s -o /dev/null -m 20 -w '%{speed_download} %{size_download}' --socks5-hostname 127.0.0.1:10808 'https://speed.cloudflare.com/__down?bytes=50000000' 2>/dev/null)
+    speed) PNX=VLESS; grep -q hy2 $D/proto 2>/dev/null && PNX=Hysteria2; grep -q naive $D/proto 2>/dev/null && PNX=Naive; grep -q wg $D/proto 2>/dev/null && PNX=WireGuard; grep -q socks $D/proto 2>/dev/null && PNX=SOCKS5; grep -q http $D/proto 2>/dev/null && PNX=HTTP; R=$(curl -s -o /dev/null -m 20 -w '%{speed_download} %{size_download}' --socks5-hostname 127.0.0.1:10808 'https://speed.cloudflare.com/__down?bytes=50000000' 2>/dev/null)
       set -- $R
       if [ "${2%.*}" -gt 100000 ] 2>/dev/null; then MSG="Скорость ($PNX): $(awk "BEGIN{printf \"%.1f\", $1*8/1000000}") Мбит/с (скачано $(awk "BEGIN{printf \"%.1f\", $2/1048576}") МБ)"
       else MSG="Скорость: не удалось измерить ❌"; fi;;
@@ -134,9 +169,10 @@ YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
       PORT=$(ud "$(fld port)")
       USER=$(ud "$(fld user)")
       PASS=$(ud "$(fld pass)")
+      TLS=false; INS=false; SNI=
       if [ "$AP" = http ]; then
-        TLS=false; [ "$(fld tls)" = 1 ] && TLS=true
-        INS=false; [ "$(fld insecure)" = 1 ] && INS=true
+        [ "$(fld tls)" = 1 ] && TLS=true
+        [ "$(fld insecure)" = 1 ] && INS=true
         SNI=$(ud "$(fld sni)")
         jq -n --arg a "$ADDR" --arg p "$PORT" --arg u "$USER" --arg w "$PASS" --argjson tls "$TLS" --arg s "$SNI" --argjson ins "$INS"           '{address:$a,port:$p,user:$u,pass:$w,tls:$tls,sni:$s,allowInsecure:$ins}' > $IN || MSG="ERROR: не удалось собрать настройки"
       else
@@ -146,39 +182,81 @@ YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
       if [ -z "$MSG" ]; then
         MSG=$($V $A $IN 2>&1)
       fi
-      rm -f $IN;;
+      rm -f $IN
+      case "$MSG" in *ERROR*)
+        PF_BAD=$AP; PF_ADDR=$ADDR; PF_PORT=$PORT; PF_USER=$USER; PF_PASS=$PASS
+        PF_SNI=$SNI; PF_TLS=$TLS; PF_INS=$INS;;
+      esac;;
   esac
   case "$A" in test|speed|update) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Готово";; esac;; esac
 fi
+WHY=""; HOW=""
+if [ "$A" = restartsvc ]; then
+  case "$MSG" in
+    *ERROR*)
+      WHY=$(printf '%s\n' "$MSG" | sed -n 's/^ERROR: //p' | head -1)
+      HOW=$(printf '%s\n' "$MSG" | sed -n 's/^HINT: //p' | head -1)
+      [ -n "$HOW" ] || HOW="ПОСМОТРИТЕ LOGREAD -E XRAY И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+      MSG=""
+      ;;
+  esac
+fi
 eval "$($V status | sed 's/^/S_/')"
-EXIT=""; [ "$QUERY_STRING" = ip ] && EXIT=$(curl -s -m 8 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null)
 HY2=$(field_raw hy2 | esc)
 NV=$(field_raw naive | esc)
 WG=$(field_raw wg | esc)
-PN=VLESS; [ "$S_proto" = hy2 ] && PN=Hysteria2; [ "$S_proto" = naive ] && PN=Naive; [ "$S_proto" = wg ] && PN=WireGuard
-[ "$S_proto" = socks ] && PN=SOCKS5; [ "$S_proto" = http ] && PN=HTTP
+# Protocol of the connection the Connect buttons last applied (the proto file), not a fixed VLESS.
+case "$S_proto" in
+  hy2) PN=Hysteria2;;
+  naive) PN=Naive;;
+  wg) PN=WireGuard;;
+  socks) PN=SOCKS5;;
+  http) PN=HTTP;;
+  vless) PN=VLESS;;
+  *) PN=$(printf '%s' "${S_proto:-—}" | esc);;
+esac
 LINK=$(field_raw vless | esc)
 case "$S_proto" in
-  hy2) F=/etc/xray/hy2.txt;;
-  naive) F=/etc/xray/naive.txt;;
+  hy2) F=$D/hy2.txt;;
+  naive) F=$D/naive.txt;;
   wg|socks|http) F=;;
-  *) F=/etc/xray/link.txt;;
+  *) F=$D/link.txt;;
 esac
 if [ -n "$F" ]; then
   HOST=$(sed -E 's#^[a-z0-9+]+://[^@]+@([^/?\#]+).*#\1#' $F 2>/dev/null | head -1 | esc)
   SNI=$(sed -nE 's#.*[?&]sni=([^&\#]+).*#\1#p' $F 2>/dev/null | head -1 | esc)
   [ -n "$SNI" ] || SNI=${HOST%:*}
 elif [ "$S_proto" = socks ] || [ "$S_proto" = http ]; then
-  HOST=$(jq -r '[.address,(.port|tostring)] | join(":")' /etc/xray/$S_proto.json 2>/dev/null | esc)
-  SNI=$(jq -r 'if .tls==true then (.sni // "" | if .=="" then "TLS" else . end) else "без SNI" end' /etc/xray/$S_proto.json 2>/dev/null | esc)
+  HOST=$(jq -r '[.address,(.port|tostring)] | join(":")' $D/$S_proto.json 2>/dev/null | esc)
+  SNI=$(jq -r 'if .tls==true then (.sni // "" | if .=="" then "TLS" else . end) else "без SNI" end' $D/$S_proto.json 2>/dev/null | esc)
   [ -n "$HOST" ] || HOST="—"
 else
-  HOST=$(jq -r '.settings.peers[0].endpoint' /etc/xray/wg.json 2>/dev/null | esc)
+  HOST=$(jq -r '.settings.peers[0].endpoint' $D/wg.json 2>/dev/null | esc)
   SNI="без SNI"
 fi
-if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"; BA=off; BT="Выключить VLESS"; BC="#c62828"
-else ST="ВЫКЛЮЧЕН (интернет напрямую)"; SC="#c62828"; BA=on; BT="Включить VLESS"; BC="#1a7f37"; fi
+# All services behind the VPN cards, always listed. Xray = xray-client, Naive =
+# naive-client, Hysteria = hysteria-client. WireGuard has no process of its own:
+# it is an outbound inside Xray, so it counts as running when Xray runs and WireGuard
+# is the connected protocol.
+if [ "${S_inst_xray:-0}" != 1 ]; then T_X="не установлен"
+elif [ "$S_running" = 1 ]; then T_X="работает"; else T_X="не запущен"; fi
+if [ "${S_inst_naive:-0}" != 1 ]; then T_N="не установлен"; N_UP=0
+elif [ "${S_naive:-0}" = 1 ]; then T_N="работает"; N_UP=1; else T_N="не запущен"; N_UP=0; fi
+if [ "${S_inst_hysteria:-0}" != 1 ]; then T_H="не установлен"; H_UP=0
+elif [ "${S_hysteria:-0}" = 1 ]; then T_H="работает"; H_UP=1; else T_H="не запущен"; H_UP=0; fi
+W_UP=0
+if [ "${S_wg_conf:-0}" != 1 ]; then T_W="конфиг WireGuard не сохранён"
+elif [ "$S_proto" = wg ] && [ "$S_running" = 1 ]; then T_W="работает (внутри Xray)"; W_UP=1
+else T_W="WireGuard работает внутри Xray и сейчас не подключён; кнопка перезапускает Xray"; fi
+X_UP=0; [ "$S_running" = 1 ] && [ "${S_inst_xray:-0}" = 1 ] && X_UP=1
+SVC="$(svc_item xray Xray "$X_UP" "$T_X") / $(svc_item naive Naive "$N_UP" "$T_N") / $(svc_item hysteria Hysteria "$H_UP" "$T_H") / $(svc_item wireguard WireGuard "$W_UP" "$T_W")"
+if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"
+else ST="ВЫКЛЮЧЕН (интернет напрямую)"; SC="#c62828"; fi
 [ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
+SOCKS_CARD_H=" hidden"; SOCKS_BTN_H=
+HTTP_CARD_H=" hidden"; HTTP_BTN_H=
+if [ -s "$D/socks.json" ] || [ "$PF_BAD" = socks ]; then SOCKS_CARD_H=; SOCKS_BTN_H=hidden; fi
+if [ -s "$D/http.json" ] || [ "$PF_BAD" = http ]; then HTTP_CARD_H=; HTTP_BTN_H=hidden; fi
 echo "Content-Type: text/html; charset=utf-8"
 echo "Cache-Control: no-store"
 echo
@@ -188,13 +266,26 @@ cat <<HTML
 body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:1040px;margin:20px auto;padding:0 14px;background:#f4f5f7;color:#222}
 .c{background:#fff;border-radius:12px;padding:16px 18px;margin:14px 0;box-shadow:0 1px 4px #0002}
 button{border:0;border-radius:10px;color:#fff;background:#1565c0;padding:10px 18px;font-size:16px;cursor:pointer}
-.big{width:100%;font-size:22px;padding:18px}textarea{width:100%;box-sizing:border-box;resize:none;overflow:hidden;min-height:2.6em;font-family:monospace;font-size:12px;line-height:1.45;word-break:break-all;field-sizing:content}
+.big{width:100%;font-size:22px;padding:18px}
+textarea{display:block;width:100%;box-sizing:border-box;resize:none;overflow:auto;border:1px solid #ccc;border-radius:6px;font-family:monospace;font-size:12px;line-height:18px;padding:0 8px;height:38px;min-height:38px;max-height:38px;word-break:break-all;field-sizing:fixed;white-space:pre-wrap}
 select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}td{padding:3px 8px 3px 0}
+.banner{padding:12px 14px;border-radius:8px;background:#fff;border:1px solid #f3c1c1;margin:0 0 14px}
+.banner .why{color:#c62828;font-weight:700;text-transform:uppercase;white-space:pre-wrap}
+.banner .how{color:#1a7f37;font-weight:700;text-transform:uppercase;white-space:pre-wrap;margin-top:8px}
+.modef{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0}
+.modef button{padding:6px 14px;font-size:15px}
+.svcs{line-height:1.45}
+.svc{white-space:nowrap}
+.svcb{display:inline;margin:0}
+button.rb{display:inline-block;box-sizing:border-box;width:1.2em;height:1.2em;min-width:0;padding:0;margin:0 .1em 0 .3em;border-radius:3px;font-size:1em;line-height:1.2em;text-align:center;vertical-align:.04em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
+button.rb .rg{font-size:.9em;line-height:1.2em}
 .sec{margin:18px 0 8px}
 .sec>h3{margin:0 0 10px;font-size:18px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;margin:0}
-.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;margin:0}
 .grid .c{margin:0}
+.vpn>.c{box-sizing:border-box;display:flex;flex-direction:column;height:100%}
+.vpn>.c>form{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.vpn .btns{margin-top:auto}
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
 .hint{color:#777;font-size:12px;margin:10px 0 0}
 .pf{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:8px}
@@ -202,23 +293,34 @@ select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background
 .pf input[type=text],.pf input[type=password],.pf input[type=number]{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;font-family:inherit}
 .pf .chk{flex-direction:row;align-items:center;gap:8px}
 .pf .span2{grid-column:1/-1}
+.tls-extra{display:contents}
+.tls-extra[hidden]{display:none}
 .http-udp{color:#777;font-size:12px;margin:10px 0 0}
 .au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
 .au select{font-size:14px;padding:4px}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .fld{margin-top:6px}
-button.add{background:#fff;color:#1565c0;border:1px solid #1565c0;padding:8px 16px;font-size:15px;margin-top:4px}
+.pcell{min-width:0}
+button.add{background:#fff;color:#1565c0;border:1px solid #1565c0;padding:8px 16px;font-size:15px}
+button.addproxy{margin-top:0}
 button.add:hover{background:#e3f2fd}
-</style></head><body><h2>Aurora router panel</h2>
+</style></head><body>
 HTML
+if [ -n "$WHY" ]; then
+  echo "<div class=banner><div class=why>$(printf '%s' "$WHY" | esc)</div><div class=how>$(printf '%s' "$HOW" | esc)</div></div>"
+fi
+echo '<h2>Aurora router panel</h2>'
 [ -n "$MSG" ] && echo "<div class=msg>$(printf '%s' "$MSG" | esc)</div>"
 cat <<HTML
-<div class=c><table>
+<div class=c id=status><table>
+<tr><td>Режим:</td><td><form method=post class=modef><input type=hidden name=action value=mode>
+<select name=mode><option value=ru $M1>Всё, кроме российских сайтов</option><option value=all $M2>Всё через VLESS</option></select>
+<button>Применить</button></form></td></tr>
 <tr><td>Прозрачный режим для сети:</td><td><b style="color:$SC">$ST</b></td></tr>
-<tr><td>Служба Xray:</td><td>$([ "$S_running" = 1 ] && echo работает || echo остановлена)</td></tr>
+<tr><td>Служба (демон):</td><td><div class=svcs>$SVC</div></td></tr>
 <tr><td>Протокол:</td><td><b>$PN</b></td></tr>
 <tr><td>Сервер:</td><td>$HOST ($SNI)</td></tr>
-<tr><td>IP выхода через VLESS:</td><td>$([ -n "$EXIT" ] && printf '%s' "$EXIT" | esc || echo '<a href="?ip">проверить</a>')</td></tr>
+<tr><td>IP выхода:</td><td id=egress>определяется…</td></tr>
 </table></div>
 <div class=c style="display:flex;flex-wrap:wrap;gap:8px">
 <form method=post><input type=hidden name=action value=on><button style="background:#1a7f37">Включить</button></form>
@@ -226,33 +328,27 @@ cat <<HTML
 <form method=post><input type=hidden name=action value=test><button>Тест подключения</button></form>
 <form method=post><input type=hidden name=action value=speed><button>Скорость</button></form>
 </div>
-<div class=c><form method=post><input type=hidden name=action value=mode><b>Режим:</b>
-<select name=mode><option value=ru $M1>Всё, кроме российских сайтов</option><option value=all $M2>Всё через VLESS</option></select>
-<button>Применить</button></form></div>
 <div class=sec>
 <h3>VPN</h3>
-<div class=grid>
-<div class=col>
+<div class="grid vpn">
 <div class=c><form method=post><input type=hidden name=proto value=vless><b>Ссылка vless://</b>
 HTML
 link_field link "$LINK"
 au_row vless
 cat <<HTML
 <div class=btns><button type=submit name=action value=save style="background:#6a1b9a">Подключить VLESS</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
-<div class=c><form method=post><input type=hidden name=proto value=hy2><b>Ссылка hysteria2://</b>
-HTML
-link_field hy2 "$HY2"
-au_row hy2
-cat <<HTML
-<div class=btns><button type=submit name=action value=hy2save style="background:#e65100">Подключить Hysteria2</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
-</div>
-<div class=col>
 <div class=c><form method=post><input type=hidden name=proto value=naive><b>Ссылка naive+https://</b>
 HTML
 link_field nv "$NV"
 au_row naive
 cat <<HTML
 <div class=btns><button type=submit name=action value=naivesave style="background:#00695c">Подключить Naive</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
+<div class=c><form method=post><input type=hidden name=proto value=hy2><b>Ссылка hysteria2://</b>
+HTML
+link_field hy2 "$HY2"
+au_row hy2
+cat <<HTML
+<div class=btns><button type=submit name=action value=hy2save style="background:#e65100">Подключить Hysteria2</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
 <div class=c><form method=post><input type=hidden name=proto value=wg><b>Конфиг WireGuard (.conf)</b>
 HTML
 link_field wg "$WG" "[Interface]
@@ -267,40 +363,62 @@ au_row wg
 cat <<HTML
 <div class=btns><button type=submit name=action value=wgsave style="background:#283593">Подключить WireGuard</button><button type=submit name=action value=update>Обновить сейчас</button></div></form></div>
 </div>
-</div>
 <p class=hint>IPv6 не проксируется.</p>
 </div>
 <div class=sec>
 <h3>Прокси</h3>
-<div class=grid>
-<div class=c><form method=post><input type=hidden name=proto value=socks><b>SOCKS5</b>
+<div class="grid proxy">
+<div class=pcell>
+<button type=button class="add addproxy" data-card=card-socks $SOCKS_BTN_H>Добавить SOCKS5</button>
+<div class=c id=card-socks$SOCKS_CARD_H><form method=post><input type=hidden name=proto value=socks><b>SOCKS5</b>
 HTML
 proxy_fields socks
 cat <<HTML
 <div class=btns><button type=submit name=action value=sockssave style="background:#546e7a">Подключить SOCKS5</button></div></form></div>
-<div class=c><form method=post><input type=hidden name=proto value=http><b>HTTP</b>
+</div>
+<div class=pcell>
+<button type=button class="add addproxy" data-card=card-http $HTTP_BTN_H>Добавить HTTP</button>
+<div class=c id=card-http$HTTP_CARD_H><form method=post><input type=hidden name=proto value=http><b>HTTP</b>
 HTML
 proxy_fields http
 cat <<HTML
 <p class=http-udp>UDP через HTTP-прокси не поддерживается: QUIC блокируется, остальной UDP идёт напрямую.</p>
 <div class=btns><button type=submit name=action value=httpsave style="background:#0277bd">Подключить HTTP</button></div></form></div>
 </div>
+</div>
 <p class=hint>Локальные прокси для отдельных программ: SOCKS5 192.168.8.1:10808, HTTP 192.168.8.1:10809.</p>
 </div>
 <script>
-function empty(t){return !t.value.replace(/[\r\n\t ]/g,'')}
-function fit(t){if(t.hidden)return;t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px'}
-function reveal(b){
-  var w=b.parentNode,t=w.querySelector('textarea'),pf=w.querySelector('.pf');
-  b.hidden=true;
-  if(t){t.hidden=false;if(empty(t)&&t.placeholder)t.rows=t.placeholder.split('\n').length;fit(t);t.focus()}
-  if(pf){pf.hidden=false;var i=pf.querySelector('input[name=addr]');if(i)i.focus()}
-}
 function syncTls(c){var e=c.form&&c.form.querySelector('.tls-extra');if(!e)return;e.hidden=!c.checked}
-document.querySelectorAll('.fld').forEach(function(w){var t=w.querySelector('textarea'),b=w.querySelector('.add');t.addEventListener('input',function(){fit(t)});if(empty(t)){t.hidden=true;if(b)b.hidden=false}else{if(b)b.hidden=true;fit(t)}});
-window.addEventListener('resize',function(){document.querySelectorAll('textarea').forEach(fit)});
-document.querySelectorAll('button.add').forEach(function(b){b.addEventListener('click',function(){reveal(b)})});
+function eqCards(){
+  var cards=[].slice.call(document.querySelectorAll('.vpn>.c'));
+  if(!cards.length)return;
+  cards.forEach(function(c){c.style.height='auto'});
+  var h=0;
+  cards.forEach(function(c){if(c.offsetHeight>h)h=c.offsetHeight});
+  cards.forEach(function(c){c.style.height=h+'px'});
+}
+document.querySelectorAll('button.addproxy').forEach(function(b){
+  b.addEventListener('click',function(){
+    var card=document.getElementById(b.getAttribute('data-card'));
+    if(card)card.hidden=false;
+    b.hidden=true;
+    eqCards();
+  });
+});
 document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventListener('change',function(){syncTls(c)});syncTls(c)});
+(function(){
+  var el=document.getElementById('egress');if(!el)return;
+  function fail(){el.textContent='не удалось определить'}
+  var ctl=window.AbortController?new AbortController():null;
+  var t=setTimeout(function(){if(ctl)ctl.abort()},8000);
+  fetch('?ip',{cache:'no-store',signal:ctl?ctl.signal:undefined}).then(function(r){return r.text()}).then(function(x){
+    clearTimeout(t);x=x.trim();
+    if(/^(\d{1,3}\.){3}\d{1,3}\$/.test(x)||/^[0-9A-Fa-f:]+:[0-9A-Fa-f:]+\$/.test(x))el.textContent=x;else fail();
+  }).catch(function(){clearTimeout(t);fail()});
+})();
+eqCards();
+window.addEventListener('resize',eqCards);
 </script>
 </body></html>
 HTML

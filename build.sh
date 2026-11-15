@@ -181,6 +181,10 @@ if [ -x "$ROOT/tests/version-order.sh" ]; then
   "$ROOT/tests/version-order.sh" || { echo "ERROR: version tests failed" >&2; exit 1; }
 fi
 
+if [ -x "$ROOT/tests/panel-ui.sh" ]; then
+  "$ROOT/tests/panel-ui.sh" || { echo "ERROR: panel UI tests failed" >&2; exit 1; }
+fi
+
 echo "Built $FEED/$IPK_NAME"
 echo "Size: $SIZE"
 echo "SHA256sum: $SHA256"

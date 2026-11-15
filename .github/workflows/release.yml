@@ -32,6 +32,8 @@ env:
 
 jobs:
   build:
+    # Publish only from the public repository; the private -dev mirror never releases.
+    if: github.repository == 'Xstrwe/Aurora-router-panel'
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.resolve.outputs.publish }}
@@ -253,7 +255,7 @@ jobs:
 
   deploy:
     needs: build
-    if: needs.build.outputs.publish == 'true'
+    if: github.repository == 'Xstrwe/Aurora-router-panel' && needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

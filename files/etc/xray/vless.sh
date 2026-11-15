@@ -2,19 +2,27 @@
 # vless.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
 #         | sockssave <json> | httpsave <json>
 #         | store vless|hy2|naive|wg|socks|http <file> | proto vless|hy2|naive|wg|socks|http
-#         | mode ru|all | on | off | status | autoset <proto> <0|1> <1h|6h|24h>
+#         | mode ru|all | on | off | status | restart | restart-svc xray|naive|hysteria|wireguard | egress
+#         | autoset <proto> <0|1> <1h|6h|24h>
 #         | src <proto> <infile> <outfile> <0|1> | update <proto>
 #         | mergecfg socks|http <base.json> <settings.json> <out.json>
 D=${VLESS_PANEL_DIR:-/etc/xray}
 HYD=${VLESS_HYSTERIA_DIR:-/etc/hysteria}
 NAD=${VLESS_NAIVE_DIR:-/etc/naive}
+XRAY_BIN=${VLESS_XRAY_BIN:-/usr/bin/xray}
+HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
+NAIVE_BIN=${VLESS_NAIVE_BIN:-/usr/bin/naive}
 AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
+INITD=${VLESS_INITD:-/etc/init.d}
+STABLE_SECS=${VLESS_AU_STABLE_SECS:-3}
+EGRESS_CACHE=${VLESS_AU_EGRESS_CACHE:-/tmp/aurora-egress.cache}
 err(){ echo "ERROR: $*"; exit 1; }
 PROTO=$(cat $D/proto 2>/dev/null || echo vless)
 # shellcheck disable=SC1090
 [ -f "$AU_LIB" ] && . "$AU_LIB"
 svc(){ [ -x /etc/init.d/$1 ] || return 0; if [ "$2" = 1 ]; then /etc/init.d/$1 enable >/dev/null 2>&1; /etc/init.d/$1 restart >/dev/null 2>&1; else /etc/init.d/$1 stop >/dev/null 2>&1; /etc/init.d/$1 disable >/dev/null 2>&1; fi; }
 xports_busy(){ # 0 if any of tcp 10808/12346 or udp 12345 is still bound
+  [ -n "${VLESS_AU_PORTS_BUSY:-}" ] && return 0
   netstat -lnt 2>/dev/null | grep -qE ':(10808|12346) ' && return 0
   netstat -lnu 2>/dev/null | grep -qE ':12345 ' && return 0
   return 1
@@ -25,13 +33,13 @@ xports_up(){ # 0 when both tcp 10808 and 12346 listen
 }
 xrestart(){
   if [ -n "${VLESS_AU_XRESTART:-}" ]; then sh "$VLESS_AU_XRESTART"; return $?; fi
-  /etc/init.d/xray-client stop >/dev/null 2>&1
+  /etc/init.d/xray-client stop >/tmp/xray-restart.err 2>&1
   # wait up to 10s for xray to exit, then kill it
   i=0; while [ $i -lt 10 ] && pidof xray >/dev/null; do sleep 1; i=$((i+1)); done
   pidof xray >/dev/null && { killall -9 xray >/dev/null 2>&1; sleep 1; }
   # wait until the listen ports are released (a second instance would fail to bind)
   i=0; while [ $i -lt 10 ] && xports_busy; do sleep 1; i=$((i+1)); done
-  /etc/init.d/xray-client start >/dev/null 2>&1
+  /etc/init.d/xray-client start >>/tmp/xray-restart.err 2>&1
   i=0; while [ $i -lt 15 ]; do
     pidof xray >/dev/null && xports_up && return 0
     sleep 1; i=$((i+1))
@@ -54,7 +62,7 @@ au_fetch(){
   if [ -n "${VLESS_AU_CURL:-}" ]; then
     sh "$VLESS_AU_CURL" "$1" "$2" || err "не удалось скачать обновление"
   else
-    curl -fL --max-time 25 --max-filesize 1048576 -A 'aurora-router-panel-autoupdate/1.3.0' -o "$2" "$1" || err "не удалось скачать обновление"
+    curl -fL --max-time 25 --max-filesize 1048576 -A 'aurora-router-panel-autoupdate/1.4.0' -o "$2" "$1" || err "не удалось скачать обновление"
   fi
   [ -s "$2" ] || err "пустой ответ сервера автообновления"
   sz=$(wc -c < "$2" | tr -d ' ')
@@ -369,6 +377,233 @@ do_update(){
     echo "Сохранено, без переключения (сейчас $PROTO)"
   fi
 }
+# ASCII uppercase for log lines mixed into the Russian banner. Cyrillic is
+# already uppercase in the messages below; tr leaves it unchanged.
+upper(){ printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//'; }
+fail_restart(){
+  printf 'ERROR: %s\n' "$1"
+  printf 'HINT: %s\n' "$2"
+  exit 1
+}
+busy_ports(){
+  if [ -n "${VLESS_AU_PORTS_BUSY:-}" ] && [ "$VLESS_AU_PORTS_BUSY" != 1 ]; then
+    printf '%s' "$VLESS_AU_PORTS_BUSY"
+    return 0
+  fi
+  out=""
+  n=$(netstat -lnt 2>/dev/null || true)
+  u=$(netstat -lnu 2>/dev/null || true)
+  printf '%s\n' "$n" | grep -q ':10808 ' && out="$out 10808/TCP"
+  printf '%s\n' "$n" | grep -q ':12346 ' && out="$out 12346/TCP"
+  printf '%s\n' "$u" | grep -q ':12345 ' && out="$out 12345/UDP"
+  if [ -n "$out" ]; then
+    printf '%s' "$out"
+    return 0
+  fi
+  printf '%s' " 10808/TCP 12346/TCP 12345/UDP"
+}
+# $1 process name, $2 seconds. 0 if the process is up now and is still the same
+# process (same pid) after the wait, i.e. it did not crash or respawn.
+proc_stable(){
+  p1=$(pidof "$1" 2>/dev/null) || return 1
+  [ -n "$p1" ] || return 1
+  [ "$2" -gt 0 ] 2>/dev/null && sleep "$2"
+  p2=$(pidof "$1" 2>/dev/null) || return 1
+  [ "$p1" = "$p2" ]
+}
+# $1 init script name, $2 process name, $3 "0" to skip enabling the service at boot
+# (used for a daemon that belongs to a protocol that is not the active one).
+# Full restart, then wait until the process is up and stays up for STABLE_SECS seconds.
+restart_init(){
+  name=$1
+  proc=$2
+  en=${3:-1}
+  errf=/tmp/aurora-restart-$name.err
+  : > "$errf"
+  if [ -n "${VLESS_AU_SVC_RESTART:-}" ]; then
+    sh "$VLESS_AU_SVC_RESTART" "$name" "$proc"
+    return $?
+  fi
+  if [ ! -x "$INITD/$name" ]; then
+    echo "нет скрипта $INITD/$name" > "$errf"
+    return 3
+  fi
+  [ "$en" = 0 ] || "$INITD/$name" enable >>"$errf" 2>&1 || true
+  "$INITD/$name" restart >>"$errf" 2>&1 || true
+  i=0
+  while [ "$i" -lt 15 ]; do
+    if pidof "$proc" >/dev/null 2>&1; then
+      proc_stable "$proc" "$STABLE_SECS" && return 0
+      echo "процесс $proc запустился и сразу завершился" >> "$errf"
+      return 1
+    fi
+    i=$((i+1))
+    sleep 1
+  done
+  return 1
+}
+require_bin(){ # $1 path, $2 short name (XRAY|HYSTERIA|NAIVE)
+  if [ ! -e "$1" ]; then
+    case "$2" in
+      HYSTERIA) fail_restart "НЕТ ФАЙЛА $(upper "$1")" "УСТАНОВИТЕ HYSTERIA В /USR/BIN ИЛИ ПОДКЛЮЧИТЕ ДРУГОЙ ПРОТОКОЛ";;
+      NAIVE) fail_restart "НЕТ ФАЙЛА $(upper "$1")" "УСТАНОВИТЕ NAIVE КОМАНДОЙ /USR/LIBEXEC/AURORA-PANEL/INSTALL-NAIVE.SH";;
+      *) fail_restart "НЕТ ФАЙЛА $(upper "$1")" "УСТАНОВИТЕ XRAY В /USR/BIN И ФАЙЛЫ GEOIP/GEOSITE В /USR/SHARE/XRAY";;
+    esac
+  fi
+  if [ ! -x "$1" ]; then
+    fail_restart "НЕТ ПРАВ НА ЗАПУСК $(upper "$1")" "ВЫПОЛНИТЕ CHMOD 755 $(upper "$1") И ПОВТОРИТЕ ПЕРЕЗАПУСК ОТ ROOT"
+  fi
+}
+# Fully restart the daemons the active connection needs: always Xray
+# (stop, wait for ports, start), plus Hysteria or Naive when that protocol is connected.
+# Each restart_* below ends the whole script through fail_restart on failure.
+# $HYEN / $NAEN: 1 when that daemon belongs to the active protocol (then it is
+# also enabled at boot), 0 when it is restarted on its own.
+restart_hysteria(){
+  if ! restart_init hysteria-client hysteria "$HYEN"; then
+    e=$(tr '\n' ' ' < /tmp/aurora-restart-hysteria-client.err 2>/dev/null || true)
+    case "$e" in
+      *нет\ скрипта*)
+        fail_restart "НЕТ СКРИПТА /ETC/INIT.D/HYSTERIA-CLIENT" "ПЕРЕУСТАНОВИТЕ ПАКЕТ AURORA-ROUTER-PANEL: В НЁМ ДОЛЖЕН БЫТЬ СКРИПТ ЗАПУСКА"
+        ;;
+    esac
+    msg="HYSTERIA НЕ ЗАПУСТИЛАСЬ"
+    [ -n "$e" ] && msg="$msg: $(upper "$e")"
+    fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/HYSTERIA/CLIENT.YAML И LOGREAD -E HYSTERIA, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
+  fi
+}
+restart_naive(){
+  if ! restart_init naive-client naive "$NAEN"; then
+    e=$(tr '\n' ' ' < /tmp/aurora-restart-naive-client.err 2>/dev/null || true)
+    case "$e" in
+      *нет\ скрипта*)
+        fail_restart "НЕТ СКРИПТА /ETC/INIT.D/NAIVE-CLIENT" "ПЕРЕУСТАНОВИТЕ ПАКЕТ AURORA-ROUTER-PANEL: В НЁМ ДОЛЖЕН БЫТЬ СКРИПТ ЗАПУСКА"
+        ;;
+    esac
+    msg="NAIVE НЕ ЗАПУСТИЛСЯ"
+    [ -n "$e" ] && msg="$msg: $(upper "$e")"
+    fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/NAIVE/CONFIG.JSON И LOGREAD -E NAIVE, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
+  fi
+}
+restart_xray(){
+  if ! xrestart; then
+    errf=$(tail -c 400 /tmp/xray-restart.err 2>/dev/null | tr '\n' ' ')
+    case "$errf" in
+      *[Pp]ermission\ denied*)
+        fail_restart "НЕТ ПРАВ НА ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT, ПРОВЕРЬТЕ CHMOD 755 $(upper "$XRAY_BIN") И ВЛАДЕЛЬЦА /ETC/XRAY"
+        ;;
+      *[Aa]ddress\ already\ in\ use*)
+        fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+        ;;
+    esac
+    if xports_busy; then
+      fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+    fi
+    extra=""
+    [ -n "$errf" ] && extra=": $(upper "$errf")"
+    fail_restart "XRAY НЕ ЗАПУСТИЛСЯ${extra}" "ПОСМОТРИТЕ LOGREAD -E XRAY, УСТРАНИТЕ ПРИЧИНУ И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+  fi
+  if ! proc_stable xray "$STABLE_SECS"; then
+    fail_restart "XRAY ЗАПУСТИЛСЯ И ЗАВЕРШИЛСЯ" "ПОСМОТРИТЕ LOGREAD -E XRAY, УСТРАНИТЕ ПРИЧИНУ И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+  fi
+  if [ ! -f "$D/tproxy.disabled" ] && ! nft list table inet xray >/dev/null 2>&1; then
+    fail_restart "ПРОЗРАЧНЫЙ РЕЖИМ НЕ ВКЛЮЧИЛСЯ: НЕТ ТАБЛИЦЫ NFT INET XRAY" "ВЫПОЛНИТЕ /ETC/XRAY/TPROXY.SH UP ИЛИ НАЖМИТЕ «ВКЛЮЧИТЬ», ЗАТЕМ ПРОВЕРЬТЕ NFT LIST TABLE INET XRAY"
+  fi
+  rm -f "$EGRESS_CACHE"
+}
+# Config/binary/test checks shared by every Xray restart.
+check_xray(){
+  if [ ! -s "$D/config.json" ]; then
+    fail_restart "НЕТ ФАЙЛА КОНФИГА /ETC/XRAY/CONFIG.JSON" "НАЖМИТЕ «ПОДКЛЮЧИТЬ» У ВЫБРАННОГО ПРОТОКОЛА, ЧТОБЫ СОЗДАТЬ КОНФИГ, И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+  fi
+  if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
+    if ! XRAY_LOCATION_ASSET=${VLESS_XRAY_ASSET:-/usr/share/xray} "$XRAY_BIN" run -test -c "$D/config.json" >/tmp/vless.err 2>&1; then
+      why=$(tail -c 400 /tmp/vless.err 2>/dev/null | tr '\n' ' ')
+      case "$why" in
+        *[Pp]ermission\ denied*)
+          fail_restart "НЕТ ПРАВ НА КОНФИГ ИЛИ ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT И ПРОВЕРЬТЕ ПРАВА /ETC/XRAY/CONFIG.JSON И $(upper "$XRAY_BIN")"
+          ;;
+        *)
+          fail_restart "XRAY ОТКЛОНИЛ КОНФИГ: $(upper "$why")" "ИСПРАВЬТЕ КОНФИГ КОМАНДОЙ XRAY RUN -TEST -C /ETC/XRAY/CONFIG.JSON, ЗАНОВО НАЖМИТЕ «ПОДКЛЮЧИТЬ» И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+          ;;
+      esac
+    fi
+  fi
+}
+do_restart(){
+  rm -f /tmp/xray-restart.err
+  HYEN=1; NAEN=1
+  require_bin "$XRAY_BIN" XRAY
+  if [ "$PROTO" = hy2 ]; then require_bin "$HYSTERIA_BIN" HYSTERIA; fi
+  if [ "$PROTO" = naive ]; then require_bin "$NAIVE_BIN" NAIVE; fi
+  check_xray
+  # The Xray outbound points at Hysteria (10818) / Naive (10828): bring those up first.
+  if [ "$PROTO" = hy2 ]; then restart_hysteria; fi
+  if [ "$PROTO" = naive ]; then restart_naive; fi
+  restart_xray
+  echo OK
+}
+# Restart exactly one service: xray | naive | hysteria | wireguard.
+# WireGuard has no process of its own: it is an outbound inside Xray, so its
+# restart is an Xray restart. The active protocol is never changed.
+do_restart_svc(){
+  rm -f /tmp/xray-restart.err
+  case "$1" in
+    xray|wireguard)
+      require_bin "$XRAY_BIN" XRAY
+      check_xray
+      restart_xray;;
+    hysteria)
+      require_bin "$HYSTERIA_BIN" HYSTERIA
+      [ -s "$HYD/client.yaml" ] || fail_restart "НЕТ ФАЙЛА /ETC/HYSTERIA/CLIENT.YAML" "ВСТАВЬТЕ ССЫЛКУ HYSTERIA2 В ПОЛЕ И НАЖМИТЕ «ПОДКЛЮЧИТЬ HYSTERIA2»"
+      HYEN=0; [ "$PROTO" = hy2 ] && HYEN=1
+      restart_hysteria;;
+    naive)
+      require_bin "$NAIVE_BIN" NAIVE
+      [ -s "$NAD/config.json" ] || fail_restart "НЕТ ФАЙЛА /ETC/NAIVE/CONFIG.JSON" "ВСТАВЬТЕ ССЫЛКУ NAIVE В ПОЛЕ И НАЖМИТЕ «ПОДКЛЮЧИТЬ NAIVE»"
+      NAEN=0; [ "$PROTO" = naive ] && NAEN=1
+      restart_naive;;
+    *) fail_restart "НЕИЗВЕСТНАЯ СЛУЖБА" "ВЫБЕРИТЕ XRAY, NAIVE, HYSTERIA ИЛИ WIREGUARD";;
+  esac
+  echo OK
+}
+# Public address as seen from the far end of the active tunnel.
+# 127.0.0.1:10808 is Xray's SOCKS inbound. Its proxy outbound is the next hop
+# (VLESS, Hysteria on 10818, Naive on 10828, WireGuard, or an upstream SOCKS/HTTP
+# proxy, which may itself chain further). An echo request through that inbound
+# therefore leaves from the last hop. The saved server address is the first hop
+# and is never used here.
+egress_valid(){
+  printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' && return 0
+  printf '%s' "$1" | grep -Eq '^[0-9A-Fa-f:]+:[0-9A-Fa-f:]+$' && return 0
+  return 1
+}
+# One probe with a 3 s limit; a good answer is cached for 60 s per
+# (xray pid, protocol, config mtime), so page loads do not hammer the tunnel.
+egress_key(){
+  printf '%s|%s|%s' "$(pidof xray 2>/dev/null)" "$PROTO" "$(stat -c %Y "$D/config.json" 2>/dev/null)"
+}
+egress_ip(){
+  if [ -n "${VLESS_AU_EGRESS:-}" ]; then
+    ip=$(sh "$VLESS_AU_EGRESS" 2>/dev/null | tr -d '\r\n\t ') || true
+    egress_valid "$ip" || return 1
+    printf '%s\n' "$ip"
+    return 0
+  fi
+  pidof xray >/dev/null 2>&1 || return 1
+  key=$(egress_key)
+  if [ -f "$EGRESS_CACHE" ]; then
+    now=$(date +%s); mt=$(stat -c %Y "$EGRESS_CACHE" 2>/dev/null || echo 0)
+    if [ $((now - mt)) -lt 60 ] && [ "$(sed -n 1p "$EGRESS_CACHE")" = "$key" ]; then
+      ip=$(sed -n 2p "$EGRESS_CACHE")
+      if egress_valid "$ip"; then printf '%s\n' "$ip"; return 0; fi
+    fi
+  fi
+  ip=$(curl -fsS -m 3 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null | tr -d '\r\n\t ') || ip=
+  egress_valid "$ip" || return 1
+  printf '%s\n%s\n' "$key" "$ip" > "$EGRESS_CACHE" 2>/dev/null
+  printf '%s\n' "$ip"
+}
 MODE=$(cat $D/mode 2>/dev/null || echo ru)
 case "$1" in
 save) store_vless "$2"; gen $D/link.txt "$MODE" vless;;
@@ -385,8 +620,17 @@ proto) case "$2" in vless|hy2|naive|wg|socks|http) ;; *) err "proto vless|hy2|na
 mode) case "$2" in ru|all) ;; *) err "mode ru|all";; esac; gen $D/link.txt "$2";;
 on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; xrestart || err "Xray не запустился"; echo OK;;
 off) touch $D/tproxy.disabled; $D/tproxy.sh down; echo OK;;
+restart) do_restart;;
+restart-svc) do_restart_svc "$2";;
+egress) egress_ip || exit 1;;
 status)
   echo "running=$(pidof xray >/dev/null && echo 1 || echo 0)"
+  echo "hysteria=$(pidof hysteria >/dev/null && echo 1 || echo 0)"
+  echo "naive=$(pidof naive >/dev/null && echo 1 || echo 0)"
+  echo "inst_xray=$([ -x "$XRAY_BIN" ] && echo 1 || echo 0)"
+  echo "inst_hysteria=$([ -x "$HYSTERIA_BIN" ] && echo 1 || echo 0)"
+  echo "inst_naive=$([ -x "$NAIVE_BIN" ] && echo 1 || echo 0)"
+  echo "wg_conf=$([ -s "$D/wg.json" ] && echo 1 || echo 0)"
   echo "tproxy=$(nft list table inet xray >/dev/null 2>&1 && echo 1 || echo 0)"
   echo "mode=$MODE"; echo "proto=$PROTO"; echo "server_ip=$(cat $D/server_ip 2>/dev/null)";;
 autoset)

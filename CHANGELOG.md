@@ -1,8 +1,35 @@
 # Changelog
 
-## 1.4.1a1
+## 1.5.0a1
 
 - Interface wording update.
+
+## 1.5.0
+
+Fix release for 1.4.0: restarting a service from the status card could leave
+Xray down and transparent mode off.
+
+### Fixed
+
+- Xray restart: after the old Xray stops, the new one can fail to bind
+  `0.0.0.0:12346` ("address already in use") for up to about a minute, because
+  of connections left over from the old process. The restart now retries the
+  start (clean stop in between, up to 75 s) instead of giving up after 15 s and
+  leaving procd in a crash loop.
+- Transparent mode is switched off while Xray is not listening, so the LAN is
+  never redirected to a closed port, and is switched on again as soon as Xray
+  listens. If the restart still fails, a detached `vless.sh recover` keeps
+  trying (up to 6 more starts) and re-enables transparent mode when Xray is
+  back, unless it was switched off on purpose.
+- WireGuard runs inside Xray, so its ↻ button now does nothing and leaves Xray
+  alone unless WireGuard is the connected protocol; in that case the button is
+  greyed out with an explanation.
+- Banners name the service that was pressed (for example
+  `WIREGUARD (RUNS INSIDE XRAY): ...`) and give the concrete reason taken from
+  `logread -e xray` (for example the port that could not be bound), plus a note
+  when automatic recovery has been started.
+- Restarting Xray never starts Naive or Hysteria: they are only touched by
+  their own buttons or by switching the protocol.
 
 ## 1.4.0
 

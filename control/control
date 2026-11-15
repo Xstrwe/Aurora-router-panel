@@ -1,5 +1,5 @@
 Package: aurora-router-panel
-Version: 1.4.1a1
+Version: 1.5.0a1
 Depends: curl, jq, ucode, uhttpd, kmod-nft-tproxy
 Replaces: vless-router-panel
 Conflicts: vless-router-panel

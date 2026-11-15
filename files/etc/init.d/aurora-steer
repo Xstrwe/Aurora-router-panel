@@ -1,0 +1,9 @@
+#!/bin/sh /etc/rc.common
+# At boot: when the active protocol is Hysteria, Naive or WireGuard, wait for its
+# service, check it works, then switch its steering rules on (VLESS does this
+# itself in xray-client). If the protocol never comes up, steering stays off and
+# the LAN keeps working directly.
+START=99
+start() {
+	( /etc/xray/vless.sh steer-boot >/dev/null 2>&1 & )
+}

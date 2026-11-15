@@ -1,13 +1,13 @@
 # Aurora-router-panel
 
-A small web panel for OpenWrt / GL.iNet routers that runs a transparent proxy for the whole LAN through [Xray](https://github.com/XTLS/Xray-core) and lets you switch between **VLESS**, **Hysteria2**, **Naive** and **WireGuard** from a single page.
+A small web panel for OpenWrt / GL.iNet routers that runs a transparent proxy for the whole LAN and lets you switch between **VLESS**, **Hysteria2**, **Naive** and **WireGuard** from a single page. Each protocol is its **own service** with its own upstream client, config, split rules and updates; none of them goes through another one (see [Architecture](#architecture)).
 
 It ships as an `.ipk` package (`Architecture: all`, scripts only) plus a signed opkg feed on GitHub Pages, and is the successor of `vless-router-panel`.
 
 ## Features
 
 - Switch the active protocol with one button: **VLESS (Reality)**, **Hysteria2**, **Naive** or **WireGuard** (a native kernel WireGuard interface `wg-aurora`, brought up by its own service `wireguard-client`; needs `kmod-wireguard`, `wireguard-tools` and `ip-full`, which GL.iNet firmware ships).
-- **Transparent mode** for the LAN: TCP is redirected and UDP is TPROXY'd to Xray with nftables. Local and private ranges and the proxy server itself bypass the tunnel. DNS from the router and the LAN is handled by Xray.
+- **Transparent mode** for the LAN, done by the active protocol's own nftables table and listeners (Xray for VLESS, hysteria for Hysteria2, naive for Naive, a policy route for WireGuard). Local and private ranges and the proxy server itself bypass the tunnel. DNS from the router goes through the active protocol.
 - Routing modes: everything except Russian sites goes through the tunnel (`ru`), or everything does (`all`).
 - **Per-protocol autoupdate** of the config from a subscription or link, with automatic rollback if the new config breaks the connection.
 - Connection test (latency, exit IP, YouTube) and a speed test from the page.
@@ -18,7 +18,7 @@ It ships as an `.ipk` package (`Architecture: all`, scripts only) plus a signed 
 
 - Developed and tested on the **GL.iNet GL-BE6500** with **OpenWrt 23.05** (`aarch64_cortex-a53`). Other OpenWrt 23.05 routers with nftables and enough flash should work, but are untested. The LAN bridge is assumed to be `br-lan` with the router at `192.168.8.1`.
 - IPv6 is not proxied.
-- WireGuard is its own service like Naive and Hysteria: Xray's proxy outbound is bound to the `wg-aurora` interface, and traffic reaches it through a policy rule (`ip rule oif wg-aurora`, table 871), so the router's own traffic and the main routing table are not changed.
+- Clients are the official upstream builds: Xray-core (XTLS), hysteria (apernet), naive (klzgrad) and the kernel WireGuard module with `wireguard-tools` from the OpenWrt/GL.iNet feed.
 
 ## Requirements
 
@@ -30,6 +30,8 @@ Install manually (not shipped in the package):
 - `geoip.dat` and `geosite.dat` in `/usr/share/xray/`
 - optional: `hysteria` at `/usr/bin/hysteria` (only for Hysteria2)
 - optional: `naive` at `/usr/bin/naive` (only for Naive), installed by the helper script below; it needs the `xz` package to unpack the archive
+- optional, only for Naive's DNS: `dnsproxy` (`opkg install dnsproxy`; GL.iNet firmware already ships it). Without it Naive still works but DNS is not sent through the tunnel.
+- optional, only for WireGuard: `kmod-wireguard`, `wireguard-tools`, `ip-full`
 
 Without `xray` and the geo files the page installs, but you cannot save a link or enable transparent mode.
 
@@ -101,13 +103,32 @@ Install the new `.ipk` the same way as above. Files that are not part of the pac
 
 `/etc/xray/vless.sh` and the page address `/cgi-bin/vless` stay the same. The old GitHub URL redirects to the new repository.
 
+## Architecture
+
+Only one protocol is active at a time and it runs on its own, with no other VPN client running:
+
+| Protocol | Service (`/etc/init.d/`) | Config | How LAN traffic reaches it | Split ("ru" / "all") |
+| --- | --- | --- | --- | --- |
+| VLESS | `xray-client` (Xray-core) | `/etc/xray/config.json` | Xray's own nft table `inet xray` (`tproxy.sh`): TCP redirect `:12346`, UDP TPROXY `:12345`, DNS `:5354` | Xray routing (geoip) |
+| Hysteria2 | `hysteria-client` (hysteria) | `/etc/hysteria/client.yaml` | table `inet aurora_hy`: TCP redirect to hysteria's `tcpRedirect :12356`, UDP TPROXY to `udpTProxy :12355`, DNS to its forwarder `127.0.0.1:5364` | `/etc/hysteria/split.conf` |
+| Naive | `naive-client` (naive, plus `dnsproxy` for DNS) | `/etc/naive/config.json` | table `inet aurora_nv`: TCP redirect to naive's `redir :12366`, QUIC (UDP 443) dropped so browsers use TCP, DNS via dnsproxy (`127.0.0.1:5374`, asks `1.1.1.1` over TCP, that TCP connection goes through naive) | `/etc/naive/split.conf` |
+| WireGuard | `wireguard-client` (kernel interface `wg-aurora`) | `/etc/xray/wg.json` | table `inet aurora_wg`: packets for non-direct destinations get fwmark `0x5a000000`, policy rule to table 871 (default via `wg-aurora`), masquerade and MSS clamp, a `forward` accept rule in fw4 | `/etc/xray/wg.split.conf` |
+
+- **Split rules per protocol.** VLESS uses Xray's own routing. Hysteria 2 has no client-side ACL, so Hysteria2, Naive and WireGuard each have their own editable file with the same format (`mode ru|all`, `direct private`, `direct geoip:ru`, `direct 203.0.113.0/24`) and their own nft set, owned by `aurora-split.sh` (`hy|nv|wg up|down|render`). Country ranges come from the same `geoip.dat` Xray uses (`aurora-geoip.sh`, cached in `/etc/aurora/geoip/`). The server address of the protocol always goes direct. Edit the file, then `aurora-split.sh <hy|nv|wg> up` (or switch the mode on the page, which edits only the active protocol's file).
+- **Switching** is the only shared flow: it starts the target on its own, checks a connection through the target's own local entry, switches the target's steering on, checks DNS, and only then stops the other protocols' services (including Xray when you leave VLESS). If any step fails, the target's files are restored and the previous protocol stays active.
+- **Zero cross-over.** Saving, autoupdating, restarting or updating the client of one protocol touches only that protocol's service, config files, split file and backup/rollback set. For example, saving a Hysteria2 link does not regenerate or restart Xray. The autoupdate rollback restores only the files of the protocol that was updated.
+- **Boot.** The active protocol's service starts from its init script; `aurora-steer` then waits for it, checks it works and switches the steering on. If it never works, steering stays off and the LAN keeps working directly.
+- **Client updates** (each from its own upstream, restarting only that client and only if it is running): `vless.sh client-update xray|hysteria|naive|wireguard check|install`. Xray and hysteria are checked against the SHA-256 published with the release; the previous binary is kept as `.bak` and put back if the new one does not start. WireGuard is updated through `opkg`.
+- **Local SOCKS5/HTTP proxies.** `192.168.8.1:10808` (SOCKS5) and `:10809` (HTTP) are Xray's, so they exist only while VLESS (or SOCKS5/HTTP upstream) is active. Hysteria2 offers SOCKS5 on `127.0.0.1:10818` and Naive on `127.0.0.1:10828` for local use.
+- **Limits.** IPv6 is not proxied. Naive carries TCP only: other UDP (not DNS, not QUIC) goes direct while Naive is active. Hysteria2 and Naive never reconnect through DNS: the server address is stored as an IP (the host name stays in the SNI / host-resolver rule).
+
 ## Usage
 
 ### The page
 
 The page UI is in English; this README uses the same button and label names.
 
-- **Status card:** transparent mode; every service behind the VPN cards in one row (Xray, Naive, Hysteria, WireGuard), green when running and red bold when not, each followed by its own small ↻ restart button (each button restarts only its own service; the WireGuard one never touches Xray; a service that is not installed or has no saved config is shown red with the reason); the protocol last applied by a Connect button; server host (with its SNI); and the public egress IP, measured by a request through the live tunnel (not the first server address). The IP is filled in after the page has loaded, so a dead tunnel never delays the page.
+- **Status card:** transparent mode; every service behind the VPN cards in one row (Xray, Naive, Hysteria, WireGuard), green when running, red bold when the active protocol's daemon is not running, grey when a daemon is stopped because it is not the active protocol (that is normal: only the active protocol's daemon runs), each followed by its own small ↻ restart button (each button restarts only its own service and never touches another one; a service that is not installed or has no saved config is shown red with the reason); the protocol last applied by a Connect button; server host (with its SNI); and the public egress IP, measured by a request through the live tunnel (not the first server address). The IP is filled in after the page has loaded, so a dead tunnel never delays the page.
 - **Mode:** the first row of the status card: "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
 - **Enable / Disable:** turn transparent mode on or off. When off, the LAN uses the internet directly.
 - **Test connection / Speed:** connection and speed tests through the tunnel.
@@ -175,13 +196,15 @@ Each protocol card has an **Auto-update** row (an on/off checkbox and an interva
 | `/etc/xray/vless.sh` | backend: save, switch, update, status |
 | `/etc/xray/tproxy.sh` | nftables rules for transparent mode (`up` / `down`) |
 | `/etc/xray/gen.uc`, `hy2.uc` | config generators (ucode) |
-| `/etc/init.d/xray-client`, `hysteria-client`, `naive-client` | procd services |
+| `/etc/init.d/xray-client`, `hysteria-client`, `naive-client`, `wireguard-client` | one procd service per protocol; `aurora-steer` switches the active protocol's steering on at boot |
 | `/www-aurora/cgi-bin/vless` | the web page (CGI), served by uhttpd on :8088 |
-| `/usr/libexec/aurora-panel/` | autoupdate library and runner, `install-naive.sh` |
+| `/usr/libexec/aurora-panel/` | autoupdate library and runner, `aurora-split.sh` (per-protocol nft split), `aurora-geoip.sh`, `client-update.sh`, `install-naive.sh` |
 | `/etc/xray/` (state) | saved links, `config.json`, `proto`, `mode`, `httpd.conf`, `autoupdate/` |
-| `/etc/hysteria/client.yaml`, `/etc/naive/config.json` | Hysteria2 / Naive client configs |
+| `/etc/hysteria/client.yaml`, `split.conf`, `server_ip` | Hysteria2 client config, its split rules and server address |
+| `/etc/naive/config.json`, `split.conf`, `server_ip` | Naive client config, its split rules and server address |
+| `/etc/xray/wg.json`, `wg.conf`, `wg.split.conf`, `wg.server_ip` | WireGuard config, its split rules and endpoint address |
 
-Local ports: Xray SOCKS `10808`, HTTP `10809`, redirect (TCP) `12346`, TPROXY (UDP) `12345`, Xray DNS `5354`; Hysteria2 SOCKS `10818`; Naive SOCKS `10828`.
+Local ports: Xray SOCKS `10808`, HTTP `10809`, redirect (TCP) `12346`, TPROXY (UDP) `12345`, DNS `5354`; Hysteria2 SOCKS `10818`, redirect `12356`, TPROXY `12355`, DNS `5364`; Naive SOCKS `10828`, redir `12366`, DNS helper `5374`.
 
 ## Troubleshooting
 
@@ -219,12 +242,12 @@ Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `
 ### 3. No DNS (or slow DNS) while Naive is active
 
 - **Symptom:** sites do not open under Naive, `nslookup google.com` on the router or `dig @192.168.8.1 google.com` from a LAN host times out.
-- **Cause:** Naive carries TCP only. The panel therefore sends DNS through the tunnel as DNS over TCP, blocks QUIC (UDP 443) so browsers fall back to TCP, and sends other UDP directly. If Xray is down, or the Naive client or its server is unreachable, DNS fails too.
+- **Cause:** Naive carries TCP only. The panel therefore sends DNS through `dnsproxy` (asks `1.1.1.1` over TCP, through naive), blocks QUIC (UDP 443) so browsers fall back to TCP, and sends other UDP directly. If `naive`, `dnsproxy` or the Naive server is down, DNS fails too.
 - **Fix:**
 
   ```sh
-  vless.sh status                                  # proto=naive, running=1, tproxy=1
-  ps w | grep -E 'naive|xray' | grep -v grep       # both must run
+  vless.sh status                                  # proto=naive, naive=1, active_up=1, tproxy=1
+  ps w | grep -E 'naive|dnsproxy' | grep -v grep   # both must run (Xray is stopped on purpose)
   logread -e naive | tail                          # connection errors to the server?
   nslookup google.com                              # on the router
   dig @192.168.8.1 google.com                      # from a LAN host
@@ -300,7 +323,6 @@ Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `
   ```sh
   ls -l /usr/bin/hysteria                            # Hysteria2 only: the binary must exist
   /etc/init.d/hysteria-client status; logread -e hysteria | tail
-  logread -e xray | tail                             # Xray errors
   wg show wg-aurora                                  # WireGuard handshake and counters
   curl -s -o /dev/null -w '%{http_code}\n' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204   # expect 204
   ```

@@ -138,6 +138,14 @@ export VLESS_SH=$SH
 export PATH="$TMP/bin:$PATH"
 export PIDOF_UP="xray"
 export VLESS_AU_STABLE_SECS=0
+cat > "$TMP/hooks/steer.sh" <<EOF
+#!/bin/sh
+echo "\$1 \$2" >> "$D/steer.log"
+exit 0
+EOF
+chmod 755 "$TMP/hooks/steer.sh"
+export VLESS_AU_STEER="$TMP/hooks/steer.sh"
+export VLESS_AU_PROBE_PAUSE=0
 # WireGuard: not installed unless a test says otherwise; `ip link show wg-aurora` follows a state file.
 export VLESS_WG_BIN="$TMP/no-wg"
 export VLESS_WG_SYSMOD="$TMP/no-wg-module"
@@ -166,8 +174,8 @@ run() {
 # --- version is a letter iteration after 1.4.0 ---
 ver=$(sed -n 's/^Version: //p' "$ROOT/control/control" | head -1)
 cls=$("$VC" classify "$ver")
-if [ "$ver" = 1.5.0a2 ] && [ "$cls" = pre ]; then
-	ok "package version 1.5.0a2 is a pre-release"
+if [ "$ver" = 1.5.0a3 ] && [ "$cls" = pre ]; then
+	ok "package version 1.5.0a3 is a pre-release"
 else
 	bad "version ($ver class=$cls)"
 fi
@@ -400,6 +408,7 @@ rm -f "$TMP/hooks/egress-slow.sh"
 
 # egress probe: one curl, cached for 60 s, invalidated by a different key
 rm -f "$TMP/curl.count" "$TMP/egress.cache"
+echo vless > "$D/proto"
 g1=$(env VLESS_AU_EGRESS_CACHE="$TMP/egress.cache" "$SH" egress 2>/dev/null || true)
 g2=$(env VLESS_AU_EGRESS_CACHE="$TMP/egress.cache" "$SH" egress 2>/dev/null || true)
 n=$(wc -l < "$TMP/curl.count" | tr -d ' ')
@@ -409,8 +418,8 @@ if [ "$g1" = 203.0.113.9 ] && [ "$g2" = 203.0.113.9 ] && [ "$n" = 1 ] \
 else
 	bad "egress cache g1=$g1 g2=$g2 curls=$n"
 fi
-echo vless > "$D/proto"
-env VLESS_AU_EGRESS_CACHE="$TMP/egress.cache" "$SH" egress >/dev/null 2>&1 || true
+echo hy2 > "$D/proto"
+env PIDOF_UP="xray hysteria" VLESS_AU_EGRESS_CACHE="$TMP/egress.cache" "$SH" egress >/dev/null 2>&1 || true
 n=$(wc -l < "$TMP/curl.count" | tr -d ' ')
 echo hy2 > "$D/proto"
 if [ "$n" = 2 ]; then ok "egress cache is dropped when the protocol changes"; else bad "egress cache key (curls=$n)"; fi
@@ -418,9 +427,11 @@ if [ "$n" = 2 ]; then ok "egress cache is dropped when the protocol changes"; el
 # --- restart order, stability and tproxy ---
 echo hy2 > "$D/proto"
 rm -f "$D/order.log" "$D/svc.log" "$D/xrestart.log"
+rm -f "$D/steer.log"
 env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" VLESS_AU_SVC_RESTART="$TMP/hooks/svc-ok.sh" "$SH" restart >/dev/null 2>&1 || true
-if [ "$(tr '\n' ' ' < "$D/order.log")" = "hysteria-client xray " ]; then
-	ok "restart brings Hysteria up before Xray"
+if [ "$(tr '\n' ' ' < "$D/order.log")" = "hysteria-client " ] && [ ! -e "$D/xrestart.log" ] \
+   && [ "$(tr '\n' ' ' < "$D/steer.log")" = "hy down hy up " ]; then
+	ok "restart with Hysteria active restarts only Hysteria (Xray untouched) and re-applies its steering"
 else
 	bad "restart order ($(tr '\n' ' ' < "$D/order.log" 2>/dev/null))"
 fi
@@ -775,30 +786,148 @@ if printf '%s\n' "$o1" | grep -q '^ERROR: WIREGUARD IS NOT INSTALLED' \
 else
 	bad "wg errors ($o1 | $o2 | $o3)"
 fi
-# Switching to WireGuard: the interface comes up first, Xray gets a freedom outbound bound to it.
-cp "$D/config.json" "$TMP/config.keep"; cp "$D/proto" "$TMP/proto.keep"; cp "$D/link.txt" "$TMP/link.keep" 2>/dev/null
-rm -f "$D/svc.log" "$D/order.log" "$D/xrestart.log" "$TMP/wgup.state"
-o=$(wgenv env VLESS_AU_SKIP_XRAY_TEST=1 VLESS_AU_SVC_RESTART="$TMP/hooks/svc-wg-ok.sh" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" proto wg 2>/dev/null || true)
-if [ "$o" = OK ] && [ "$(cat "$D/proto")" = wg ] \
-   && [ "$(jq -r '.outbounds[]|select(.tag=="proxy")|.protocol' "$D/config.json")" = freedom ] \
-   && [ "$(jq -r '.outbounds[]|select(.tag=="proxy")|.streamSettings.sockopt.interface' "$D/config.json")" = wg-aurora ] \
-   && ! grep -q '"wireguard"' "$D/config.json" \
-   && [ "$(sed -n 1p "$D/order.log")" = wireguard-client ] && grep -qx xray "$D/order.log"; then
-	ok "WireGuard as the active protocol: interface first, Xray proxy outbound bound to wg-aurora"
+# --- independent protocols: each one is its own service, Xray is not involved ---
+# Fake init dir that only logs which service was asked to do what.
+mkdir -p "$TMP/ni" "$TMP/etc-hy" "$TMP/etc-na"
+for nm in xray-client hysteria-client naive-client wireguard-client; do
+	printf '#!/bin/sh\necho "%s $1" >> "%s/ni.log"\nexit 0\n' "$nm" "$TMP" > "$TMP/ni/$nm"
+done
+chmod 755 "$TMP/ni/"*
+printf '#!/bin/sh\nexit 0\n' > "$TMP/hooks/probe-ok.sh"
+printf '#!/bin/sh\nexit 1\n' > "$TMP/hooks/probe-fail.sh"
+chmod 755 "$TMP/hooks/probe-ok.sh" "$TMP/hooks/probe-fail.sh"
+echo 'server: hy.example:443' > "$TMP/etc-hy/client.yaml"
+echo '{"listen":"socks://127.0.0.1:10828"}' > "$TMP/etc-na/config.json"
+SPLITSH=$ROOT/files/usr/libexec/aurora-panel/aurora-split.sh
+nenv() { env PIDOF_FILE="$TMP/pidof.state" VLESS_INITD="$TMP/ni" VLESS_HYSTERIA_DIR="$TMP/etc-hy" VLESS_NAIVE_DIR="$TMP/etc-na" \
+	VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module" VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" \
+	VLESS_AU_SKIP_XRAY_TEST=1 VLESS_AU_NOLISTENCHECK=1 VLESS_AU_PROBE="$TMP/hooks/probe-ok.sh" VLESS_AU_DNSCHECK="$TMP/hooks/probe-ok.sh" VLESS_AURORA_SPLIT="$SPLITSH" \
+	VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" VLESS_AU_SVC_RESTART="$TMP/hooks/svc-ok.sh" "$@"; }
+nreset() { rm -f "$D/svc.log" "$D/order.log" "$D/xrestart.log" "$D/steer.log" "$TMP/ni.log" "$TMP/wgup.state"; }
+echo 'x: 1' > "$TMP/hy.keep"; cp "$TMP/etc-hy/client.yaml" "$TMP/hy.keep"
+cp "$D/config.json" "$TMP/config.keep"
+echo vless > "$D/proto"; nreset
+o=$(nenv "$SH" proto hy2 2>&1 || true)
+if [ "$o" = OK ] && [ "$(cat "$D/proto")" = hy2 ] && [ ! -e "$D/xrestart.log" ] && cmp -s "$D/config.json" "$TMP/config.keep" \
+   && [ "$(tr '\n' ' ' < "$D/order.log")" = "hysteria-client " ] \
+   && grep -qx 'hy up' "$D/steer.log" && grep -qx 'nv down' "$D/steer.log" && grep -qx 'wg down' "$D/steer.log" \
+   && grep -qx 'xray-client stop' "$TMP/ni.log" && grep -qx 'naive-client stop' "$TMP/ni.log" && grep -qx 'wireguard-client stop' "$TMP/ni.log" \
+   && ! grep -qx 'hysteria-client stop' "$TMP/ni.log"; then
+	ok "Hysteria becomes active on its own: Xray is stopped, never restarted or regenerated; Naive and WireGuard are stopped"
 else
-	bad "proto wg ($o | $(tr '\n' ';' < "$D/order.log" 2>/dev/null) | $(jq -c '.outbounds' "$D/config.json" 2>/dev/null | cut -c1-200))"
+	bad "proto hy2 ($o | $(tr '\n' ';' < "$D/order.log" 2>/dev/null) | $(tr '\n' ';' < "$TMP/ni.log" 2>/dev/null) | $(tr '\n' ';' < "$D/steer.log" 2>/dev/null))"
 fi
-# A failed WireGuard start changes nothing: config, proto and Xray stay as they were.
-cp "$TMP/config.keep" "$D/config.json"; echo vless > "$D/proto"
-rm -f "$D/order.log" "$D/xrestart.log" "$TMP/wgup.state"
-o=$(wgenv env VLESS_AU_SKIP_XRAY_TEST=1 VLESS_AU_SVC_RESTART="$TMP/hooks/svc-wg-fail.sh" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" proto wg 2>/dev/null || true)
-if printf '%s\n' "$o" | grep -q '^ERROR: WireGuard did not start: cannot resolve the WireGuard endpoint' \
-   && [ "$(cat "$D/proto")" = vless ] && cmp -s "$D/config.json" "$TMP/config.keep" && [ ! -e "$D/xrestart.log" ]; then
-	ok "a WireGuard that cannot start leaves config, protocol and Xray untouched"
+# Naive: saved with its own config (SOCKS + transparent redir), its own server address file; Hysteria is stopped.
+printf 'naive+https://user:pass@192.0.2.31:8445\n' > "$TMP/naive.link"
+nreset
+o=$(nenv "$SH" naivesave "$TMP/naive.link" 2>&1 || true)
+if [ "$o" = OK ] && [ "$(cat "$D/proto")" = naive ] && [ ! -e "$D/xrestart.log" ] && cmp -s "$D/config.json" "$TMP/config.keep" \
+   && cmp -s "$TMP/etc-hy/client.yaml" "$TMP/hy.keep" \
+   && [ "$(tr '\n' ' ' < "$D/order.log")" = "naive-client " ] \
+   && [ "$(jq -r '.listen|join(" ")' "$TMP/etc-na/config.json")" = "socks://127.0.0.1:10828 redir://0.0.0.0:12366" ] \
+   && [ "$(cat "$TMP/etc-na/server_ip")" = 192.0.2.31 ] \
+   && grep -qx 'nv up' "$D/steer.log" && grep -qx 'hy down' "$D/steer.log" && grep -qx 'hysteria-client stop' "$TMP/ni.log" \
+   && ! grep -qx 'naive-client stop' "$TMP/ni.log"; then
+	ok "Naive becomes active on its own (SOCKS + transparent redir config); Hysteria files and Xray config are untouched"
 else
-	bad "proto wg failure ($o)"
+	bad "naivesave ($o | $(tr '\n' ';' < "$D/order.log" 2>/dev/null) | $(tr '\n' ';' < "$TMP/ni.log" 2>/dev/null))"
+fi
+# WireGuard: its own interface service, nothing from Xray.
+cp "$D/wg.json" "$TMP/wg.keep"
+nreset
+o=$(nenv env VLESS_AU_SVC_RESTART="$TMP/hooks/svc-wg-ok.sh" "$SH" proto wg 2>&1 || true)
+if [ "$o" = OK ] && [ "$(cat "$D/proto")" = wg ] && [ ! -e "$D/xrestart.log" ] && cmp -s "$D/config.json" "$TMP/config.keep" \
+   && [ "$(tr '\n' ' ' < "$D/order.log")" = "wireguard-client " ] && grep -qx 'wg up' "$D/steer.log" \
+   && grep -qx 'naive-client stop' "$TMP/ni.log" && grep -qx 'xray-client stop' "$TMP/ni.log" && ! grep -qx 'wireguard-client stop' "$TMP/ni.log"; then
+	ok "WireGuard becomes active on its own: kernel interface service, no Xray outbound, Xray config untouched"
+else
+	bad "proto wg ($o | $(tr '\n' ';' < "$D/order.log" 2>/dev/null) | $(tr '\n' ';' < "$TMP/ni.log" 2>/dev/null))"
+fi
+# A failing connectivity check restores the target's files, keeps the previous protocol, stops the target.
+cp "$TMP/etc-na/config.json" "$TMP/na.keep"
+printf 'naive+https://other:pw@192.0.2.99:9443\n' > "$TMP/naive2.link"
+nreset
+o=$(nenv env VLESS_AU_PROBE="$TMP/hooks/probe-fail.sh" "$SH" naivesave "$TMP/naive2.link" 2>&1 || true)
+if printf '%s\n' "$o" | grep -q '^ERROR: Naive started but has no connectivity' && printf '%s\n' "$o" | grep -q 'previous setup was restored' \
+   && [ "$(cat "$D/proto")" = wg ] && cmp -s "$TMP/etc-na/config.json" "$TMP/na.keep" && [ "$(cat "$TMP/etc-na/server_ip")" = 192.0.2.31 ] \
+   && [ ! -e "$D/xrestart.log" ] && ! grep -qx 'nv up' "$D/steer.log" && grep -qx 'naive-client stop' "$TMP/ni.log" \
+   && ! grep -q 'wireguard-client' "$TMP/ni.log"; then
+	ok "a failed Naive check restores Naive's files, stops only Naive and leaves WireGuard active"
+else
+	bad "naive rollback ($o | $(tr '\n' ';' < "$TMP/ni.log" 2>/dev/null))"
+fi
+# DNS that does not work after steering is switched on: steering goes back off, the previous protocol stays.
+echo wg > "$D/proto"; nreset
+o=$(nenv env VLESS_AU_DNSCHECK="$TMP/hooks/probe-fail.sh" "$SH" proto hy2 2>&1 || true)
+if printf '%s\n' "$o" | grep -q '^ERROR: DNS does not work through Hysteria' && [ "$(cat "$D/proto")" = wg ] \
+   && [ "$(tail -1 "$D/steer.log")" = "hy down" ] && grep -qx 'hy up' "$D/steer.log"; then
+	ok "DNS is verified after steering is on; a failure switches that protocol's steering off again"
+else
+	bad "dns check ($o | $(tr '\n' ';' < "$D/steer.log" 2>/dev/null))"
+fi
+# Mode of a native protocol is that protocol's own split.conf; Xray is not regenerated.
+echo hy2 > "$D/proto"; nreset
+o=$(nenv "$SH" mode all 2>&1 || true)
+st=$(nenv "$SH" status 2>/dev/null || true)
+if [ "$o" = OK ] && grep -qx 'mode all' "$TMP/etc-hy/split.conf" && printf '%s\n' "$st" | grep -qx 'mode=all' && printf '%s\n' "$st" | grep -qx 'proto=hy2' \
+   && [ ! -e "$D/xrestart.log" ] && cmp -s "$D/config.json" "$TMP/config.keep" && grep -qx 'hy up' "$D/steer.log" && [ ! -e "$TMP/etc-na/split.conf" ]; then
+	ok "mode ru/all with Hysteria active edits only /etc/hysteria/split.conf and re-applies Hysteria's rules"
+else
+	bad "native mode ($o | $(cat "$TMP/etc-hy/split.conf" 2>/dev/null | tr '\n' ';'))"
+fi
+nenv "$SH" mode ru >/dev/null 2>&1
+# Saving or updating one protocol while another is active touches nothing else.
+nreset; echo vless > "$D/proto"
+o=$(nenv "$SH" store naive "$TMP/naive2.link" 2>&1 || true)
+if [ "$o" = OK ] && [ ! -e "$D/xrestart.log" ] && [ ! -e "$D/svc.log" ] && [ ! -e "$TMP/ni.log" ] && [ ! -e "$D/steer.log" ] \
+   && cmp -s "$D/config.json" "$TMP/config.keep" && [ "$(cat "$D/proto")" = vless ] && [ "$(cat "$TMP/etc-na/server_ip")" = 192.0.2.99 ]; then
+	ok "saving Naive while VLESS is active restarts nothing and does not regenerate Xray"
+else
+	bad "store isolation ($o)"
+fi
+# Active native protocol: a new config reloads only that service (no Xray, no other daemon).
+echo naive > "$D/proto"; nreset
+o=$(nenv "$SH" reload-with "$TMP/naive.link" naive 2>&1 || true)
+if [ "$o" = OK ] && [ "$(tr '\n' ' ' < "$D/order.log")" = "naive-client " ] && [ ! -e "$D/xrestart.log" ] && grep -qx 'nv up' "$D/steer.log" \
+   && [ "$(cat "$TMP/etc-na/server_ip")" = 192.0.2.31 ] && [ ! -e "$TMP/ni.log" ]; then
+	ok "updating the active Naive link reloads only the Naive service"
+else
+	bad "reload-with ($o | $(tr '\n' ';' < "$D/order.log" 2>/dev/null))"
+fi
+# ON/OFF act on the active protocol's own steering table.
+nreset; echo naive > "$D/proto"
+nenv "$SH" off >/dev/null 2>&1; nenv "$SH" on >/dev/null 2>&1
+if [ "$(tr '\n' ' ' < "$D/steer.log")" = "nv down nv up " ] && [ ! -e "$D/xrestart.log" ]; then ok "transparent on/off toggles only the active protocol's rules"; else bad "on/off ($(tr '\n' ' ' < "$D/steer.log" 2>/dev/null))"; fi
+rm -f "$D/tproxy.disabled"
+# Back to VLESS: Xray is regenerated and started, the other three are stopped.
+nreset; echo hy2 > "$D/proto"
+printf 'vless://11111111-2222-3333-4444-555555555555@192.0.2.10:443?security=none&type=tcp#t\n' > "$D/link.txt"
+o=$(nenv "$SH" proto vless 2>&1 || true)
+if [ "$o" = OK ] && [ "$(cat "$D/proto")" = vless ] && [ -s "$D/xrestart.log" ] \
+   && grep -qx 'hysteria-client stop' "$TMP/ni.log" && grep -qx 'naive-client stop' "$TMP/ni.log" && grep -qx 'wireguard-client stop' "$TMP/ni.log" \
+   && ! grep -qx 'xray-client stop' "$TMP/ni.log" && grep -qx 'xray-client enable' "$TMP/ni.log" && ! grep -qx 'xray-client disable' "$TMP/ni.log" \
+   && grep -qx 'hy down' "$D/steer.log"; then
+	ok "switching back to VLESS starts Xray and stops Hysteria, Naive and WireGuard"
+else
+	bad "back to vless ($o | $(tr '\n' ';' < "$TMP/ni.log" 2>/dev/null))"
 fi
 cp "$TMP/config.keep" "$D/config.json"; echo vless > "$D/proto"; rm -f "$TMP/wgup.state"
+# xray-client init: Xray started by hand while another protocol is active must not steer traffic.
+mkdir -p "$TMP/xi/etc"
+sed "s#/etc/xray#$TMP/xi/etc#g; s#/usr/bin/xray#xray#" "$ROOT/files/etc/init.d/xray-client" | sed '1d' > "$TMP/xi/init.sh"
+cat > "$TMP/xi/tproxy.sh" <<EOF
+#!/bin/sh
+echo "\$1" >> "$TMP/xi/tp.log"
+EOF
+chmod 755 "$TMP/xi/tproxy.sh"; cp "$TMP/xi/tproxy.sh" "$TMP/xi/etc/tproxy.sh"
+xi() { rm -f "$TMP/xi/tp.log" "$TMP/xi/etc/tproxy.disabled"; echo "$1" > "$TMP/xi/etc/proto"; ( procd_open_instance(){ :; }; procd_set_param(){ :; }; procd_close_instance(){ :; }; . "$TMP/xi/init.sh"; start_service ) ; cat "$TMP/xi/tp.log"; }
+if [ "$(xi naive)" = down ] && [ "$(xi hy2)" = down ] && [ "$(xi wg)" = down ] && [ "$(xi vless)" = up ] && [ "$(xi socks)" = up ]; then
+	ok "xray-client turns transparent mode on only while Xray is the active protocol"
+else
+	bad "xray-client tproxy guard ($(xi naive)/$(xi vless))"
+fi
+# Static checks: nothing native goes through Xray any more.
+if ! grep -q 'freedom' "$SH" && ! grep -q 'hyup' "$SH" && ! grep -qi 'naiveproxy' "$CGI" "$SH"; then ok "no Xray freedom outbound, no Xray-side helper for the native protocols"; else bad "xray leftovers in vless.sh"; fi
 
 # Service row: not installed / config not saved / running / not running, each with its button state.
 wgrow() { # args: extra env... -> the WireGuard span and its button
@@ -815,9 +944,9 @@ wr4=$(wgrow VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module")
 rm -f "$TMP/wgup.state"
 if printf '%s' "$wr1" | grep -q 'color:#c62828;font-weight:700" title="not installed' && printf '%s' "$wr1" | grep -q 'class=rb disabled' \
    && printf '%s' "$wr2" | grep -q 'color:#c62828;font-weight:700" title="config not saved' && printf '%s' "$wr2" | grep -q 'class=rb disabled' \
-   && printf '%s' "$wr3" | grep -q 'color:#c62828;font-weight:700" title="not running' && ! printf '%s' "$wr3" | grep -q 'class=rb disabled' \
+   && printf '%s' "$wr3" | grep -q 'color:#777" title="stopped: not the active protocol' && ! printf '%s' "$wr3" | grep -q 'class=rb disabled' \
    && printf '%s' "$wr4" | grep -q 'color:#1a7f37" title="running' && ! printf '%s' "$wr4" | grep -q 'class=rb disabled'; then
-	ok "the WireGuard row shows its real state: not installed, config not saved, not running, running"
+	ok "the WireGuard row shows its real state: not installed, config not saved, idle (grey, not red), running"
 else
 	bad "wg row ($wr1 | $wr2 | $wr3 | $wr4)"
 fi

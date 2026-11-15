@@ -1,11 +1,26 @@
 #!/bin/sh /etc/rc.common
+# Naive client: SOCKS5 on 127.0.0.1:10828 and a transparent TCP "redir" listener
+# on :12366 (both from /etc/naive/config.json). Naive carries TCP only, so DNS is
+# answered by dnsproxy (UDP/TCP on 127.0.0.1:5374) which asks 1.1.1.1 over TCP;
+# that TCP connection is the only thing steered into Naive for DNS.
 START=98
+STOP=10
 USE_PROCD=1
 start_service() {
-	procd_open_instance
+	procd_open_instance naive
 	procd_set_param command /usr/bin/naive /etc/naive/config.json
 	procd_set_param respawn
 	procd_set_param stdout 0
 	procd_set_param stderr 1
 	procd_close_instance
+	DNSPROXY=$(command -v dnsproxy)
+	if [ -n "$DNSPROXY" ]; then
+		procd_open_instance dns
+		procd_set_param command "$DNSPROXY" -l 127.0.0.1 -p 5374 -u tcp://1.1.1.1:53 --cache
+		procd_set_param user nobody
+		procd_set_param respawn
+		procd_set_param stdout 0
+		procd_set_param stderr 1
+		procd_close_instance
+	fi
 }

@@ -60,11 +60,14 @@ fi
 
 /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 
-# Upgrade from versions where WireGuard was an Xray outbound: regenerate the
-# config so that WireGuard runs as its own service (wireguard-client).
-if [ "$(cat /etc/xray/proto 2>/dev/null)" = wg ] && grep -q '"protocol": *"wireguard"' /etc/xray/config.json 2>/dev/null; then
-	/etc/xray/vless.sh proto wg >/dev/null 2>&1 || echo "WARNING: could not move WireGuard to its own service; press Connect WireGuard on the panel page."
-fi
+# Upgrade from versions where WireGuard / Hysteria / Naive went through Xray: the
+# active protocol is brought up again as its own service (own steering rules), and
+# the boot hook that does so after a reboot is enabled. Xray is not touched.
+/etc/init.d/aurora-steer enable >/dev/null 2>&1 || true
+case "$(cat /etc/xray/proto 2>/dev/null)" in
+	hy2|naive|wg)
+		/etc/xray/vless.sh reactivate >/dev/null 2>&1 || echo "WARNING: could not bring the active protocol up as its own service; press Connect on the panel page." ;;
+esac
 
 mkdir -p /etc/xray/autoupdate
 # Install the hourly autoupdate cron line (idempotent). Does not enable any proto.

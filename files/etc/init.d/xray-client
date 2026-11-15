@@ -10,7 +10,12 @@ start_service() {
   procd_set_param stdout 1
   procd_set_param stderr 1
   procd_close_instance
-  if [ -f /etc/xray/tproxy.disabled ]; then /etc/xray/tproxy.sh down; else /etc/xray/tproxy.sh up; fi
+  # Transparent mode only when Xray is the active protocol (VLESS/SOCKS5/HTTP); with Hysteria,
+  # Naive or WireGuard active, a manually started Xray must not steer traffic.
+  case "$(cat /etc/xray/proto 2>/dev/null)" in
+    hy2|naive|wg) /etc/xray/tproxy.sh down;;
+    *) if [ -f /etc/xray/tproxy.disabled ]; then /etc/xray/tproxy.sh down; else /etc/xray/tproxy.sh up; fi;;
+  esac
 }
 stop_service() {
   /etc/xray/tproxy.sh down

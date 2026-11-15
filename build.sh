@@ -33,8 +33,11 @@ chmod 755 "$DATA/www-aurora/cgi-bin/vless" \
           "$DATA/etc/init.d/xray-client" \
           "$DATA/etc/init.d/hysteria-client" \
           "$DATA/etc/init.d/naive-client" \
-  "$DATA/etc/init.d/wireguard-client" \
           "$DATA/etc/init.d/wireguard-client" \
+          "$DATA/etc/init.d/aurora-steer" \
+          "$DATA/usr/libexec/aurora-panel/aurora-split.sh" \
+          "$DATA/usr/libexec/aurora-panel/aurora-geoip.sh" \
+          "$DATA/usr/libexec/aurora-panel/client-update.sh" \
           "$DATA/usr/libexec/aurora-panel/install-naive.sh" \
           "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh"
 
@@ -47,6 +50,10 @@ for s in \
   "$DATA/etc/init.d/hysteria-client" \
   "$DATA/etc/init.d/naive-client" \
   "$DATA/etc/init.d/wireguard-client" \
+  "$DATA/etc/init.d/aurora-steer" \
+  "$DATA/usr/libexec/aurora-panel/aurora-split.sh" \
+  "$DATA/usr/libexec/aurora-panel/aurora-geoip.sh" \
+  "$DATA/usr/libexec/aurora-panel/client-update.sh" \
   "$DATA/usr/libexec/aurora-panel/install-naive.sh" \
   "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh" \
   "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh" \
@@ -145,6 +152,10 @@ test -x "$VERIFY/data/etc/init.d/xray-client"
 test -x "$VERIFY/data/etc/init.d/hysteria-client"
 test -x "$VERIFY/data/etc/init.d/naive-client"
 test -x "$VERIFY/data/etc/init.d/wireguard-client"
+test -x "$VERIFY/data/etc/init.d/aurora-steer"
+test -x "$VERIFY/data/usr/libexec/aurora-panel/aurora-split.sh"
+test -x "$VERIFY/data/usr/libexec/aurora-panel/aurora-geoip.sh"
+test -x "$VERIFY/data/usr/libexec/aurora-panel/client-update.sh"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/install-naive.sh"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-run.sh"
 test -f "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-lib.sh"
@@ -183,6 +194,10 @@ fi
 
 if [ -x "$ROOT/tests/version-order.sh" ]; then
   "$ROOT/tests/version-order.sh" || { echo "ERROR: version tests failed" >&2; exit 1; }
+fi
+
+if [ -x "$ROOT/tests/split.sh" ]; then
+  "$ROOT/tests/split.sh" || { echo "ERROR: split tests failed" >&2; exit 1; }
 fi
 
 if [ -x "$ROOT/tests/panel-ui.sh" ]; then

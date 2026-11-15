@@ -588,6 +588,19 @@ else
 	bad "au_backup/restore proxy settings"
 fi
 
+# per-protocol backup/restore: rolling back one protocol never touches another one's files
+mkdir -p "$HYD" "$NAD" 2>/dev/null
+echo hy-old > "$D/hy2.txt"; echo nv-old > "$D/naive.txt"; echo vl-old > "$D/link.txt"; echo wg-old > "$D/wg.conf"
+B=$TMP/bak-hy
+au_backup "$B" hy2
+echo hy-new > "$D/hy2.txt"; echo nv-new > "$D/naive.txt"; echo vl-new > "$D/link.txt"; echo wg-new > "$D/wg.conf"
+au_restore "$B" hy2
+if [ "$(cat "$D/hy2.txt")" = hy-old ] && [ "$(cat "$D/naive.txt")" = nv-new ] && [ "$(cat "$D/link.txt")" = vl-new ] && [ "$(cat "$D/wg.conf")" = wg-new ]; then
+	ok "au_backup/au_restore for one protocol restore only that protocol's files"
+else
+	bad "per-protocol backup isolation"
+fi
+
 # --- sh -n of scripts ---
 for s in \
 	"$SH" \

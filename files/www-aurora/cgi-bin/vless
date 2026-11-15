@@ -82,10 +82,13 @@ BLK
 }
 # One entry of the service row: $1 whitelist key, $2 label, $3 1 if running,
 # $4 tooltip, $5 "disabled" to grey out the restart button. Running = green,
-# not running = red bold, then a tiny restart button.
+# not running = red bold (only for the active protocol's daemon; an idle one is grey,
+# it is meant to be stopped), then a tiny restart button.
 svc_item(){
   if [ "$3" = 1 ]; then
     _st="color:#1a7f37"
+  elif [ "$3" = 2 ]; then
+    _st="color:#777"
   else
     _st="color:#c62828;font-weight:700"
   fi
@@ -242,7 +245,8 @@ fi
 # naive-client, Hysteria = hysteria-client, WireGuard = wireguard-client (kernel
 # interface wg-aurora; running means the interface is up).
 if [ "${S_inst_xray:-0}" != 1 ]; then T_X="not installed"
-elif [ "$S_running" = 1 ]; then T_X="running"; else T_X="not running"; fi
+elif [ "$S_running" = 1 ]; then T_X="running"
+else T_X="not running"; fi
 if [ "${S_inst_naive:-0}" != 1 ]; then T_N="not installed"; N_UP=0
 elif [ "${S_naive:-0}" = 1 ]; then T_N="running"; N_UP=1; else T_N="not running"; N_UP=0; fi
 if [ "${S_inst_hysteria:-0}" != 1 ]; then T_H="not installed"; H_UP=0
@@ -252,9 +256,27 @@ if [ "${S_inst_wireguard:-0}" != 1 ]; then T_W="not installed (opkg install kmod
 elif [ "${S_wg_conf:-0}" != 1 ]; then T_W="config not saved"
 elif [ "${S_wireguard:-0}" = 1 ]; then T_W="running"; W_UP=1; W_DIS=
 else T_W="not running"; W_DIS=; fi
+# A daemon that is not running and is not the active protocol's is idle on purpose: grey, not red.
+case "$S_proto" in vless|socks|http) A_X=1;; *) A_X=0;; esac
+[ "$S_proto" = naive ] && A_N=1 || A_N=0
+[ "$S_proto" = hy2 ] && A_H=1 || A_H=0
+[ "$S_proto" = wg ] && A_W=1 || A_W=0
+idle_state(){ # $1 up(0|1) $2 tooltip $3 active(0|1) $4 installed-and-configured(0|1) -> 1 | 0 | 2 ; tooltip via T_IDLE
+  [ "$1" = 1 ] && { echo 1; return; }
+  [ "$4" = 1 ] && [ "$3" = 0 ] && { echo 2; return; }
+  echo 0
+}
 X_UP=0; [ "$S_running" = 1 ] && [ "${S_inst_xray:-0}" = 1 ] && X_UP=1
+X_OK=0; [ "${S_inst_xray:-0}" = 1 ] && X_OK=1
+N_OK=0; [ "${S_inst_naive:-0}" = 1 ] && N_OK=1
+H_OK=0; [ "${S_inst_hysteria:-0}" = 1 ] && H_OK=1
+W_OK=0; [ "${S_inst_wireguard:-0}" = 1 ] && [ "${S_wg_conf:-0}" = 1 ] && W_OK=1
+[ "$(idle_state "$X_UP" x "$A_X" "$X_OK")" = 2 ] && { X_UP=2; T_X="stopped: not the active protocol"; }
+[ "$(idle_state "$N_UP" x "$A_N" "$N_OK")" = 2 ] && { N_UP=2; T_N="stopped: not the active protocol"; }
+[ "$(idle_state "$H_UP" x "$A_H" "$H_OK")" = 2 ] && { H_UP=2; T_H="stopped: not the active protocol"; }
+[ "$(idle_state "$W_UP" x "$A_W" "$W_OK")" = 2 ] && { W_UP=2; T_W="stopped: not the active protocol"; }
 SVC="$(svc_item xray Xray "$X_UP" "$T_X") / $(svc_item naive Naive "$N_UP" "$T_N") / $(svc_item hysteria Hysteria "$H_UP" "$T_H") / $(svc_item wireguard WireGuard "$W_UP" "$T_W" "$W_DIS")"
-if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ENABLED"; SC="#1a7f37"
+if [ "$S_tproxy" = 1 ] && [ "${S_active_up:-$S_running}" = 1 ]; then ST="ENABLED"; SC="#1a7f37"
 else ST="DISABLED (direct internet)"; SC="#c62828"; fi
 [ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
 SOCKS_CARD_H=" hidden"; SOCKS_BTN_H=

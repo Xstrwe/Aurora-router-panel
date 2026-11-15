@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.5.0a3
+
+Every protocol is now fully independent: its own service, its own steering rules
+and its own split file. Nothing goes through Xray except VLESS. Pre-release.
+
+- **Hysteria2** runs alone (`hysteria-client`) with native `tcpRedirect`, `udpTProxy`
+  and DNS forwarding listeners. **Naive** runs alone (`naive-client`) with its
+  `redir` listener and `dnsproxy` for DNS over TCP. **WireGuard** runs alone
+  (`wireguard-client`, kernel interface) with fwmark policy routing (table 871),
+  masquerade and MSS clamp. Xray is stopped when it is not the active protocol.
+- New `aurora-split.sh`: one nft table per protocol (`aurora_hy`, `aurora_nv`,
+  `aurora_wg`) and one editable split file per protocol (`/etc/hysteria/split.conf`,
+  `/etc/naive/split.conf`, `/etc/xray/wg.split.conf`). Hysteria 2 has no
+  client-side ACL, so the split is done in nftables. New `aurora-geoip.sh` reads
+  the country ranges from Xray's `geoip.dat` (BusyBox `hexdump`, no extra tools).
+- Switching starts the target, checks a connection through the target's own local
+  entry, switches its steering on, checks DNS, then stops the other protocols
+  (including Xray when you leave VLESS). Any failure restores the target's files and
+  keeps the previous protocol. A boot hook (`aurora-steer`) enables the steering
+  only after the protocol works (fail open).
+- Saving, autoupdating, restarting or updating the client of one protocol touches
+  only that protocol. Autoupdate backup and rollback are per protocol; saving a
+  Hysteria2 link never regenerates or restarts Xray.
+- Hysteria2 and Naive store the server address as an IP (the name stays in the
+  SNI / host-resolver rule), so reconnecting never needs DNS through the tunnel.
+- `vless.sh client-update xray|hysteria|naive|wireguard check|install` updates one
+  client from its own upstream (SHA-256 checked for Xray and hysteria) and restarts
+  only that client.
+- The service row shows grey for a daemon that is stopped because it is not the
+  active protocol, red only when the active protocol's daemon is down. The Naive
+  card and messages say "Naive". `vless.sh status` gained `active_up=` and reports the
+  mode and the server address of the active protocol.
+- The `xray-client` init script no longer turns transparent mode on when another
+  protocol is active.
+- Upgrading from 1.5.0a2 rebuilds the active Hysteria2/Naive/WireGuard config and
+  brings it up as its own service.
+
 ## 1.5.0a2
 
 - WireGuard is now its own service, like Naive and Hysteria. The new init

@@ -14,6 +14,11 @@ HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
 NAIVE_BIN=${VLESS_NAIVE_BIN:-/usr/bin/naive}
 WG_BIN=${VLESS_WG_BIN:-/usr/bin/wg}
 WGIF=wg-aurora
+AURORA_SPLIT=${VLESS_AURORA_SPLIT:-/usr/libexec/aurora-panel/aurora-split.sh}
+# per-protocol split configs and server addresses (read by aurora-split.sh)
+export AURORA_HY_SPLIT=$HYD/split.conf AURORA_HY_SERVER_IP=$HYD/server_ip
+export AURORA_NV_SPLIT=$NAD/split.conf AURORA_NV_SERVER_IP=$NAD/server_ip
+export AURORA_WG_SPLIT=$D/wg.split.conf AURORA_WG_SERVER_IP=$D/wg.server_ip
 AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
 INITD=${VLESS_INITD:-/etc/init.d}
 STABLE_SECS=${VLESS_AU_STABLE_SECS:-3}
@@ -28,7 +33,7 @@ err(){ echo "ERROR: $*"; exit 1; }
 PROTO=$(cat $D/proto 2>/dev/null || echo vless)
 # shellcheck disable=SC1090
 [ -f "$AU_LIB" ] && . "$AU_LIB"
-svc(){ [ -x /etc/init.d/$1 ] || return 0; if [ "$2" = 1 ]; then /etc/init.d/$1 enable >/dev/null 2>&1; /etc/init.d/$1 restart >/dev/null 2>&1; else /etc/init.d/$1 stop >/dev/null 2>&1; /etc/init.d/$1 disable >/dev/null 2>&1; fi; }
+svc(){ [ -x "$INITD/$1" ] || return 0; if [ "$2" = 1 ]; then "$INITD/$1" enable >/dev/null 2>&1; "$INITD/$1" restart >/dev/null 2>&1; else "$INITD/$1" stop >/dev/null 2>&1; "$INITD/$1" disable >/dev/null 2>&1; fi; }
 # WireGuard is a kernel interface (init script wireguard-client), not an Xray outbound.
 wg_inst(){ # wireguard-tools and the kernel module are present
   [ -x "$WG_BIN" ] || return 1
@@ -79,21 +84,16 @@ xrestart(){
   $D/tproxy.sh down >/dev/null 2>&1
   return 1
 }
-hyup(){
-  [ "$1" = hy2 ] && svc hysteria-client 1 || svc hysteria-client 0
-  [ "$1" = naive ] && svc naive-client 1 || svc naive-client 0
-  # WireGuard is started (and enabled) by wg_restart before Xray; here it is only stopped when not needed.
-  [ "$1" = wg ] || svc wireguard-client 0
-}
 au_tproxy(){
   [ -f $D/tproxy.disabled ] && return 0
+  # Xray only steers traffic while it is the active protocol (proto file, not the stale $PROTO)
+  case "$(cat $D/proto 2>/dev/null)" in hy2|naive|wg) $D/tproxy.sh down >/dev/null 2>&1; return 0;; esac
   if [ -n "${VLESS_AU_TPROXY:-}" ]; then sh "$VLESS_AU_TPROXY" up; return $?; fi
   $D/tproxy.sh up
 }
 au_probe(){
   if [ -n "${VLESS_AU_PROBE:-}" ]; then sh "$VLESS_AU_PROBE"; return $?; fi
-  code=$(curl -s -o /dev/null -m 12 -w '%{http_code}' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204 2>/dev/null)
-  [ "$code" = 204 ]
+  nat_probe_once "$PROTO"
 }
 au_fetch(){
   case "$1" in http://*|https://*) ;; *) err "auto-update link must start with http:// or https://";; esac
@@ -106,8 +106,213 @@ au_fetch(){
   sz=$(wc -c < "$2" | tr -d ' ')
   [ "$sz" -le 1048576 ] || err "auto-update response is too large"
 }
-gen(){ # $1 linkfile $2 mode $3 proto
+# ---------------------------------------------------------------------------
+# Native protocols: Hysteria, Naive and WireGuard. Each is its own service with
+# its own config files and its own steering rules (aurora-split.sh); Xray is not
+# involved. The only code shared between protocols is the switcher below, which
+# decides which protocol is active and stops the others.
+# ---------------------------------------------------------------------------
+is_native(){ case "$1" in hy2|naive|wg) return 0;; esac; return 1; }
+nat_set(){ # sets NSVC (init script), NSP (split id), NCFG (config), NNAME
+  case "$1" in
+    hy2) NSVC=hysteria-client; NSP=hy; NCFG=$HYD/client.yaml; NSPLIT=$HYD/split.conf; NNAME=Hysteria;;
+    naive) NSVC=naive-client; NSP=nv; NCFG=$NAD/config.json; NSPLIT=$NAD/split.conf; NNAME=Naive;;
+    wg) NSVC=wireguard-client; NSP=wg; NCFG=$D/wg.json; NSPLIT=$D/wg.split.conf; NNAME=WireGuard;;
+  esac
+}
+nat_running(){
+  case "$1" in
+    hy2) pidof hysteria >/dev/null 2>&1;;
+    naive) pidof naive >/dev/null 2>&1;;
+    wg) wg_up;;
+    *) pidof xray >/dev/null 2>&1;;
+  esac
+}
+nat_inst(){
+  case "$1" in
+    hy2) [ -x "$HYSTERIA_BIN" ];;
+    naive) [ -x "$NAIVE_BIN" ];;
+    wg) wg_inst;;
+  esac
+}
+# One connectivity check through the protocol's own local entry (never through another protocol).
+nat_probe_once(){
+  case "$1" in
+    hy2) _c=$(curl -s -o /dev/null -m 12 -w '%{http_code}' --socks5-hostname 127.0.0.1:10818 https://www.google.com/generate_204 2>/dev/null);;
+    naive) _c=$(curl -s -o /dev/null -m 12 -w '%{http_code}' --socks5-hostname 127.0.0.1:10828 https://www.google.com/generate_204 2>/dev/null);;
+    wg) _c=$(curl -4 -s -o /dev/null -m 12 -w '%{http_code}' --interface "$WGIF" https://www.google.com/generate_204 2>/dev/null);;
+    *) _c=$(curl -s -o /dev/null -m 12 -w '%{http_code}' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204 2>/dev/null);;
+  esac
+  [ "$_c" = 204 ]
+}
+nat_probe(){
+  if [ -n "${VLESS_AU_PROBE:-}" ]; then sh "$VLESS_AU_PROBE"; return $?; fi
+  _n=0
+  while [ $_n -lt "${VLESS_AU_PROBE_TRIES:-4}" ]; do
+    nat_probe_once "$1" && return 0
+    _n=$((_n+1)); sleep "${VLESS_AU_PROBE_PAUSE:-2}"
+  done
+  return 1
+}
+# DNS through the router (dnsmasq -> the protocol's own DNS path) must still answer once steering is on.
+nat_dns_check(){
+  if [ -n "${VLESS_AU_DNSCHECK:-}" ]; then sh "$VLESS_AU_DNSCHECK"; return $?; fi
+  _n=0
+  while [ $_n -lt 4 ]; do
+    nslookup www.google.com 127.0.0.1 2>/dev/null | awk '/^Name:/{n=1} n&&/^Address/{f=1} END{exit !f}' && return 0
+    _n=$((_n+1)); sleep 2
+  done
+  return 1
+}
+nat_reason(){
+  case "$1" in
+    wg) wg_reason;;
+    *) nat_set "$1"; tr '\n' ' ' < "/tmp/aurora-restart-$NSVC.err" 2>/dev/null | sed 's/  */ /g; s/ $//';;
+  esac
+}
+# Start (or restart) only this protocol's service. $2 = 1 also enables it at boot.
+nat_start(){
+  case "$1" in
+    hy2) restart_init hysteria-client hysteria "$2";;
+    naive) restart_init naive-client naive "$2";;
+    wg) WGEN=$2; wg_restart;;
+  esac
+}
+nat_steer(){ # $1 proto, $2 up|down
+  nat_set "$1"
+  if [ "$2" = up ]; then
+    [ -f "$D/tproxy.disabled" ] && return 0
+  fi
+  if [ -n "${VLESS_AU_STEER:-}" ]; then sh "$VLESS_AU_STEER" "$NSP" "$2"; return $?; fi
+  "$AURORA_SPLIT" "$NSP" "$2"
+}
+# Stop only this protocol: steering, service, boot flag.
+nat_stop(){
+  nat_steer "$1" down
+  nat_set "$1"
+  svc "$NSVC" 0
+  [ "$1" = wg ] && { ip rule del oif "$WGIF" lookup 871 2>/dev/null; true; }
+}
+xray_enable(){ [ -x "$INITD/xray-client" ] && "$INITD/xray-client" enable >/dev/null 2>&1; true; }
+xray_stop(){
+  $D/tproxy.sh down 2>/dev/null
+  svc xray-client 0
+}
+xray_rollback(){ # restore Xray's previous state after a failed start ($1 = previous protocol)
+  cp $D/config.prev.json $D/config.json 2>/dev/null
+  echo "$1" > $D/proto; echo "$MODE" > $D/mode
+  if is_native "$1"; then xray_stop; else xrestart; au_tproxy; fi
+  err "Xray did not start, config rolled back"
+}
+# After protocol $1 became active: stop every other protocol's service.
+stop_others(){
+  case "$1" in vless|socks|http) ;; *) xray_stop;; esac
+  for _q in hy2 naive wg; do [ "$_q" = "$1" ] || { nat_stop "$_q"; }; done
+}
+# Files that belong to one native protocol (for a rollback that cannot touch the others).
+nat_files(){
+  case "$1" in
+    hy2) echo "$HYD/client.yaml $HYD/client.yaml.prev $D/hy2.txt $HYD/server_ip";;
+    naive) echo "$NAD/config.json $NAD/config.json.prev $D/naive.txt $NAD/server_ip";;
+    wg) echo "$D/wg.json $D/wg.conf $D/wg.resolved $D/wg.server_ip";;
+  esac
+}
+nat_bak(){ mkdir -p "$2"; for f in $(nat_files "$1"); do [ -e "$f" ] && cp -a "$f" "$2/$(echo "$f" | tr / _)"; done; true; }
+nat_rst(){ for f in $(nat_files "$1"); do b="$2/$(echo "$f" | tr / _)"; if [ -e "$b" ]; then cp -a "$b" "$f"; else rm -f "$f"; fi; done; true; }
+# The transparent listeners of the protocol's own client must exist before any traffic is steered to them.
+nat_listening(){
+  [ -n "${VLESS_AU_NOLISTENCHECK:-}" ] && return 0
+  case "$1" in
+    hy2) netstat -lnt 2>/dev/null | grep -q ':12356 ' && netstat -lnu 2>/dev/null | grep -q ':12355 ';;
+    naive) netstat -lnt 2>/dev/null | grep -q ':12366 ';;
+    *) return 0;;
+  esac
+}
+# Bring protocol $1 up as the active one (its service, a connectivity check, its steering), then stop the others.
+nat_activate(){
+  nat_set "$1"
+  NERR=""
+  nat_inst "$1" || { NERR="$NNAME is not installed"; return 1; }
+  [ -s "$NCFG" ] || { NERR="no saved $NNAME config"; return 1; }
+  nat_start "$1" 1 || { NERR="$NNAME did not start: $(nat_reason "$1")"; return 1; }
+  if ! nat_probe "$1"; then
+    NERR="$NNAME started but has no connectivity: check the config and the server"
+    return 1
+  fi
+  nat_listening "$1" || { NERR="$NNAME is running without its transparent listener (old config?): save the link again"; return 1; }
+  nat_steer "$1" up || { NERR="could not set up the $NNAME steering rules"; return 1; }
+  if ! nat_dns_check; then
+    nat_steer "$1" down
+    NERR="DNS does not work through $NNAME"
+    return 1
+  fi
+  echo "$1" > $D/proto; PROTO=$1
+  stop_others "$1"
+  return 0
+}
+# Save (optional file $2) and switch to Hysteria/Naive/WireGuard. On any failure the previous
+# files and the previous active protocol are restored; the other protocols are never touched.
+native_switch(){
+  P=$1; F=${2:-}
+  nat_set "$P"
+  PREVP=$PROTO
+  B=/tmp/aurora-nbak-$$
+  nat_bak "$P" "$B"
+  if [ -n "$F" ]; then
+    # err() exits; run the save in a subshell so that this protocol's files can still be rolled back
+    ( store_proto "$P" "$F" ) || { nat_rst "$P" "$B"; rm -rf "$B"; exit 1; }
+  fi
+  if ! nat_activate "$P"; then
+    reason=$NERR
+    nat_rst "$P" "$B"
+    if [ "$PREVP" = "$P" ]; then
+      nat_start "$P" 1 >/dev/null 2>&1 && nat_steer "$P" up >/dev/null 2>&1
+    else
+      nat_stop "$P"
+    fi
+    rm -rf "$B"
+    err "$reason; the previous setup was restored"
+  fi
+  rm -rf "$B"
+  echo OK
+}
+# "mode ru|all" of a native protocol lives in its own split.conf; only that file and that service's steering change.
+native_mode(){
+  nat_set "$1"
+  _cf=$("$AURORA_SPLIT" "$NSP" conf) || err "no split config for $NNAME"
+  if grep -q '^mode ' "$_cf"; then sed -i "s/^mode .*/mode $2/" "$_cf"; else echo "mode $2" >> "$_cf"; fi
+  nat_steer "$1" up || err "could not apply the new split rules"
+  echo OK
+}
+# Re-apply the (already saved) config of the active native protocol: restart only its service.
+native_reload(){
+  nat_start "$1" 1 && nat_probe "$1" && nat_listening "$1" && nat_steer "$1" up
+}
+# Boot hook: wait for the active native protocol, check it, then steer. Fail open: no steering if it never works.
+steer_boot(){
+  is_native "$PROTO" || return 0
+  [ -f "$D/tproxy.disabled" ] && return 0
+  _n=0
+  while [ $_n -lt "${VLESS_AU_BOOT_TRIES:-30}" ]; do
+    if nat_running "$PROTO" && nat_listening "$PROTO" && nat_probe_once "$PROTO"; then nat_steer "$PROTO" up; return $?; fi
+    _n=$((_n+1)); sleep "${VLESS_AU_BOOT_PAUSE:-3}"
+  done
+  logger -t aurora "steer-boot: $PROTO did not come up; transparent steering left off" 2>/dev/null || true
+  return 1
+}
+# Steering table of the active protocol ("transparent mode").
+steer_present(){
+  case "$PROTO" in
+    hy2) nft list table inet aurora_hy >/dev/null 2>&1;;
+    naive) nft list table inet aurora_nv >/dev/null 2>&1;;
+    wg) nft list table inet aurora_wg >/dev/null 2>&1;;
+    *) nft list table inet xray >/dev/null 2>&1;;
+  esac
+}
+gen(){ # $1 linkfile $2 mode $3 proto   (Xray family only: vless, socks, http)
   P=${3:-$PROTO}
+  PREVP=$PROTO
+  case "$P" in vless|socks|http) ;; *) err "gen: $P does not use Xray";; esac
   if [ "$P" = socks ] || [ "$P" = http ]; then
     if [ ! -s "$D/$P.json" ]; then
       [ "$P" = socks ] && err "Fill in the SOCKS5 fields first"
@@ -132,9 +337,10 @@ gen(){ # $1 linkfile $2 mode $3 proto
     [ -n "$IP" ] && echo "$IP" > $D/server_ip
     echo "$2" > $D/mode
     echo "$P" > $D/proto
-    hyup "$P"
-    xrestart || { cp $D/config.prev.json $D/config.json; echo "$PROTO" > $D/proto; echo "$MODE" > $D/mode; hyup "$PROTO"; xrestart; au_tproxy; err "Xray did not start, config rolled back"; }
+    xrestart || xray_rollback "$PREVP"
+    xray_enable
     au_tproxy
+    stop_others "$P"
     echo OK
     return 0
   fi
@@ -147,38 +353,17 @@ gen(){ # $1 linkfile $2 mode $3 proto
   [ -n "$IP" ] || err "Could not resolve the server IP $H"
   printf '%s\n' "$L" > /tmp/vless.link
   ucode $D/gen.uc /tmp/vless.link "$IP" "$2" > /tmp/vless.json 2>/tmp/vless.err || err "$(cat /tmp/vless.err)"
-  if [ "$P" = hy2 ]; then
-    [ -s $HYD/client.yaml ] || err "Save a Hysteria2 link first"
-    jq '(.outbounds[] | select(.tag=="proxy")) |= {tag:"proxy",protocol:"socks",settings:{servers:[{address:"127.0.0.1",port:10818}]}}' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
-  fi
-  if [ "$P" = naive ]; then
-    [ -s $NAD/config.json ] || err "Save a Naive link first"
-    # Naive is TCP-only: DNS goes as DNS-over-TCP through the tunnel, QUIC is blocked (browsers fall back to TCP), other UDP goes direct
-    jq '(.outbounds[] | select(.tag=="proxy")) |= {tag:"proxy",protocol:"socks",settings:{servers:[{address:"127.0.0.1",port:10828}]}}
-      | .outbounds += [{tag:"dns-out",protocol:"dns",settings:{network:"tcp",address:"1.1.1.1",port:53}},{tag:"block",protocol:"blackhole"}]
-      | .dns = {servers:["tcp://1.1.1.1","tcp://8.8.8.8"],queryStrategy:"UseIPv4"}
-      | .routing.rules = [{type:"field",inboundTag:["dns-in"],outboundTag:"dns-out"},{type:"field",network:"udp",port:"53",outboundTag:"dns-out"},{type:"field",network:"udp",port:"443",outboundTag:"block"}] + .routing.rules[0:-1] + [{type:"field",network:"udp",outboundTag:"direct"}] + .routing.rules[-1:]' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
-  fi
-  if [ "$P" = wg ]; then
-    [ -s $D/wg.json ] || err "Save a WireGuard config first"
-    # WireGuard is a kernel interface: Xray's proxy outbound is a freedom outbound bound to it (like the SOCKS outbound of Naive/Hysteria)
-    jq --arg i "$WGIF" '(.outbounds[] | select(.tag=="proxy")) |= {tag:"proxy",protocol:"freedom",settings:{domainStrategy:"UseIPv4"},streamSettings:{sockopt:{mark:255,interface:$i}}}' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
-  fi
   if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
     XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray rejected the config: $(tail -3 /tmp/vless.err)"
   else
     jq -e . /tmp/vless.json >/dev/null 2>&1 || err "config is not JSON"
   fi
-  # WireGuard first: if the interface cannot be brought up, nothing else has been touched yet.
-  if [ "$P" = wg ]; then
-    WGEN=1
-    wg_restart || err "WireGuard did not start: $(wg_reason)"
-  fi
   cp $D/config.json $D/config.prev.json 2>/dev/null
   mv /tmp/vless.json $D/config.json; mv /tmp/vless.link $D/link.txt; echo "$IP" > $D/server_ip; echo "$2" > $D/mode; echo "$P" > $D/proto
-  hyup "$P"
-  xrestart || { cp $D/config.prev.json $D/config.json; echo "$PROTO" > $D/proto; echo "$MODE" > $D/mode; hyup "$PROTO"; xrestart; au_tproxy; err "Xray did not start, config rolled back"; }
+  xrestart || xray_rollback "$PREVP"
+  xray_enable
   au_tproxy
+  stop_others "$P"
   echo OK
 }
 store_vless(){
@@ -192,6 +377,21 @@ store_hy2(){
   ucode $D/hy2.uc /tmp/hy2.link > /tmp/hy2.yaml 2>/tmp/hy2.err || err "$(cat /tmp/hy2.err)"
   mkdir -p $HYD; cp $HYD/client.yaml $HYD/client.yaml.prev 2>/dev/null
   mv /tmp/hy2.yaml $HYD/client.yaml; mv /tmp/hy2.link $D/hy2.txt
+  # the server address stays outside the tunnel (steering bypass); keep the old one if DNS fails
+  _h=$(awk -F'"' '/^server:/{h=$2; if (h ~ /^\[/) h=""; else sub(/:.*/,"",h); print h; exit}' $HYD/client.yaml)
+  _ip=$(resolve_host_ip "$_h")
+  if [ -n "$_ip" ]; then
+    echo "$_ip" > $HYD/server_ip
+    # Connect by address (SNI keeps the host name): the client never needs DNS, which
+    # itself goes through the tunnel, to reconnect.
+    case "$_h" in *[!0-9.]*)
+      awk -v h="$_h" -v ip="$_ip" '
+        /^server:/ && !d { sub(h, ip); d=1 }
+        /^  sni: ""/ { print "  sni: \"" h "\""; next }
+        { print }' $HYD/client.yaml > $HYD/client.yaml.new && mv $HYD/client.yaml.new $HYD/client.yaml;;
+    esac
+  fi
+  return 0
 }
 store_naive(){
   L=$(cat "$1" | tr -d '\r\n ')
@@ -200,9 +400,11 @@ store_naive(){
   HP=$(echo "$L" | sed -E 's#^naive\+https://[^@]+@([^/?\#]+).*#\1#')
   NH=${HP%:*}; NP=${HP##*:}; [ "$NP" = "$HP" ] && NP=443
   if echo "$NH" | grep -qE '^[0-9]+(\.[0-9]+){3}$'; then NIP=$NH
-  else NIP=$(nslookup "$NH" 2>/dev/null | awk '/^Name:/{n=1} n&&/^Address/{print $NF}' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1); [ -n "$NIP" ] || NIP=$(cat $D/server_ip); fi
+  else NIP=$(nslookup "$NH" 2>/dev/null | awk '/^Name:/{n=1} n&&/^Address/{print $NF}' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1); [ -n "$NIP" ] || NIP=$(cat $NAD/server_ip 2>/dev/null); fi
+  [ -n "$NIP" ] || err "Could not resolve the Naive server $NH"
   mkdir -p $NAD; cp $NAD/config.json $NAD/config.json.prev 2>/dev/null
-  jq -n --arg p "https://$U@$NH:$NP" --arg r "MAP $NH $NIP" '{listen:"socks://127.0.0.1:10828",proxy:$p,"host-resolver-rules":$r}' > $NAD/config.json || err "jq"
+  jq -n --arg p "https://$U@$NH:$NP" --arg r "MAP $NH $NIP" '{listen:["socks://127.0.0.1:10828","redir://0.0.0.0:12366"],proxy:$p,"host-resolver-rules":$r}' > $NAD/config.json || err "jq"
+  echo "$NIP" > $NAD/server_ip
   chmod 600 $NAD/config.json; printf '%s\n' "$L" > $D/naive.txt; chmod 600 $D/naive.txt
 }
 store_wg(){
@@ -219,6 +421,10 @@ store_wg(){
       print "]}}" }' /tmp/wg.conf > /tmp/wg.json 2>/dev/null || { rm -f /tmp/wg.conf; err "Does not look like a WireGuard config ([Interface] PrivateKey and [Peer] are required)"; }
   jq -e . /tmp/wg.json >/dev/null 2>&1 || { rm -f /tmp/wg.conf /tmp/wg.json; err "Could not parse the WireGuard config"; }
   umask 077; mv /tmp/wg.json $D/wg.json; mv /tmp/wg.conf $D/wg.conf
+  _ep=$(jq -r '.settings.peers[0].endpoint // empty' $D/wg.json)
+  _ip=$(resolve_host_ip "${_ep%:*}")
+  [ -n "$_ip" ] && echo "$_ip" > $D/wg.server_ip
+  return 0
 }
 # Resolve a hostname or IPv4 literal to an IPv4 address (for the tproxy bypass set).
 # IPv6 literals return empty (the bypass set is IPv4-only).
@@ -374,15 +580,16 @@ do_update(){
     return 0
   fi
   B=/tmp/vless-au-bak-$$
-  au_backup "$B"
+  au_backup "$B" "$P"
   if [ "$PROTO" = "$P" ]; then
+    # P is the active protocol: apply the new config to P's own service only.
     if [ "$P" = naive ] && [ ! -x /usr/bin/naive ] && [ -z "${VLESS_AU_APPLY:-}" ]; then
       rm -rf "$B" "$OUT"
       err "Install naive first: /usr/libexec/aurora-panel/install-naive.sh"
     fi
     if [ -n "${VLESS_AU_APPLY:-}" ]; then
       if ! sh "$VLESS_AU_APPLY" "$P" "$OUT"; then
-        au_restore "$B"; hyup "$(cat $D/proto 2>/dev/null || echo vless)"; xrestart; au_tproxy
+        au_restore "$B" "$P"; au_reapply "$P"
         rm -rf "$B" "$OUT"
         err "could not apply the update, config rolled back"
       fi
@@ -390,36 +597,40 @@ do_update(){
       # Child process: store/gen call err() and exit; the parent can still roll back.
       case "$P" in
         vless) cmd=save ;;
-        hy2) cmd=hy2save ;;
-        naive) cmd=naivesave ;;
-        wg) cmd=wgsave ;;
+        *) cmd=reload-with ;;
       esac
-      if ! "$0" "$cmd" "$OUT" >/tmp/vless-au-apply.out 2>&1; then
-        au_restore "$B"; hyup "$(cat $D/proto 2>/dev/null || echo vless)"; xrestart; au_tproxy
+      if ! "$0" "$cmd" "$OUT" ${cmd:+$P} >/tmp/vless-au-apply.out 2>&1; then
+        au_restore "$B" "$P"; au_reapply "$P"
         rm -rf "$B" "$OUT"
         err "could not apply the update, config rolled back: $(cat /tmp/vless-au-apply.out 2>/dev/null)"
       fi
     fi
     if ! au_probe; then
-      au_restore "$B"
-      hyup "$(cat $D/proto 2>/dev/null || echo vless)"
-      xrestart
-      au_tproxy
+      au_restore "$B" "$P"
+      au_reapply "$P"
       rm -rf "$B" "$OUT"
       err "no internet after the update, config rolled back"
     fi
-    au_tproxy
+    [ "$P" = vless ] && au_tproxy
     rm -rf "$B" "$OUT"
     echo OK
   else
     if ! "$0" store "$P" "$OUT" >/tmp/vless-au-store.out 2>&1; then
-      au_restore "$B"
+      au_restore "$B" "$P"
       rm -rf "$B" "$OUT"
       err "could not save the update, files rolled back: $(cat /tmp/vless-au-store.out 2>/dev/null)"
     fi
     rm -rf "$B" "$OUT"
     echo "Saved without switching (now $PROTO)"
   fi
+}
+# Re-apply a protocol's restored files to that protocol's own service (nothing else is restarted).
+au_reapply(){
+  case "$1" in
+    vless) xrestart; au_tproxy;;
+    *) is_native "$1" && native_reload "$1";;
+  esac
+  return 0
 }
 # ASCII uppercase for log lines mixed into the Russian banner. Cyrillic is
 # already uppercase in the messages below; tr leaves it unchanged.
@@ -639,22 +850,17 @@ check_xray(){
 }
 do_restart(){
   rm -f /tmp/xray-restart.err
-  HYEN=1; NAEN=1
-  require_bin "$XRAY_BIN" XRAY
-  if [ "$PROTO" = hy2 ]; then require_bin "$HYSTERIA_BIN" HYSTERIA; fi
-  if [ "$PROTO" = naive ]; then require_bin "$NAIVE_BIN" NAIVE; fi
-  if [ "$PROTO" = wg ]; then wg_inst || fail_restart "WIREGUARD IS NOT INSTALLED" "INSTALL THE PACKAGES: OPKG UPDATE && OPKG INSTALL KMOD-WIREGUARD WIREGUARD-TOOLS"; fi
-  check_xray
-  # The Xray outbound points at Hysteria (10818) / Naive (10828): bring those up first.
-  if [ "$PROTO" = hy2 ]; then restart_hysteria; fi
-  if [ "$PROTO" = naive ]; then restart_naive; fi
-  if [ "$PROTO" = wg ]; then WGEN=1; restart_wireguard; fi
-  restart_xray
+  case "$PROTO" in
+    hy2) require_bin "$HYSTERIA_BIN" HYSTERIA; nat_steer hy2 down; HYEN=1; restart_hysteria; nat_steer hy2 up;;
+    naive) require_bin "$NAIVE_BIN" NAIVE; nat_steer naive down; NAEN=1; restart_naive; nat_steer naive up;;
+    wg) wg_inst || fail_restart "WIREGUARD IS NOT INSTALLED" "INSTALL THE PACKAGES: OPKG UPDATE && OPKG INSTALL KMOD-WIREGUARD WIREGUARD-TOOLS"
+        nat_steer wg down; WGEN=1; restart_wireguard; nat_steer wg up;;
+    *) require_bin "$XRAY_BIN" XRAY; check_xray; restart_xray;;
+  esac
   echo OK
 }
-# Restart exactly one service: xray | naive | hysteria | wireguard.
-# WireGuard has no process of its own: it is an outbound inside Xray, so its
-# restart is an Xray restart. The active protocol is never changed.
+# Restart exactly one service: xray | naive | hysteria | wireguard. Each is its own
+# service; the active protocol is never changed and no other service is touched.
 do_restart_svc(){
   rm -f /tmp/xray-restart.err
   case "$1" in
@@ -667,17 +873,23 @@ do_restart_svc(){
       wg_inst || fail_restart "WIREGUARD IS NOT INSTALLED" "INSTALL THE PACKAGES: OPKG UPDATE && OPKG INSTALL KMOD-WIREGUARD WIREGUARD-TOOLS"
       [ -s "$D/wg.json" ] || fail_restart "FILE MISSING: /ETC/XRAY/WG.JSON" "PASTE A WIREGUARD CONFIG INTO THE FIELD AND PRESS «CONNECT WIREGUARD»"
       WGEN=0; [ "$PROTO" = wg ] && WGEN=1
-      restart_wireguard;;
+      [ "$PROTO" = wg ] && nat_steer wg down
+      restart_wireguard
+      [ "$PROTO" = wg ] && nat_steer wg up;;
     hysteria)
       require_bin "$HYSTERIA_BIN" HYSTERIA
       [ -s "$HYD/client.yaml" ] || fail_restart "FILE MISSING: /ETC/HYSTERIA/CLIENT.YAML" "PASTE A HYSTERIA2 LINK INTO THE FIELD AND PRESS «CONNECT HYSTERIA2»"
       HYEN=0; [ "$PROTO" = hy2 ] && HYEN=1
-      restart_hysteria;;
+      [ "$PROTO" = hy2 ] && nat_steer hy2 down
+      restart_hysteria
+      [ "$PROTO" = hy2 ] && nat_steer hy2 up;;
     naive)
       require_bin "$NAIVE_BIN" NAIVE
       [ -s "$NAD/config.json" ] || fail_restart "FILE MISSING: /ETC/NAIVE/CONFIG.JSON" "PASTE A NAIVE LINK INTO THE FIELD AND PRESS «CONNECT NAIVE»"
       NAEN=0; [ "$PROTO" = naive ] && NAEN=1
-      restart_naive;;
+      [ "$PROTO" = naive ] && nat_steer naive down
+      restart_naive
+      [ "$PROTO" = naive ] && nat_steer naive up;;
     *) fail_restart "UNKNOWN SERVICE" "CHOOSE XRAY, NAIVE, HYSTERIA OR WIREGUARD";;
   esac
   echo OK
@@ -696,7 +908,20 @@ egress_valid(){
 # One probe with a 3 s limit; a good answer is cached for 60 s per
 # (xray pid, protocol, config mtime), so page loads do not hammer the tunnel.
 egress_key(){
-  printf '%s|%s|%s' "$(pidof xray 2>/dev/null)" "$PROTO" "$(stat -c %Y "$D/config.json" 2>/dev/null)"
+  nat_set "$PROTO" 2>/dev/null
+  case "$PROTO" in
+    hy2|naive|wg) _cf=$NCFG;; *) _cf=$D/config.json;;
+  esac
+  printf '%s|%s' "$PROTO" "$(stat -c %Y "$_cf" 2>/dev/null)"
+}
+# Public address through the active protocol's own entry (never through another protocol).
+egress_fetch(){
+  case "$PROTO" in
+    hy2) curl -fsS -m 3 --socks5-hostname 127.0.0.1:10818 https://api.ipify.org 2>/dev/null;;
+    naive) curl -fsS -m 3 --socks5-hostname 127.0.0.1:10828 https://api.ipify.org 2>/dev/null;;
+    wg) curl -4 -fsS -m 3 --interface "$WGIF" https://api.ipify.org 2>/dev/null;;
+    *) curl -fsS -m 3 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null;;
+  esac
 }
 egress_ip(){
   if [ -n "${VLESS_AU_EGRESS:-}" ]; then
@@ -705,7 +930,7 @@ egress_ip(){
     printf '%s\n' "$ip"
     return 0
   fi
-  pidof xray >/dev/null 2>&1 || return 1
+  nat_running "$PROTO" || return 1
   key=$(egress_key)
   if [ -f "$EGRESS_CACHE" ]; then
     now=$(date +%s); mt=$(stat -c %Y "$EGRESS_CACHE" 2>/dev/null || echo 0)
@@ -714,7 +939,7 @@ egress_ip(){
       if egress_valid "$ip"; then printf '%s\n' "$ip"; return 0; fi
     fi
   fi
-  ip=$(curl -fsS -m 3 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null | tr -d '\r\n\t ') || ip=
+  ip=$(egress_fetch | tr -d '\r\n\t ') || ip=
   egress_valid "$ip" || return 1
   printf '%s\n%s\n' "$key" "$ip" > "$EGRESS_CACHE" 2>/dev/null
   printf '%s\n' "$ip"
@@ -722,19 +947,43 @@ egress_ip(){
 MODE=$(cat $D/mode 2>/dev/null || echo ru)
 case "$1" in
 save) store_vless "$2"; gen $D/link.txt "$MODE" vless;;
-hy2save) store_hy2 "$2"; gen $D/link.txt "$MODE" hy2;;
+hy2save) native_switch hy2 "$2";;
 naivesave)
-  [ -x /usr/bin/naive ] || err "Install naive first: /usr/libexec/aurora-panel/install-naive.sh"
-  store_naive "$2"; gen $D/link.txt "$MODE" naive;;
-wgsave) store_wg "$2"; gen $D/link.txt "$MODE" wg;;
+  [ -x "$NAIVE_BIN" ] || err "Install naive first: /usr/libexec/aurora-panel/install-naive.sh"
+  native_switch naive "$2";;
+wgsave) native_switch wg "$2";;
+reload-with) store_proto "$3" "$2"; is_native "$3" && { native_reload "$3" || err "$3 did not come up with the new config"; }; echo OK;;
 sockssave) store_proxy socks "$2"; gen $D/link.txt "$MODE" socks;;
 httpsave) store_proxy http "$2"; gen $D/link.txt "$MODE" http;;
 store) store_proto "$2" "$3"; echo OK;;
 mergecfg) merge_proxy_cfg "$2" "$3" "$4" "$5"; echo OK;;
-proto) case "$2" in vless|hy2|naive|wg|socks|http) ;; *) err "proto vless|hy2|naive|wg|socks|http";; esac; gen $D/link.txt "$MODE" "$2";;
-mode) case "$2" in ru|all) ;; *) err "mode ru|all";; esac; gen $D/link.txt "$2";;
-on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; xrestart || err "Xray did not start"; echo OK;;
-off) touch $D/tproxy.disabled; $D/tproxy.sh down; echo OK;;
+proto) case "$2" in
+    vless|socks|http) gen $D/link.txt "$MODE" "$2";;
+    hy2|naive|wg) native_switch "$2";;
+    *) err "proto vless|hy2|naive|wg|socks|http";;
+  esac;;
+mode) case "$2" in ru|all) ;; *) err "mode ru|all";; esac
+  if is_native "$PROTO"; then native_mode "$PROTO" "$2"; else gen $D/link.txt "$2"; fi;;
+on) rm -f $D/tproxy.disabled
+  if is_native "$PROTO"; then
+    nat_running "$PROTO" || { nat_start "$PROTO" 1 || err "$(nat_reason "$PROTO")"; }
+    nat_steer "$PROTO" up || err "could not set up the steering rules"
+  else
+    xray_enable; xrestart || err "Xray did not start"
+  fi
+  echo OK;;
+off) touch $D/tproxy.disabled
+  if is_native "$PROTO"; then nat_steer "$PROTO" down; else $D/tproxy.sh down; fi
+  echo OK;;
+steer-boot) steer_boot;;
+reactivate) # after an upgrade: rebuild the active native protocol's own config from its saved link and bring it up
+  case "$PROTO" in
+    hy2) native_switch hy2 "$D/hy2.txt";;
+    naive) native_switch naive "$D/naive.txt";;
+    wg) native_switch wg "$D/wg.conf";;
+    *) exit 0;;
+  esac;;
+client-update) exec /usr/libexec/aurora-panel/client-update.sh "$2" "${3:-check}";;
 restart) do_restart;;
 restart-svc) do_restart_svc "$2";;
 recover)
@@ -759,8 +1008,13 @@ status)
   echo "inst_naive=$([ -x "$NAIVE_BIN" ] && echo 1 || echo 0)"
   echo "inst_wireguard=$(wg_inst && echo 1 || echo 0)"
   echo "wg_conf=$([ -s "$D/wg.json" ] && echo 1 || echo 0)"
-  echo "tproxy=$(nft list table inet xray >/dev/null 2>&1 && echo 1 || echo 0)"
-  echo "mode=$MODE"; echo "proto=$PROTO"; echo "server_ip=$(cat $D/server_ip 2>/dev/null)";;
+  echo "tproxy=$(steer_present && echo 1 || echo 0)"
+  echo "active_up=$(nat_running "$PROTO" && echo 1 || echo 0)"
+  SM=$MODE
+  if is_native "$PROTO"; then nat_set "$PROTO"; SM=$(sed 's/#.*//' "$NSPLIT" 2>/dev/null | awk '$1=="mode"{m=$2} END{print (m=="all"?"all":"ru")}'); fi
+  echo "mode=$SM"; echo "proto=$PROTO"; SIPF=$D/server_ip
+  case "$PROTO" in hy2) SIPF=$HYD/server_ip;; naive) SIPF=$NAD/server_ip;; wg) SIPF=$D/wg.server_ip;; esac
+  echo "server_ip=$(cat "$SIPF" 2>/dev/null)";;
 autoset)
   au_save_conf "$2" "$3" "$4" || err "autoset <proto> <0|1> <1h|6h|24h>"
   echo OK;;

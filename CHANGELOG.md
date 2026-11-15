@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1a1
+
+- Interface wording update.
+
 ## 1.4.0
 
 Round release after 1.3.0a4: a reworked status card, equal-size VPN cards,

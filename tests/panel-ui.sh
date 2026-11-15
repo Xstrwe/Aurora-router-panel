@@ -96,7 +96,7 @@ exit 1
 EOF
 cat > "$TMP/hooks/svc-noscript.sh" <<EOF
 #!/bin/sh
-echo "нет скрипта /etc/init.d/\$1" > /tmp/aurora-restart-\$1.err
+echo "no script /etc/init.d/\$1" > /tmp/aurora-restart-\$1.err
 exit 3
 EOF
 cat > "$TMP/hooks/egress-final.sh" <<'EOF'
@@ -145,11 +145,11 @@ run() {
 	env VLESS_XRAY_BIN="$1" VLESS_AU_XRESTART="$2" ${3:+VLESS_AU_SVC_RESTART="$3"} "$SH" restart 2>/dev/null
 }
 
-# --- version is the next round release ---
+# --- version is a letter iteration after 1.4.0 ---
 ver=$(sed -n 's/^Version: //p' "$ROOT/control/control" | head -1)
 cls=$("$VC" classify "$ver")
-if [ "$ver" = 1.4.0 ] && [ "$cls" = full ]; then
-	ok "package version 1.4.0 is a full release"
+if [ "$ver" = 1.4.1a1 ] && [ "$cls" = pre ]; then
+	ok "package version 1.4.1a1 is a pre-release"
 else
 	bad "version ($ver class=$cls)"
 fi
@@ -158,8 +158,8 @@ fi
 rm -f "$D/xrestart.log"
 echo vless > "$D/proto"
 out=$(env VLESS_XRAY_BIN="$TMP/no-such-xray" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^ERROR: НЕТ ФАЙЛА' \
-   && printf '%s\n' "$out" | grep -q '^HINT: УСТАНОВИТЕ XRAY' \
+if printf '%s\n' "$out" | grep -q '^ERROR: FILE MISSING' \
+   && printf '%s\n' "$out" | grep -q '^HINT: INSTALL XRAY' \
    && [ ! -s "$D/xrestart.log" ]; then
 	ok "restart missing xray names the file and the install hint"
 else
@@ -169,8 +169,8 @@ fi
 # --- restart: config test failure is not a port or a generic start error ---
 : > "$D/xrestart.log"
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-badcfg" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q 'XRAY ОТКЛОНИЛ КОНФИГ: FAILED TO PARSE CONFIG: INVALID OUTBOUND' \
-   && printf '%s\n' "$out" | grep -q '^HINT: ИСПРАВЬТЕ КОНФИГ' \
+if printf '%s\n' "$out" | grep -q 'XRAY REJECTED THE CONFIG: FAILED TO PARSE CONFIG: INVALID OUTBOUND' \
+   && printf '%s\n' "$out" | grep -q '^HINT: FIX THE CONFIG' \
    && ! grep -q ok "$D/xrestart.log"; then
 	ok "restart reports a config-test failure and does not start xray"
 else
@@ -179,8 +179,8 @@ fi
 
 # --- restart: permission denied from the config test ---
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-denied" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^ERROR: НЕТ ПРАВ НА КОНФИГ' \
-   && printf '%s\n' "$out" | grep -q '^HINT: ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT'; then
+if printf '%s\n' "$out" | grep -q '^ERROR: NO PERMISSION FOR THE CONFIG' \
+   && printf '%s\n' "$out" | grep -q '^HINT: RESTART AS ROOT'; then
 	ok "restart turns permission denied into a root/chmod hint"
 else
 	bad "restart permission ($out)"
@@ -188,7 +188,7 @@ fi
 
 # --- restart: address already in use ---
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-eaddr.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^ERROR: ПОРТ ЗАНЯТ:' \
+if printf '%s\n' "$out" | grep -q '^ERROR: PORT IN USE:' \
    && printf '%s\n' "$out" | grep -q 'NETSTAT'; then
 	ok "restart reports a busy port and how to free it"
 else
@@ -197,7 +197,7 @@ fi
 
 # --- restart: ports busy even without that phrase in the log ---
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-fail.sh" VLESS_AU_PORTS_BUSY=10808/TCP "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^ERROR: ПОРТ ЗАНЯТ: 10808/TCP'; then
+if printf '%s\n' "$out" | grep -q '^ERROR: PORT IN USE: 10808/TCP'; then
 	ok "restart reports the hooked busy port"
 else
 	bad "restart ports hook ($out)"
@@ -206,8 +206,8 @@ fi
 # --- restart: generic start failure keeps the raw log, uppercased ---
 unset VLESS_AU_PORTS_BUSY
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-fail.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q 'XRAY НЕ ЗАПУСТИЛСЯ: STARTUP FAILED: BOOM' \
-   && printf '%s\n' "$out" | grep -q '^HINT: ПОСМОТРИТЕ LOGREAD -E XRAY'; then
+if printf '%s\n' "$out" | grep -q 'XRAY DID NOT START: STARTUP FAILED: BOOM' \
+   && printf '%s\n' "$out" | grep -q '^HINT: CHECK LOGREAD -E XRAY'; then
 	ok "restart keeps the raw start error and a logread hint"
 else
 	bad "restart generic ($out)"
@@ -215,7 +215,7 @@ fi
 
 # --- restart: permission denied from the init script, after a clean config test ---
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-denied.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^ERROR: НЕТ ПРАВ НА ЗАПУСК XRAY' \
+if printf '%s\n' "$out" | grep -q '^ERROR: NO PERMISSION TO START XRAY' \
    && printf '%s\n' "$out" | grep -q 'CHMOD 755'; then
 	ok "restart hints chmod when the init script is denied"
 else
@@ -235,8 +235,8 @@ fi
 echo hy2 > "$D/proto"
 rm -f "$D/xrestart.log"
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/no-hysteria" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^ERROR: НЕТ ФАЙЛА' \
-   && printf '%s\n' "$out" | grep -q '^HINT: УСТАНОВИТЕ HYSTERIA' \
+if printf '%s\n' "$out" | grep -q '^ERROR: FILE MISSING' \
+   && printf '%s\n' "$out" | grep -q '^HINT: INSTALL HYSTERIA' \
    && [ ! -s "$D/xrestart.log" ]; then
 	ok "hy2 restart stops on a missing hysteria binary"
 else
@@ -252,7 +252,7 @@ else
 fi
 
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" VLESS_AU_SVC_RESTART="$TMP/hooks/svc-fail.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q 'HYSTERIA НЕ ЗАПУСТИЛАСЬ: CLIENT.YAML: AUTH FAILED' \
+if printf '%s\n' "$out" | grep -q 'HYSTERIA DID NOT START: CLIENT.YAML: AUTH FAILED' \
    && printf '%s\n' "$out" | grep -q '/ETC/HYSTERIA/CLIENT.YAML'; then
 	ok "hy2 restart surfaces the hysteria log and the yaml hint"
 else
@@ -260,8 +260,8 @@ else
 fi
 
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" VLESS_AU_SVC_RESTART="$TMP/hooks/svc-noscript.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^ERROR: НЕТ СКРИПТА /ETC/INIT.D/HYSTERIA-CLIENT' \
-   && printf '%s\n' "$out" | grep -q 'ПЕРЕУСТАНОВИТЕ ПАКЕТ'; then
+if printf '%s\n' "$out" | grep -q '^ERROR: SCRIPT MISSING: /ETC/INIT.D/HYSTERIA-CLIENT' \
+   && printf '%s\n' "$out" | grep -q 'REINSTALL THE'; then
 	ok "missing hysteria init script tells you to reinstall"
 else
 	bad "hy2 noscript ($out)"
@@ -270,7 +270,7 @@ fi
 # --- naive ---
 echo naive > "$D/proto"
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/no-naive" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^HINT: УСТАНОВИТЕ NAIVE КОМАНДОЙ /USR/LIBEXEC/AURORA-PANEL/INSTALL-NAIVE.SH'; then
+if printf '%s\n' "$out" | grep -q '^HINT: INSTALL NAIVE WITH /USR/LIBEXEC/AURORA-PANEL/INSTALL-NAIVE.SH'; then
 	ok "naive restart points at install-naive.sh"
 else
 	bad "naive missing ($out)"
@@ -288,8 +288,8 @@ echo vless > "$D/proto"
 mv "$D/config.json" "$D/config.json.bak"
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" "$SH" restart 2>/dev/null || true)
 mv "$D/config.json.bak" "$D/config.json"
-if printf '%s\n' "$out" | grep -q 'НЕТ ФАЙЛА КОНФИГА' \
-   && printf '%s\n' "$out" | grep -q 'НАЖМИТЕ «ПОДКЛЮЧИТЬ»'; then
+if printf '%s\n' "$out" | grep -q 'CONFIG FILE MISSING:' \
+   && printf '%s\n' "$out" | grep -q 'PRESS «CONNECT»'; then
 	ok "restart without a config tells you to press Connect"
 else
 	bad "restart no config ($out)"
@@ -342,15 +342,15 @@ render() {
 html=$(render xray 0 "$TMP/hooks/egress-final.sh")
 ipget() { env PIDOF_UP="$1" VLESS_AU_EGRESS="$2" REQUEST_METHOD=GET QUERY_STRING=ip "$CGI"; }
 row() { printf '%s\n' "$html" | sed -n "s/.*<tr><td>$1<\\/td><td>\\(.*\\)<\\/td><\\/tr>.*/\\1/p" | head -1; }
-proto=$(row 'Протокол:')
-exitrow=$(printf '%s\n' "$html" | grep '<td>IP выхода:</td>' | head -1)
-svc=$(row 'Служба (демон):')
+proto=$(row 'Protocol:')
+exitrow=$(printf '%s\n' "$html" | grep '<td>Egress IP:</td>' | head -1)
+svc=$(row 'Service (daemon):')
 if printf '%s' "$proto" | grep -q '>Hysteria2<' \
    && printf '%s' "$exitrow" | grep -q 'id=egress' \
    && ! printf '%s' "$exitrow" | grep -q '192.0.2' \
-   && printf '%s' "$svc" | grep -q 'color:#1a7f37" title="работает">Xray</span>' \
-   && printf '%s' "$svc" | grep -q 'color:#c62828;font-weight:700" title="не установлен">Hysteria</span>' \
-   && ! printf '%s\n' "$html" | grep -q 'Перезапустить службу' \
+   && printf '%s' "$svc" | grep -q 'color:#1a7f37" title="running">Xray</span>' \
+   && printf '%s' "$svc" | grep -q 'color:#c62828;font-weight:700" title="not installed">Hysteria</span>' \
+   && ! printf '%s\n' "$html" | grep -q 'Restart service' \
    && printf '%s' "$html" | grep -q '192.0.2.20:443'; then
 	ok "status card shows the connected protocol, daemon colours and the far-end IP"
 else
@@ -422,7 +422,7 @@ if env PIDOF_FILE="$TMP/pidof.state" sh "$TMP/ri.sh" good-client good; then
 else
 	bad "restart_init good"
 fi
-if ! env PIDOF_FILE="$TMP/pidof.state" sh "$TMP/ri.sh" crash-client crash && grep -q 'сразу завершился' /tmp/aurora-restart-crash-client.err; then
+if ! env PIDOF_FILE="$TMP/pidof.state" sh "$TMP/ri.sh" crash-client crash && grep -q 'exited right away' /tmp/aurora-restart-crash-client.err; then
 	ok "restart_init rejects a daemon that dies right after start"
 else
 	bad "restart_init crash"
@@ -432,7 +432,7 @@ rm -f /tmp/aurora-restart-good-client.err /tmp/aurora-restart-crash-client.err "
 # Transparent mode must be up after a restart (unless switched off).
 rm -f "$D/tproxy.disabled"
 out=$(env NFT_FAIL=1 VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^ERROR: ПРОЗРАЧНЫЙ РЕЖИМ НЕ ВКЛЮЧИЛСЯ' \
+if printf '%s\n' "$out" | grep -q '^ERROR: TRANSPARENT MODE IS NOT ACTIVE' \
    && printf '%s\n' "$out" | grep -q '^HINT: .*TPROXY.SH UP'; then
 	ok "restart reports a missing nft table"
 else
@@ -448,12 +448,12 @@ ntxt=$(printf '%s\n' "$html" | grep -c '<textarea ' || true)
 if [ "$ntxt" = 4 ] \
    && printf '%s\n' "$html" | grep -q 'name=wg rows=2' \
    && printf '%s\n' "$html" | grep -q 'id=card-socks hidden' \
-   && printf '%s\n' "$html" | grep -q '>Добавить SOCKS5<' \
+   && printf '%s\n' "$html" | grep -q '>Add SOCKS5<' \
    && printf '%s\n' "$html" | grep -q 'id=card-http>' \
    && ! printf '%s\n' "$html" | grep -q 'id=card-http hidden' \
    && printf '%s\n' "$html" | grep -q 'value="proxy.example"' \
-   && printf '%s\n' "$html" | grep -q 'IPv6 не проксируется.' \
-   && printf '%s\n' "$html" | grep -q 'Локальные прокси для отдельных программ'; then
+   && printf '%s\n' "$html" | grep -q 'IPv6 is not proxied.' \
+   && printf '%s\n' "$html" | grep -q 'Local proxies for individual apps'; then
 	ok "VPN fields are 2-line, SOCKS is behind a button, saved HTTP is expanded"
 else
 	bad "rendered layout (textareas=$ntxt)"
@@ -504,7 +504,7 @@ printf '%s\n' '{"address":"10.0.0.8","port":1080,"user":"","pass":""}' > "$D/soc
 html3=$(render xray 0 "$TMP/hooks/egress-final.sh")
 if printf '%s\n' "$html3" | grep -q '<b>SOCKS5</b>' \
    && printf '%s\n' "$html3" | grep -q '10.0.0.8:1080' \
-   && ! printf '%s\n' "$html3" | sed -n 's/.*<tr><td>Протокол:<\/td><td>\(.*\)<\/td><\/tr>.*/\1/p' | grep -q 'VLESS'; then
+   && ! printf '%s\n' "$html3" | sed -n 's/.*<tr><td>Protocol:<\/td><td>\(.*\)<\/td><\/tr>.*/\1/p' | grep -q 'VLESS'; then
 	ok "protocol row follows a connected SOCKS5 upstream"
 else
 	bad "socks protocol row"
@@ -517,10 +517,10 @@ body='action=restartsvc&svc=xray'
 html4=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_XRAY_BIN="$TMP/no-such-xray" \
 	REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
 # Banner before the title, and no yellow duplicate of the same error.
-if printf '%s\n' "$html4" | tr '\n' ' ' | grep -q '<body> *<div class=banner><div class=why>НЕТ ФАЙЛА' \
+if printf '%s\n' "$html4" | tr '\n' ' ' | grep -q '<body> *<div class=banner><div class=why>FILE MISSING' \
    && printf '%s\n' "$html4" | grep -q 'class=why' \
    && printf '%s\n' "$html4" | grep -q 'class=how' \
-   && printf '%s\n' "$html4" | grep -q 'УСТАНОВИТЕ XRAY' \
+   && printf '%s\n' "$html4" | grep -q 'INSTALL XRAY' \
    && ! printf '%s\n' "$html4" | grep -q 'class=msg'; then
 	ok "restart failure is a top banner with reason and fix"
 else
@@ -545,9 +545,9 @@ else
 	bad "service row (buttons=$nrb)"
 fi
 # Mode is the first row of the status card (above the transparent-mode row) and still posts action=mode.
-if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr><td>Режим:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr><td>Прозрачный режим для сети:</td>' \
+if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr><td>Transparent mode for the network:</td>' \
    && ! printf '%s\n' "$html" | grep -q 'id=modecard' \
-   && [ "$(printf '%s\n' "$html" | grep -c '<b>Режим:</b>')" = 0 ]; then
+   && [ "$(printf '%s\n' "$html" | grep -c '<b>Mode:</b>')" = 0 ]; then
 	ok "the mode selector is the first row of the status card; no separate mode card"
 else
 	bad "mode row position"
@@ -560,7 +560,7 @@ if printf '%s\n' "$htmlm" | grep -q 'class=msg>ERROR: boom'; then ok "mode POST 
 body='action=restartsvc&svc=xray%3Btouch%20/tmp/aurora-pwned'
 rm -f /tmp/aurora-pwned
 htmli=$(printf '%s' "$body" | env PIDOF_UP=xray REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
-if [ ! -e /tmp/aurora-pwned ] && printf '%s\n' "$htmli" | grep -q 'class=why>НЕИЗВЕСТНАЯ СЛУЖБА'; then
+if [ ! -e /tmp/aurora-pwned ] && printf '%s\n' "$htmli" | grep -q 'class=why>UNKNOWN SERVICE'; then
 	ok "restart accepts only whitelisted service names"
 else
 	bad "restart whitelist"
@@ -608,8 +608,8 @@ o4=$(svcenv env VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc 
 o5=$(svcenv env NFT_FAIL=1 VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc xray 2>/dev/null || true)
 o6=$(svcenv "$SH" restart-svc bogus 2>/dev/null || true)
 if [ "$o3" = OK ] && [ "$o4" = OK ] && [ "$(wc -l < "$D/xrestart.log" | tr -d ' ')" -ge 2 ] \
-   && printf '%s\n' "$o5" | grep -q '^ERROR: ПРОЗРАЧНЫЙ РЕЖИМ НЕ ВКЛЮЧИЛСЯ' \
-   && printf '%s\n' "$o6" | grep -q '^ERROR: НЕИЗВЕСТНАЯ СЛУЖБА'; then
+   && printf '%s\n' "$o5" | grep -q '^ERROR: TRANSPARENT MODE IS NOT ACTIVE' \
+   && printf '%s\n' "$o6" | grep -q '^ERROR: UNKNOWN SERVICE'; then
 	ok "xray and wireguard restart xray and check nft; unknown names are rejected"
 else
 	bad "svc xray/wg ($o3/$o4/$o5/$o6)"
@@ -617,8 +617,8 @@ fi
 # A daemon that fails to start is reported with a reason and a fix; an uninstalled one too.
 o7=$(svcenv env VLESS_NAIVE_BIN="$TMP/no-naive" "$SH" restart-svc naive 2>/dev/null || true)
 o8=$(svcenv env VLESS_AU_SVC_RESTART="$TMP/hooks/svc-fail.sh" "$SH" restart-svc hysteria 2>/dev/null || true)
-if printf '%s\n' "$o7" | grep -q '^HINT: УСТАНОВИТЕ NAIVE' \
-   && printf '%s\n' "$o8" | grep -q 'HYSTERIA НЕ ЗАПУСТИЛАСЬ: CLIENT.YAML: AUTH FAILED'; then
+if printf '%s\n' "$o7" | grep -q '^HINT: INSTALL NAIVE' \
+   && printf '%s\n' "$o8" | grep -q 'HYSTERIA DID NOT START: CLIENT.YAML: AUTH FAILED'; then
 	ok "a failed single-service restart reports the reason and the fix"
 else
 	bad "svc failure ($o7/$o8)"

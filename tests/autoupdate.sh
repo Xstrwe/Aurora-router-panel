@@ -146,19 +146,19 @@ else
 fi
 au_src_clear vless
 if [ -z "$(au_resolve_url vless)" ]; then ok "au_src_clear"; else bad "au_src_clear"; fi
-if grep -rq 'autoupdate-server\|нашего сервера\|с нашего' "$ROOT/files" "$ROOT/README.md"; then
+if grep -rq 'autoupdate-server\|our server\|from our' "$ROOT/files" "$ROOT/README.md"; then
 	bad "leftover references to the removed server source"
 else
 	ok "no references to the removed server source"
 fi
 # the page has no URL field, hint, or Save button any more
 CGI=$ROOT/files/www-aurora/cgi-bin/vless
-if grep -q 'auurl\|ссылка на обновление\|Пусто — обновление\|>Сохранить<' "$CGI"; then
+if grep -q 'auurl\|update link\|Empty — update\|>Save<' "$CGI"; then
 	bad "CGI still has the auto-update URL field, hint or Save button"
 else
 	ok "CGI has no auto-update URL field, hint or Save button"
 fi
-if [ "$(grep -c '>Обновить сейчас<' "$CGI")" = 4 ] && [ "$(grep -c '>Подключить ' "$CGI")" = 6 ]; then
+if [ "$(grep -c '>Update now<' "$CGI")" = 4 ] && [ "$(grep -c '>Connect ' "$CGI")" = 6 ]; then
 	ok "CGI has Connect on 6 cards and Update now on the 4 VPN cards"
 else
 	bad "CGI button count"
@@ -168,17 +168,17 @@ if [ "$(grep -c 'link_field ' "$CGI")" = 4 ] \
    && grep -q 'overflow:auto' "$CGI" \
    && grep -q 'field-sizing:fixed' "$CGI" \
    && grep -q 'function eqCards(' "$CGI" \
-   && grep -q '>Добавить SOCKS5<' "$CGI" \
-   && grep -q '>Добавить HTTP<' "$CGI" \
+   && grep -q '>Add SOCKS5<' "$CGI" \
+   && grep -q '>Add HTTP<' "$CGI" \
    && ! grep -q 'function fit(' "$CGI" \
    && ! grep -q 'field-sizing:content' "$CGI" \
-   && ! grep -q '>Добавить<' "$CGI"; then
+   && ! grep -q '>Add<' "$CGI"; then
 	ok "CGI uses a fixed 2-line link field and proxy Add buttons"
 else
 	bad "CGI link field / proxy add UI"
 fi
 if grep -q '<h3>VPN</h3>' "$CGI" \
-   && grep -q '<h3>Прокси</h3>' "$CGI" \
+   && grep -q '<h3>Proxy</h3>' "$CGI" \
    && [ "$(grep -c 'class=sec' "$CGI")" = 2 ] \
    && grep -q 'class="grid vpn"' "$CGI" \
    && ! grep -q 'class=col' "$CGI" \
@@ -186,31 +186,31 @@ if grep -q '<h3>VPN</h3>' "$CGI" \
    && grep -q '192.168.8.1:10809' "$CGI" \
    && grep -q '>SOCKS5<' "$CGI" \
    && grep -q '>HTTP<' "$CGI" \
-   && grep -q 'IPv6 не проксируется.' "$CGI" \
-   && grep -q 'Локальные прокси для отдельных программ' "$CGI" \
-   && grep -q '>Подключить SOCKS5<' "$CGI" \
-   && grep -q '>Подключить HTTP<' "$CGI" \
+   && grep -q 'IPv6 is not proxied.' "$CGI" \
+   && grep -q 'Local proxies for individual apps' "$CGI" \
+   && grep -q '>Connect SOCKS5<' "$CGI" \
+   && grep -q '>Connect HTTP<' "$CGI" \
    && grep -q 'name=addr' "$CGI" \
    && grep -q 'name=port' "$CGI" \
    && grep -q 'name=user' "$CGI" \
    && grep -q 'name=pass' "$CGI" \
-   && grep -q 'не проверять сертификат' "$CGI" \
+   && grep -q 'do not verify the certificate' "$CGI" \
    && grep -q 'name=tls' "$CGI" \
    && grep -q 'name=sni' "$CGI" \
    && grep -q 'sockssave' "$CGI" \
    && grep -q 'httpsave' "$CGI" \
    && grep -q 'proxy_fields' "$CGI" \
-   && grep -q 'Служба (демон)' "$CGI" \
+   && grep -q 'Service (daemon)' "$CGI" \
    && grep -q 'name=action value=restartsvc' "$CGI" \
-   && ! grep -q 'Перезапустить службу' "$CGI" \
-   && grep -q '>IP выхода:<' "$CGI" \
+   && ! grep -q 'Restart service' "$CGI" \
+   && grep -q '>Egress IP:<' "$CGI" \
    && grep -q 'class=banner' "$CGI" \
-   && ! grep -q 'IP выхода через VLESS' "$CGI" \
-   && ! grep -q 'Служба Xray' "$CGI" \
-   && ! grep -q 'Для ручной настройки отдельных программ' "$CGI" \
-   && ! grep -q 'Прокси для отдельных программ' "$CGI" \
+   && ! grep -q 'Egress IP through VLESS' "$CGI" \
+   && ! grep -q 'Xray service' "$CGI" \
+   && ! grep -q 'For manual setup of individual apps' "$CGI" \
+   && ! grep -q 'Proxies for individual apps' "$CGI" \
    && ! grep -q 'column-count' "$CGI" \
-   && ! grep -q 'Ссылка socks5' "$CGI" \
+   && ! grep -q 'socks5 link' "$CGI" \
    && ! grep -q 'au_row socks' "$CGI" \
    && ! grep -q 'au_row http' "$CGI"; then
 	ok "CGI has VPN and Proxy sections, aligned two-column grid"
@@ -303,7 +303,7 @@ set +e
 msg=$("$SH" update hy2 2>&1)
 rc=$?
 set -e
-if [ "$rc" -eq 0 ] && echo "$msg" | grep -q 'Сохранено' \
+if [ "$rc" -eq 0 ] && echo "$msg" | grep -q 'Saved' \
    && grep -q 'hysteria2://newpass@192.0.2.80:443' "$D/hy2.txt" \
    && [ "$(cat "$D/proto")" = vless ]; then
 	ok "update inactive hy2 stores without switching proto"
@@ -316,8 +316,8 @@ set +e
 msg=$("$SH" update hy2 2>&1)
 rc=$?
 set -e
-if [ "$rc" -eq 0 ] && echo "$msg" | grep -q 'без изменений'; then
-	ok "update unchanged reports без изменений"
+if [ "$rc" -eq 0 ] && echo "$msg" | grep -q 'no changes'; then
+	ok "update unchanged reports no changes"
 else
 	bad "update unchanged (rc=$rc msg=$msg)"
 fi
@@ -329,7 +329,7 @@ set +e
 msg=$("$SH" update naive 2>&1)
 rc=$?
 set -e
-if [ "$rc" -eq 0 ] && echo "$msg" | grep -q 'нечего обновлять'; then
+if [ "$rc" -eq 0 ] && echo "$msg" | grep -q 'nothing to update'; then
 	ok "update with no URL and non-http link: nothing to update"
 else
 	bad "no url update (rc=$rc msg=$msg)"
@@ -379,7 +379,7 @@ set +e
 msg=$("$SH" update vless 2>&1)
 rc=$?
 set -e
-if [ "$rc" -ne 0 ] && echo "$msg" | grep -q 'откатан' \
+if [ "$rc" -ne 0 ] && echo "$msg" | grep -q 'rolled back' \
    && grep -q '00000000-0000-0000-0000-000000000000' "$D/link.txt" \
    && grep -q 'OLDCFG' "$D/config.json" \
    && grep -q xrestart "$D/xrestart.log"; then

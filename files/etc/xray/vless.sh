@@ -58,22 +58,22 @@ au_probe(){
   [ "$code" = 204 ]
 }
 au_fetch(){
-  case "$1" in http://*|https://*) ;; *) err "ссылка автообновления должна начинаться с http:// или https://";; esac
+  case "$1" in http://*|https://*) ;; *) err "auto-update link must start with http:// or https://";; esac
   if [ -n "${VLESS_AU_CURL:-}" ]; then
-    sh "$VLESS_AU_CURL" "$1" "$2" || err "не удалось скачать обновление"
+    sh "$VLESS_AU_CURL" "$1" "$2" || err "could not download the update"
   else
-    curl -fL --max-time 25 --max-filesize 1048576 -A 'aurora-router-panel-autoupdate/1.4.0' -o "$2" "$1" || err "не удалось скачать обновление"
+    curl -fL --max-time 25 --max-filesize 1048576 -A 'aurora-router-panel-autoupdate/1.4.1a1' -o "$2" "$1" || err "could not download the update"
   fi
-  [ -s "$2" ] || err "пустой ответ сервера автообновления"
+  [ -s "$2" ] || err "empty auto-update response"
   sz=$(wc -c < "$2" | tr -d ' ')
-  [ "$sz" -le 1048576 ] || err "слишком большой ответ автообновления"
+  [ "$sz" -le 1048576 ] || err "auto-update response is too large"
 }
 gen(){ # $1 linkfile $2 mode $3 proto
   P=${3:-$PROTO}
   if [ "$P" = socks ] || [ "$P" = http ]; then
     if [ ! -s "$D/$P.json" ]; then
-      [ "$P" = socks ] && err "Сначала заполни поля SOCKS5"
-      err "Сначала заполни поля HTTP"
+      [ "$P" = socks ] && err "Fill in the SOCKS5 fields first"
+      err "Fill in the HTTP fields first"
     fi
     ucode $D/gen.uc --base "$2" > /tmp/vless.json 2>/tmp/vless.err || err "$(cat /tmp/vless.err)"
     merge_proxy_cfg "$P" /tmp/vless.json "$D/$P.json" /tmp/vless.j2
@@ -82,12 +82,12 @@ gen(){ # $1 linkfile $2 mode $3 proto
     IP=$(resolve_host_ip "$H")
     case "$H" in
       *:*) ;;
-      *) [ -n "$IP" ] || err "Не удалось получить IP сервера" ;;
+      *) [ -n "$IP" ] || err "Could not resolve the server IP" ;;
     esac
     if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
-      XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray отклонил конфиг: $(tail -3 /tmp/vless.err)"
+      XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray rejected the config: $(tail -3 /tmp/vless.err)"
     else
-      jq -e . /tmp/vless.json >/dev/null 2>&1 || err "конфиг не JSON"
+      jq -e . /tmp/vless.json >/dev/null 2>&1 || err "config is not JSON"
     fi
     cp $D/config.json $D/config.prev.json 2>/dev/null
     mv /tmp/vless.json $D/config.json
@@ -95,26 +95,26 @@ gen(){ # $1 linkfile $2 mode $3 proto
     echo "$2" > $D/mode
     echo "$P" > $D/proto
     hyup "$P"
-    xrestart || { cp $D/config.prev.json $D/config.json; echo "$PROTO" > $D/proto; echo "$MODE" > $D/mode; hyup "$PROTO"; xrestart; au_tproxy; err "Xray не запустился, конфиг откатан"; }
+    xrestart || { cp $D/config.prev.json $D/config.json; echo "$PROTO" > $D/proto; echo "$MODE" > $D/mode; hyup "$PROTO"; xrestart; au_tproxy; err "Xray did not start, config rolled back"; }
     au_tproxy
     echo OK
     return 0
   fi
   L=$(cat "$1" | tr -d '\r\n ')
-  case "$L" in vless://*) ;; *) err "Ссылка должна начинаться с vless://";; esac
+  case "$L" in vless://*) ;; *) err "The link must start with vless://";; esac
   H=$(echo "$L" | sed -E 's#^vless://[^@]+@\[?([^]:/?#]+)\]?:.*#\1#')
   if echo "$H" | grep -qE '^[0-9]+(\.[0-9]+){3}$'; then IP=$H
   else IP=$(nslookup "$H" 2>/dev/null | awk '/^Name:/{n=1} n&&/^Address/{print $NF}' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1)
   fi
-  [ -n "$IP" ] || err "Не удалось получить IP сервера $H"
+  [ -n "$IP" ] || err "Could not resolve the server IP $H"
   printf '%s\n' "$L" > /tmp/vless.link
   ucode $D/gen.uc /tmp/vless.link "$IP" "$2" > /tmp/vless.json 2>/tmp/vless.err || err "$(cat /tmp/vless.err)"
   if [ "$P" = hy2 ]; then
-    [ -s $HYD/client.yaml ] || err "Сначала сохрани ссылку Hysteria2"
+    [ -s $HYD/client.yaml ] || err "Save a Hysteria2 link first"
     jq '(.outbounds[] | select(.tag=="proxy")) |= {tag:"proxy",protocol:"socks",settings:{servers:[{address:"127.0.0.1",port:10818}]}}' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
   fi
   if [ "$P" = naive ]; then
-    [ -s $NAD/config.json ] || err "Сначала сохрани ссылку Naive"
+    [ -s $NAD/config.json ] || err "Save a Naive link first"
     # Naive is TCP-only: DNS goes as DNS-over-TCP through the tunnel, QUIC is blocked (browsers fall back to TCP), other UDP goes direct
     jq '(.outbounds[] | select(.tag=="proxy")) |= {tag:"proxy",protocol:"socks",settings:{servers:[{address:"127.0.0.1",port:10828}]}}
       | .outbounds += [{tag:"dns-out",protocol:"dns",settings:{network:"tcp",address:"1.1.1.1",port:53}},{tag:"block",protocol:"blackhole"}]
@@ -122,24 +122,24 @@ gen(){ # $1 linkfile $2 mode $3 proto
       | .routing.rules = [{type:"field",inboundTag:["dns-in"],outboundTag:"dns-out"},{type:"field",network:"udp",port:"53",outboundTag:"dns-out"},{type:"field",network:"udp",port:"443",outboundTag:"block"}] + .routing.rules[0:-1] + [{type:"field",network:"udp",outboundTag:"direct"}] + .routing.rules[-1:]' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
   fi
   if [ "$P" = wg ]; then
-    [ -s $D/wg.json ] || err "Сначала сохрани конфиг WireGuard"
+    [ -s $D/wg.json ] || err "Save a WireGuard config first"
     jq --slurpfile w $D/wg.json '(.outbounds[] | select(.tag=="proxy")) |= ($w[0] + {tag:"proxy",streamSettings:{sockopt:{mark:255}}})' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
   fi
   if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
-    XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray отклонил конфиг: $(tail -3 /tmp/vless.err)"
+    XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray rejected the config: $(tail -3 /tmp/vless.err)"
   else
-    jq -e . /tmp/vless.json >/dev/null 2>&1 || err "конфиг не JSON"
+    jq -e . /tmp/vless.json >/dev/null 2>&1 || err "config is not JSON"
   fi
   cp $D/config.json $D/config.prev.json 2>/dev/null
   mv /tmp/vless.json $D/config.json; mv /tmp/vless.link $D/link.txt; echo "$IP" > $D/server_ip; echo "$2" > $D/mode; echo "$P" > $D/proto
   hyup "$P"
-  xrestart || { cp $D/config.prev.json $D/config.json; echo "$PROTO" > $D/proto; echo "$MODE" > $D/mode; hyup "$PROTO"; xrestart; au_tproxy; err "Xray не запустился, конфиг откатан"; }
+  xrestart || { cp $D/config.prev.json $D/config.json; echo "$PROTO" > $D/proto; echo "$MODE" > $D/mode; hyup "$PROTO"; xrestart; au_tproxy; err "Xray did not start, config rolled back"; }
   au_tproxy
   echo OK
 }
 store_vless(){
   L=$(cat "$1" | tr -d '\r\n ')
-  case "$L" in vless://*) ;; *) err "Ссылка должна начинаться с vless://";; esac
+  case "$L" in vless://*) ;; *) err "The link must start with vless://";; esac
   printf '%s\n' "$L" > $D/link.txt
 }
 store_hy2(){
@@ -151,7 +151,7 @@ store_hy2(){
 }
 store_naive(){
   L=$(cat "$1" | tr -d '\r\n ')
-  case "$L" in naive+https://*@*) ;; *) err "Ссылка должна начинаться с naive+https://";; esac
+  case "$L" in naive+https://*@*) ;; *) err "The link must start with naive+https://";; esac
   U=$(echo "$L" | sed -E 's#^naive\+https://([^@]+)@.*#\1#')
   HP=$(echo "$L" | sed -E 's#^naive\+https://[^@]+@([^/?\#]+).*#\1#')
   NH=${HP%:*}; NP=${HP##*:}; [ "$NP" = "$HP" ] && NP=443
@@ -172,8 +172,8 @@ store_wg(){
     END{ if(pk==""||np<1){print "bad" > "/dev/stderr"; exit 1}
       printf "{\"protocol\":\"wireguard\",\"settings\":{\"secretKey\":\"%s\",\"address\":%s,\"mtu\":%d,\"peers\":[", pk, arr(ad), (mtu?mtu:1420)
       for(i=1;i<=np;i++){ printf "%s{\"publicKey\":\"%s\",\"endpoint\":\"%s\",\"allowedIPs\":%s%s}", (i>1?",":""), pub[i], ep[i], arr(al[i]?al[i]:"0.0.0.0/0"), (psk[i]?",\"preSharedKey\":\"" psk[i] "\"":"") }
-      print "]}}" }' /tmp/wg.conf > /tmp/wg.json 2>/dev/null || { rm -f /tmp/wg.conf; err "Не похоже на конфиг WireGuard (нужны [Interface] PrivateKey и [Peer])"; }
-  jq -e . /tmp/wg.json >/dev/null 2>&1 || { rm -f /tmp/wg.conf /tmp/wg.json; err "Ошибка разбора конфига WireGuard"; }
+      print "]}}" }' /tmp/wg.conf > /tmp/wg.json 2>/dev/null || { rm -f /tmp/wg.conf; err "Does not look like a WireGuard config ([Interface] PrivateKey and [Peer] are required)"; }
+  jq -e . /tmp/wg.json >/dev/null 2>&1 || { rm -f /tmp/wg.conf /tmp/wg.json; err "Could not parse the WireGuard config"; }
   umask 077; mv /tmp/wg.json $D/wg.json; mv /tmp/wg.conf $D/wg.conf
 }
 # Resolve a hostname or IPv4 literal to an IPv4 address (for the tproxy bypass set).
@@ -194,25 +194,25 @@ store_proxy(){
   # for http also tls (bool), sni, allowInsecure (bool). Written 0600.
   P=$1
   case "$P" in socks|http) ;; *) err "store socks|http";; esac
-  [ -s "$2" ] || err "укажи адрес и порт"
-  jq -e . "$2" >/dev/null 2>&1 || err "не удалось прочитать настройки"
+  [ -s "$2" ] || err "enter an address and a port"
+  jq -e . "$2" >/dev/null 2>&1 || err "could not read the settings"
   ADDR=$(jq -r '.address // empty' "$2")
   PORT=$(jq -r '.port // empty' "$2")
-  [ -n "$ADDR" ] || err "укажи адрес"
-  printf '%s' "$ADDR" | grep -q '[[:space:]]' && err "неверный адрес"
-  [ "${#ADDR}" -le 253 ] || err "неверный адрес"
-  case "$PORT" in ''|*[!0-9]*) err "укажи порт 1-65535";; esac
-  [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || err "укажи порт 1-65535"
+  [ -n "$ADDR" ] || err "enter an address"
+  printf '%s' "$ADDR" | grep -q '[[:space:]]' && err "invalid address"
+  [ "${#ADDR}" -le 253 ] || err "invalid address"
+  case "$PORT" in ''|*[!0-9]*) err "enter a port from 1 to 65535";; esac
+  [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || err "enter a port from 1 to 65535"
   USER=$(jq -r '.user // empty' "$2")
   PASS=$(jq -r '.pass // empty' "$2")
-  [ "${#USER}" -le 256 ] && [ "${#PASS}" -le 256 ] || err "слишком длинный логин или пароль"
+  [ "${#USER}" -le 256 ] && [ "${#PASS}" -le 256 ] || err "login or password is too long"
   OUT=/tmp/proxy-$P.json
   umask 077
   if [ "$P" = http ]; then
     TLS=$(jq -r 'if .tls==true or .tls=="1" or .tls==1 then "true" else "false" end' "$2")
     INS=$(jq -r 'if .allowInsecure==true or .allowInsecure=="1" or .allowInsecure==1 then "true" else "false" end' "$2")
     SNI=$(jq -r '.sni // empty' "$2")
-    [ "${#SNI}" -le 253 ] || err "неверное SNI"
+    [ "${#SNI}" -le 253 ] || err "invalid SNI"
     jq -n --arg a "$ADDR" --argjson p "$PORT" --arg u "$USER" --arg w "$PASS" --argjson tls "$TLS" --arg s "$SNI" --argjson ins "$INS" \
       '{address:$a,port:$p,user:$u,pass:$w,tls:$tls,sni:$s,allowInsecure:$ins}' > "$OUT" || err "jq"
   else
@@ -229,8 +229,8 @@ store_proxy(){
 merge_proxy_cfg(){
   P=$1
   case "$P" in socks|http) ;; *) err "mergecfg socks|http";; esac
-  [ -s "$2" ] && [ -s "$3" ] || err "нет конфига"
-  jq -e . "$2" >/dev/null 2>&1 && jq -e . "$3" >/dev/null 2>&1 || err "не удалось прочитать конфиг"
+  [ -s "$2" ] && [ -s "$3" ] || err "no config"
+  jq -e . "$2" >/dev/null 2>&1 && jq -e . "$3" >/dev/null 2>&1 || err "could not read the config"
   if [ "$P" = socks ]; then
     jq --slurpfile s "$3" '
       def server:
@@ -301,7 +301,7 @@ do_src(){ # proto infile outfile fetch(0|1)
     http://*|https://*)
       if [ "$4" = 1 ]; then
         au_fetch "$c" "$2.fetch"
-        au_extract "$2.fetch" "$P" "$3" || { rm -f "$2.fetch"; err "в ответе нет конфига для $P"; }
+        au_extract "$2.fetch" "$P" "$3" || { rm -f "$2.fetch"; err "the response has no config for $P"; }
         rm -f "$2.fetch"
       fi
       au_src_set "$P" "$c" ;;
@@ -315,18 +315,18 @@ do_update(){
   au_load "$P"
   URL=$(au_resolve_url "$P")
   if [ -z "$URL" ]; then
-    echo "нечего обновлять: сохранённая ссылка подключения не является http(s)-подпиской"
+    echo "nothing to update: the saved connection link is not an http(s) subscription"
     return 0
   fi
   IN=/tmp/vless-au-$P.in
   OUT=/tmp/vless-au-$P.out
   au_fetch "$URL" "$IN"
-  au_extract "$IN" "$P" "$OUT" || { rm -f "$IN"; err "в ответе нет конфига для $P"; }
+  au_extract "$IN" "$P" "$OUT" || { rm -f "$IN"; err "the response has no config for $P"; }
   rm -f "$IN"
   CUR=$(au_current_file "$P")
   if [ -f "$CUR" ] && au_same "$P" "$CUR" "$OUT"; then
     rm -f "$OUT"
-    echo "без изменений"
+    echo "no changes"
     return 0
   fi
   B=/tmp/vless-au-bak-$$
@@ -334,13 +334,13 @@ do_update(){
   if [ "$PROTO" = "$P" ]; then
     if [ "$P" = naive ] && [ ! -x /usr/bin/naive ] && [ -z "${VLESS_AU_APPLY:-}" ]; then
       rm -rf "$B" "$OUT"
-      err "Сначала установи naive: /usr/libexec/aurora-panel/install-naive.sh"
+      err "Install naive first: /usr/libexec/aurora-panel/install-naive.sh"
     fi
     if [ -n "${VLESS_AU_APPLY:-}" ]; then
       if ! sh "$VLESS_AU_APPLY" "$P" "$OUT"; then
         au_restore "$B"; hyup "$(cat $D/proto 2>/dev/null || echo vless)"; xrestart; au_tproxy
         rm -rf "$B" "$OUT"
-        err "не удалось применить обновление, конфиг откатан"
+        err "could not apply the update, config rolled back"
       fi
     else
       # Child process: store/gen call err() and exit; the parent can still roll back.
@@ -353,7 +353,7 @@ do_update(){
       if ! "$0" "$cmd" "$OUT" >/tmp/vless-au-apply.out 2>&1; then
         au_restore "$B"; hyup "$(cat $D/proto 2>/dev/null || echo vless)"; xrestart; au_tproxy
         rm -rf "$B" "$OUT"
-        err "не удалось применить обновление, конфиг откатан: $(cat /tmp/vless-au-apply.out 2>/dev/null)"
+        err "could not apply the update, config rolled back: $(cat /tmp/vless-au-apply.out 2>/dev/null)"
       fi
     fi
     if ! au_probe; then
@@ -362,7 +362,7 @@ do_update(){
       xrestart
       au_tproxy
       rm -rf "$B" "$OUT"
-      err "после обновления нет интернета, конфиг откатан"
+      err "no internet after the update, config rolled back"
     fi
     au_tproxy
     rm -rf "$B" "$OUT"
@@ -371,10 +371,10 @@ do_update(){
     if ! "$0" store "$P" "$OUT" >/tmp/vless-au-store.out 2>&1; then
       au_restore "$B"
       rm -rf "$B" "$OUT"
-      err "не удалось сохранить обновление, файлы откатены: $(cat /tmp/vless-au-store.out 2>/dev/null)"
+      err "could not save the update, files rolled back: $(cat /tmp/vless-au-store.out 2>/dev/null)"
     fi
     rm -rf "$B" "$OUT"
-    echo "Сохранено, без переключения (сейчас $PROTO)"
+    echo "Saved without switching (now $PROTO)"
   fi
 }
 # ASCII uppercase for log lines mixed into the Russian banner. Cyrillic is
@@ -425,7 +425,7 @@ restart_init(){
     return $?
   fi
   if [ ! -x "$INITD/$name" ]; then
-    echo "нет скрипта $INITD/$name" > "$errf"
+    echo "no script $INITD/$name" > "$errf"
     return 3
   fi
   [ "$en" = 0 ] || "$INITD/$name" enable >>"$errf" 2>&1 || true
@@ -434,7 +434,7 @@ restart_init(){
   while [ "$i" -lt 15 ]; do
     if pidof "$proc" >/dev/null 2>&1; then
       proc_stable "$proc" "$STABLE_SECS" && return 0
-      echo "процесс $proc запустился и сразу завершился" >> "$errf"
+      echo "process $proc started and exited right away" >> "$errf"
       return 1
     fi
     i=$((i+1))
@@ -445,13 +445,13 @@ restart_init(){
 require_bin(){ # $1 path, $2 short name (XRAY|HYSTERIA|NAIVE)
   if [ ! -e "$1" ]; then
     case "$2" in
-      HYSTERIA) fail_restart "НЕТ ФАЙЛА $(upper "$1")" "УСТАНОВИТЕ HYSTERIA В /USR/BIN ИЛИ ПОДКЛЮЧИТЕ ДРУГОЙ ПРОТОКОЛ";;
-      NAIVE) fail_restart "НЕТ ФАЙЛА $(upper "$1")" "УСТАНОВИТЕ NAIVE КОМАНДОЙ /USR/LIBEXEC/AURORA-PANEL/INSTALL-NAIVE.SH";;
-      *) fail_restart "НЕТ ФАЙЛА $(upper "$1")" "УСТАНОВИТЕ XRAY В /USR/BIN И ФАЙЛЫ GEOIP/GEOSITE В /USR/SHARE/XRAY";;
+      HYSTERIA) fail_restart "FILE MISSING: $(upper "$1")" "INSTALL HYSTERIA IN /USR/BIN OR CONNECT ANOTHER PROTOCOL";;
+      NAIVE) fail_restart "FILE MISSING: $(upper "$1")" "INSTALL NAIVE WITH /USR/LIBEXEC/AURORA-PANEL/INSTALL-NAIVE.SH";;
+      *) fail_restart "FILE MISSING: $(upper "$1")" "INSTALL XRAY IN /USR/BIN AND THE GEOIP/GEOSITE FILES IN /USR/SHARE/XRAY";;
     esac
   fi
   if [ ! -x "$1" ]; then
-    fail_restart "НЕТ ПРАВ НА ЗАПУСК $(upper "$1")" "ВЫПОЛНИТЕ CHMOD 755 $(upper "$1") И ПОВТОРИТЕ ПЕРЕЗАПУСК ОТ ROOT"
+    fail_restart "NO PERMISSION TO START $(upper "$1")" "RUN CHMOD 755 $(upper "$1") AND RESTART AS ROOT"
   fi
 }
 # Fully restart the daemons the active connection needs: always Xray
@@ -463,26 +463,26 @@ restart_hysteria(){
   if ! restart_init hysteria-client hysteria "$HYEN"; then
     e=$(tr '\n' ' ' < /tmp/aurora-restart-hysteria-client.err 2>/dev/null || true)
     case "$e" in
-      *нет\ скрипта*)
-        fail_restart "НЕТ СКРИПТА /ETC/INIT.D/HYSTERIA-CLIENT" "ПЕРЕУСТАНОВИТЕ ПАКЕТ AURORA-ROUTER-PANEL: В НЁМ ДОЛЖЕН БЫТЬ СКРИПТ ЗАПУСКА"
+      *no\ script*)
+        fail_restart "SCRIPT MISSING: /ETC/INIT.D/HYSTERIA-CLIENT" "REINSTALL THE AURORA-ROUTER-PANEL PACKAGE: IT PROVIDES THE START SCRIPT"
         ;;
     esac
-    msg="HYSTERIA НЕ ЗАПУСТИЛАСЬ"
+    msg="HYSTERIA DID NOT START"
     [ -n "$e" ] && msg="$msg: $(upper "$e")"
-    fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/HYSTERIA/CLIENT.YAML И LOGREAD -E HYSTERIA, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
+    fail_restart "$msg" "CHECK /ETC/HYSTERIA/CLIENT.YAML AND LOGREAD -E HYSTERIA, THEN RESTART AGAIN"
   fi
 }
 restart_naive(){
   if ! restart_init naive-client naive "$NAEN"; then
     e=$(tr '\n' ' ' < /tmp/aurora-restart-naive-client.err 2>/dev/null || true)
     case "$e" in
-      *нет\ скрипта*)
-        fail_restart "НЕТ СКРИПТА /ETC/INIT.D/NAIVE-CLIENT" "ПЕРЕУСТАНОВИТЕ ПАКЕТ AURORA-ROUTER-PANEL: В НЁМ ДОЛЖЕН БЫТЬ СКРИПТ ЗАПУСКА"
+      *no\ script*)
+        fail_restart "SCRIPT MISSING: /ETC/INIT.D/NAIVE-CLIENT" "REINSTALL THE AURORA-ROUTER-PANEL PACKAGE: IT PROVIDES THE START SCRIPT"
         ;;
     esac
-    msg="NAIVE НЕ ЗАПУСТИЛСЯ"
+    msg="NAIVE DID NOT START"
     [ -n "$e" ] && msg="$msg: $(upper "$e")"
-    fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/NAIVE/CONFIG.JSON И LOGREAD -E NAIVE, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
+    fail_restart "$msg" "CHECK /ETC/NAIVE/CONFIG.JSON AND LOGREAD -E NAIVE, THEN RESTART AGAIN"
   fi
 }
 restart_xray(){
@@ -490,41 +490,41 @@ restart_xray(){
     errf=$(tail -c 400 /tmp/xray-restart.err 2>/dev/null | tr '\n' ' ')
     case "$errf" in
       *[Pp]ermission\ denied*)
-        fail_restart "НЕТ ПРАВ НА ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT, ПРОВЕРЬТЕ CHMOD 755 $(upper "$XRAY_BIN") И ВЛАДЕЛЬЦА /ETC/XRAY"
+        fail_restart "NO PERMISSION TO START XRAY" "RESTART AS ROOT AND CHECK CHMOD 755 $(upper "$XRAY_BIN") AND THE OWNER OF /ETC/XRAY"
         ;;
       *[Aa]ddress\ already\ in\ use*)
-        fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+        fail_restart "PORT IN USE: $(busy_ports | sed 's/^ *//')" "FIND THE PROCESS WITH NETSTAT -LNTUP, STOP IT AND RESTART AGAIN"
         ;;
     esac
     if xports_busy; then
-      fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+      fail_restart "PORT IN USE: $(busy_ports | sed 's/^ *//')" "FIND THE PROCESS WITH NETSTAT -LNTUP, STOP IT AND RESTART AGAIN"
     fi
     extra=""
     [ -n "$errf" ] && extra=": $(upper "$errf")"
-    fail_restart "XRAY НЕ ЗАПУСТИЛСЯ${extra}" "ПОСМОТРИТЕ LOGREAD -E XRAY, УСТРАНИТЕ ПРИЧИНУ И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+    fail_restart "XRAY DID NOT START${extra}" "CHECK LOGREAD -E XRAY, FIX THE CAUSE AND RESTART AGAIN"
   fi
   if ! proc_stable xray "$STABLE_SECS"; then
-    fail_restart "XRAY ЗАПУСТИЛСЯ И ЗАВЕРШИЛСЯ" "ПОСМОТРИТЕ LOGREAD -E XRAY, УСТРАНИТЕ ПРИЧИНУ И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+    fail_restart "XRAY STARTED AND THEN EXITED" "CHECK LOGREAD -E XRAY, FIX THE CAUSE AND RESTART AGAIN"
   fi
   if [ ! -f "$D/tproxy.disabled" ] && ! nft list table inet xray >/dev/null 2>&1; then
-    fail_restart "ПРОЗРАЧНЫЙ РЕЖИМ НЕ ВКЛЮЧИЛСЯ: НЕТ ТАБЛИЦЫ NFT INET XRAY" "ВЫПОЛНИТЕ /ETC/XRAY/TPROXY.SH UP ИЛИ НАЖМИТЕ «ВКЛЮЧИТЬ», ЗАТЕМ ПРОВЕРЬТЕ NFT LIST TABLE INET XRAY"
+    fail_restart "TRANSPARENT MODE IS NOT ACTIVE: NFT TABLE INET XRAY IS MISSING" "RUN /ETC/XRAY/TPROXY.SH UP OR PRESS «ENABLE», THEN CHECK NFT LIST TABLE INET XRAY"
   fi
   rm -f "$EGRESS_CACHE"
 }
 # Config/binary/test checks shared by every Xray restart.
 check_xray(){
   if [ ! -s "$D/config.json" ]; then
-    fail_restart "НЕТ ФАЙЛА КОНФИГА /ETC/XRAY/CONFIG.JSON" "НАЖМИТЕ «ПОДКЛЮЧИТЬ» У ВЫБРАННОГО ПРОТОКОЛА, ЧТОБЫ СОЗДАТЬ КОНФИГ, И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+    fail_restart "CONFIG FILE MISSING: /ETC/XRAY/CONFIG.JSON" "PRESS «CONNECT» ON THE CHOSEN PROTOCOL TO CREATE THE CONFIG, THEN RESTART AGAIN"
   fi
   if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
     if ! XRAY_LOCATION_ASSET=${VLESS_XRAY_ASSET:-/usr/share/xray} "$XRAY_BIN" run -test -c "$D/config.json" >/tmp/vless.err 2>&1; then
       why=$(tail -c 400 /tmp/vless.err 2>/dev/null | tr '\n' ' ')
       case "$why" in
         *[Pp]ermission\ denied*)
-          fail_restart "НЕТ ПРАВ НА КОНФИГ ИЛИ ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT И ПРОВЕРЬТЕ ПРАВА /ETC/XRAY/CONFIG.JSON И $(upper "$XRAY_BIN")"
+          fail_restart "NO PERMISSION FOR THE CONFIG OR TO START XRAY" "RESTART AS ROOT AND CHECK THE PERMISSIONS OF /ETC/XRAY/CONFIG.JSON AND $(upper "$XRAY_BIN")"
           ;;
         *)
-          fail_restart "XRAY ОТКЛОНИЛ КОНФИГ: $(upper "$why")" "ИСПРАВЬТЕ КОНФИГ КОМАНДОЙ XRAY RUN -TEST -C /ETC/XRAY/CONFIG.JSON, ЗАНОВО НАЖМИТЕ «ПОДКЛЮЧИТЬ» И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+          fail_restart "XRAY REJECTED THE CONFIG: $(upper "$why")" "FIX THE CONFIG WITH XRAY RUN -TEST -C /ETC/XRAY/CONFIG.JSON, PRESS «CONNECT» AGAIN AND RESTART AGAIN"
           ;;
       esac
     fi
@@ -555,15 +555,15 @@ do_restart_svc(){
       restart_xray;;
     hysteria)
       require_bin "$HYSTERIA_BIN" HYSTERIA
-      [ -s "$HYD/client.yaml" ] || fail_restart "НЕТ ФАЙЛА /ETC/HYSTERIA/CLIENT.YAML" "ВСТАВЬТЕ ССЫЛКУ HYSTERIA2 В ПОЛЕ И НАЖМИТЕ «ПОДКЛЮЧИТЬ HYSTERIA2»"
+      [ -s "$HYD/client.yaml" ] || fail_restart "FILE MISSING: /ETC/HYSTERIA/CLIENT.YAML" "PASTE A HYSTERIA2 LINK INTO THE FIELD AND PRESS «CONNECT HYSTERIA2»"
       HYEN=0; [ "$PROTO" = hy2 ] && HYEN=1
       restart_hysteria;;
     naive)
       require_bin "$NAIVE_BIN" NAIVE
-      [ -s "$NAD/config.json" ] || fail_restart "НЕТ ФАЙЛА /ETC/NAIVE/CONFIG.JSON" "ВСТАВЬТЕ ССЫЛКУ NAIVE В ПОЛЕ И НАЖМИТЕ «ПОДКЛЮЧИТЬ NAIVE»"
+      [ -s "$NAD/config.json" ] || fail_restart "FILE MISSING: /ETC/NAIVE/CONFIG.JSON" "PASTE A NAIVE LINK INTO THE FIELD AND PRESS «CONNECT NAIVE»"
       NAEN=0; [ "$PROTO" = naive ] && NAEN=1
       restart_naive;;
-    *) fail_restart "НЕИЗВЕСТНАЯ СЛУЖБА" "ВЫБЕРИТЕ XRAY, NAIVE, HYSTERIA ИЛИ WIREGUARD";;
+    *) fail_restart "UNKNOWN SERVICE" "CHOOSE XRAY, NAIVE, HYSTERIA OR WIREGUARD";;
   esac
   echo OK
 }
@@ -609,7 +609,7 @@ case "$1" in
 save) store_vless "$2"; gen $D/link.txt "$MODE" vless;;
 hy2save) store_hy2 "$2"; gen $D/link.txt "$MODE" hy2;;
 naivesave)
-  [ -x /usr/bin/naive ] || err "Сначала установи naive: /usr/libexec/aurora-panel/install-naive.sh"
+  [ -x /usr/bin/naive ] || err "Install naive first: /usr/libexec/aurora-panel/install-naive.sh"
   store_naive "$2"; gen $D/link.txt "$MODE" naive;;
 wgsave) store_wg "$2"; gen $D/link.txt "$MODE" wg;;
 sockssave) store_proxy socks "$2"; gen $D/link.txt "$MODE" socks;;
@@ -618,7 +618,7 @@ store) store_proto "$2" "$3"; echo OK;;
 mergecfg) merge_proxy_cfg "$2" "$3" "$4" "$5"; echo OK;;
 proto) case "$2" in vless|hy2|naive|wg|socks|http) ;; *) err "proto vless|hy2|naive|wg|socks|http";; esac; gen $D/link.txt "$MODE" "$2";;
 mode) case "$2" in ru|all) ;; *) err "mode ru|all";; esac; gen $D/link.txt "$2";;
-on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; xrestart || err "Xray не запустился"; echo OK;;
+on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; xrestart || err "Xray did not start"; echo OK;;
 off) touch $D/tproxy.disabled; $D/tproxy.sh down; echo OK;;
 restart) do_restart;;
 restart-svc) do_restart_svc "$2";;

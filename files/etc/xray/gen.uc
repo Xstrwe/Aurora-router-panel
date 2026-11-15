@@ -47,9 +47,9 @@ if (ARGV[0] == '--base') {
 let link = trim(fs.readfile(ARGV[0]) || '');
 let sip = ARGV[1], mode = ARGV[2] || 'ru';
 let m = match(link, /^vless:\/\/([^@]+)@(\[[^\]]+\]|[^:\/?#]+):([0-9]+)\/?(\?[^#]*)?(#.*)?$/);
-if (!m) die("Ссылка не похожа на vless://uuid@host:port?...");
+if (!m) die("The link does not look like vless://uuid@host:port?...");
 let uuid = dec(m[1]), port = +m[3];
-if (!match(uuid, /^[0-9a-fA-F-]{8,}$/)) die("Неверный UUID");
+if (!match(uuid, /^[0-9a-fA-F-]{8,}$/)) die("Invalid UUID");
 let q = {};
 for (let kv in split(substr(m[4] || '?', 1), '&')) {
 	if (kv == '') continue;
@@ -65,7 +65,7 @@ if (type == 'xhttp' || type == 'splithttp') {
 	let x = { path: q.path || '/', mode: q.mode || 'auto' };
 	if (q.host) x.host = q.host;
 	let extra = {};
-	if (q.extra) { try { extra = json(q.extra); } catch (e) { die("Поле extra не является JSON"); } }
+	if (q.extra) { try { extra = json(q.extra); } catch (e) { die("The extra field is not JSON"); } }
 	if (q.x_padding_bytes && !extra.xPaddingBytes) extra.xPaddingBytes = q.x_padding_bytes;
 	if (length(extra)) x.extra = extra;
 	ss.xhttpSettings = x;
@@ -81,14 +81,14 @@ if (type == 'xhttp' || type == 'splithttp') {
 } else if (type == 'tcp' || type == 'raw') {
 	ss.network = 'raw';
 	if (q.headerType == 'http') ss.rawSettings = { header: { type: 'http', request: { path: [ q.path || '/' ], headers: { Host: [ q.host || '' ] } } } };
-} else die("Неподдерживаемый type=" + type);
+} else die("Unsupported type=" + type);
 if (sec == 'reality') {
-	if (!q.pbk) die("Для reality нужен pbk");
+	if (!q.pbk) die("reality requires pbk");
 	ss.realitySettings = { serverName: q.sni || '', fingerprint: q.fp || 'chrome', publicKey: q.pbk, shortId: q.sid || '', spiderX: q.spx || '' };
 } else if (sec == 'tls') {
 	ss.tlsSettings = { serverName: q.sni || q.host || '', fingerprint: q.fp || 'chrome' };
 	if (q.alpn) ss.tlsSettings.alpn = split(q.alpn, ',');
 	if (q.allowInsecure == '1') ss.tlsSettings.allowInsecure = true;
-} else if (sec != 'none') die("Неподдерживаемый security=" + sec);
+} else if (sec != 'none') die("Unsupported security=" + sec);
 let proxy = { tag: 'proxy', protocol: 'vless', settings: { vnext: [ { address: sip, port: port, users: [ user ] } ] }, streamSettings: ss };
 print(sprintf("%.2J\n", base_cfg(mode, proxy)));

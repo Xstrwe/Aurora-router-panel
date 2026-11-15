@@ -4,7 +4,7 @@ function die(m) { warn(m + "\n"); exit(1); }
 function dec(s) { s = replace(s, /\+/g, ' '); return replace(s, /%([0-9A-Fa-f]{2})/g, (m, h) => chr(hex(h))); }
 let link = trim(fs.readfile(ARGV[0]) || '');
 let m = match(link, /^(hysteria2|hy2):\/\/([^@]+)@(\[[^\]]+\]|[^:\/?#]+):([0-9,\-]+)\/?(\?[^#]*)?(#.*)?$/);
-if (!m) die("Ссылка не похожа на hysteria2://пароль@адрес:порт?...");
+if (!m) die("The link does not look like hysteria2://password@host:port?...");
 let q = {};
 for (let kv in split(substr(m[5] || '?', 1), '&')) {
 	if (kv == '') continue;

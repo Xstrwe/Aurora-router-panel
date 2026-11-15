@@ -105,7 +105,7 @@ Install the new `.ipk` the same way as above. Files that are not part of the pac
 
 ### The page
 
-The page UI is currently in Russian; this README names every button and label by its English meaning.
+The page UI is in English; this README uses the same button and label names.
 
 - **Status card:** transparent mode; every service behind the VPN cards in one row (Xray, Naive, Hysteria, WireGuard), green when running and red bold when not, each followed by its own small ↻ restart button (WireGuard runs inside Xray, so its button restarts Xray); the protocol last applied by a Connect button; server host (with its SNI); and the public egress IP, measured by a request through the live tunnel (not the first server address). The IP is filled in after the page has loaded, so a dead tunnel never delays the page.
 - **Mode:** the first row of the status card: "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).

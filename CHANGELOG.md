@@ -2,14 +2,24 @@
 
 ## 1.4.0
 
-- Status card: the service row is **Служба (демон)**. It lists the daemons
-  the active connection uses (always Xray; Hysteria when the protocol is
-  Hysteria2; Naive when it is Naive), separated by ` / `. A running daemon
-  is green; a stopped one is red and bold. **Перезапустить службу** fully
-  restarts those daemons (`xray-client` via the existing stop/wait/start,
-  plus `hysteria-client` or `naive-client`). If the restart fails, a banner
+- Status card: the service row is **Служба (демон)**. It always lists every
+  service behind the VPN cards in one row, separated by ` / `: **Xray**
+  (`xray-client`), **Naive** (`naive-client`, the router's naive client),
+  **Hysteria** (`hysteria-client`) and **WireGuard**. A running service is
+  green; a stopped or missing one is red and bold (the tooltip says "не
+  запущен" or "не установлен"). WireGuard has no process of its own: it is an
+  outbound inside Xray, so it is green when Xray runs and WireGuard is the
+  connected protocol, and its button restarts Xray. Each service has its own
+  small square **↻** button, as tall as a capital letter of the label; there
+  is no big restart button any more. A button restarts only that service
+  (`vless.sh restart-svc xray|naive|hysteria|wireguard`, a fixed whitelist),
+  never changes the active protocol, and restarting a service that is not the
+  active protocol does not enable it at boot. If the restart fails, a banner
   at the top of the page shows the reason in red uppercase and a concrete
-  fix in green uppercase (config test, missing binary, busy port, permissions).
+  fix in green uppercase (config test, missing binary or config, busy port,
+  permissions, daemon died, transparent mode down).
+- **Режим** (the routing mode selector) is now the first row of the status
+  card, above the transparent-mode row; the separate card is gone.
 - **Протокол** follows the protocol last applied by a Connect button
   (VLESS, Hysteria2, Naive, WireGuard, SOCKS5 or HTTP). **IP выхода** is the
   public address returned by an echo request through the live tunnel
@@ -19,10 +29,11 @@
   the browser asks `?ip` afterwards (one probe, 3 s limit, cached for 60 s;
   the cache is dropped on restart). A dead tunnel shows
   "не удалось определить" instead of hanging the page.
-- The restart is stricter: Hysteria / Naive are restarted before Xray (its
-  outbound points at them), each daemon must still be the same process a few
-  seconds after start, and the transparent mode (`nft` table `inet xray`) must
-  be up unless it was switched off. Otherwise the banner explains why.
+- The restart checks are strict: each daemon must still be the same process
+  a few seconds after start, and after an Xray restart the transparent mode
+  (`nft` table `inet xray`) must be up unless it was switched off. The CLI
+  `vless.sh restart` (active protocol) restarts Hysteria / Naive before Xray,
+  because the Xray outbound points at them.
 - VPN cards are one equal-size grid. Each link, including the WireGuard
   config, is a field of exactly two visible lines; longer text scrolls inside.
 - Proxy section: **Добавить SOCKS5** and **Добавить HTTP** reveal that

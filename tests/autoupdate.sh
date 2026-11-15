@@ -201,8 +201,8 @@ if grep -q '<h3>VPN</h3>' "$CGI" \
    && grep -q 'httpsave' "$CGI" \
    && grep -q 'proxy_fields' "$CGI" \
    && grep -q 'Служба (демон)' "$CGI" \
-   && grep -q 'Перезапустить службу' "$CGI" \
-   && grep -q 'name=action value=restart' "$CGI" \
+   && grep -q 'name=action value=restartsvc' "$CGI" \
+   && ! grep -q 'Перезапустить службу' "$CGI" \
    && grep -q '>IP выхода:<' "$CGI" \
    && grep -q 'class=banner' "$CGI" \
    && ! grep -q 'IP выхода через VLESS' "$CGI" \

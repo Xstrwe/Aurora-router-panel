@@ -80,13 +80,16 @@ BLK
 </div>
 BLK
 }
-# $1 label, $2 1 if the process is running. Active = green, inactive = red bold.
-svc_html(){
-  if [ "$2" = 1 ]; then
-    printf '<b style="color:#1a7f37">%s</b>' "$1"
+# One entry of the service row: $1 whitelist key, $2 label, $3 1 if running,
+# $4 tooltip. Running = green, not running = red bold, then a tiny restart button.
+svc_item(){
+  if [ "$3" = 1 ]; then
+    _st="color:#1a7f37"
   else
-    printf '<b style="color:#c62828">%s</b>' "$1"
+    _st="color:#c62828;font-weight:700"
   fi
+  _t=$(printf '%s' "$4" | esc)
+  printf '<span class=svc><span style="%s" title="%s">%s</span><form method=post class=svcb><input type=hidden name=action value=restartsvc><input type=hidden name=svc value=%s><button type=submit class=rb title="Перезапустить: %s" aria-label="Перезапустить %s"><span class=rg>&#8635;</span></button></form></span>' "$_st" "$_t" "$2" "$1" "$2" "$2"
 }
 # GET ?ip: the page asks for the egress IP after it has loaded, so a dead tunnel
 # never delays the page itself (one probe, 3 s limit, cached for 60 s).
@@ -105,7 +108,16 @@ if [ "$REQUEST_METHOD" = POST ]; then
   A=$(fld action)
   case "$A" in
     on|off) MSG=$($V $A 2>&1);;
-    restart) MSG=$($V restart 2>&1);;
+    restartsvc)
+      # Fixed whitelist: the value is never passed to the shell as typed.
+      case "$(fld svc)" in
+        xray) MSG=$($V restart-svc xray 2>&1);;
+        naive) MSG=$($V restart-svc naive 2>&1);;
+        hysteria) MSG=$($V restart-svc hysteria 2>&1);;
+        wireguard) MSG=$($V restart-svc wireguard 2>&1);;
+        *) MSG="ERROR: НЕИЗВЕСТНАЯ СЛУЖБА
+HINT: ВЫБЕРИТЕ СЛУЖБУ КНОПКОЙ РЯДОМ С ЕЁ НАЗВАНИЕМ";;
+      esac;;
     mode) MSG=$($V mode "$(fld mode)" 2>&1);;
     test) T=$(curl -s -o /dev/null -m 10 -w '%{http_code} %{time_total}' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204 2>/dev/null)
       Y=$(curl -s -o /dev/null -m 10 -w '%{http_code}' --socks5-hostname 127.0.0.1:10808 https://www.youtube.com 2>/dev/null)
@@ -179,7 +191,7 @@ YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
   case "$A" in test|speed|update) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Готово";; esac;; esac
 fi
 WHY=""; HOW=""
-if [ "$A" = restart ]; then
+if [ "$A" = restartsvc ]; then
   case "$MSG" in
     *ERROR*)
       WHY=$(printf '%s\n' "$MSG" | sed -n 's/^ERROR: //p' | head -1)
@@ -222,12 +234,22 @@ else
   HOST=$(jq -r '.settings.peers[0].endpoint' $D/wg.json 2>/dev/null | esc)
   SNI="без SNI"
 fi
-# Daemons this connection actually uses. Xray always; Hysteria or Naive only for that protocol.
-SVC=$(svc_html Xray "$S_running")
-case "$S_proto" in
-  hy2) SVC="$SVC / $(svc_html Hysteria "${S_hysteria:-0}")";;
-  naive) SVC="$SVC / $(svc_html Naive "${S_naive:-0}")";;
-esac
+# All services behind the VPN cards, always listed. Xray = xray-client, Naive =
+# naive-client, Hysteria = hysteria-client. WireGuard has no process of its own:
+# it is an outbound inside Xray, so it counts as running when Xray runs and WireGuard
+# is the connected protocol.
+if [ "${S_inst_xray:-0}" != 1 ]; then T_X="не установлен"
+elif [ "$S_running" = 1 ]; then T_X="работает"; else T_X="не запущен"; fi
+if [ "${S_inst_naive:-0}" != 1 ]; then T_N="не установлен"; N_UP=0
+elif [ "${S_naive:-0}" = 1 ]; then T_N="работает"; N_UP=1; else T_N="не запущен"; N_UP=0; fi
+if [ "${S_inst_hysteria:-0}" != 1 ]; then T_H="не установлен"; H_UP=0
+elif [ "${S_hysteria:-0}" = 1 ]; then T_H="работает"; H_UP=1; else T_H="не запущен"; H_UP=0; fi
+W_UP=0
+if [ "${S_wg_conf:-0}" != 1 ]; then T_W="конфиг WireGuard не сохранён"
+elif [ "$S_proto" = wg ] && [ "$S_running" = 1 ]; then T_W="работает (внутри Xray)"; W_UP=1
+else T_W="WireGuard работает внутри Xray и сейчас не подключён; кнопка перезапускает Xray"; fi
+X_UP=0; [ "$S_running" = 1 ] && [ "${S_inst_xray:-0}" = 1 ] && X_UP=1
+SVC="$(svc_item xray Xray "$X_UP" "$T_X") / $(svc_item naive Naive "$N_UP" "$T_N") / $(svc_item hysteria Hysteria "$H_UP" "$T_H") / $(svc_item wireguard WireGuard "$W_UP" "$T_W")"
 if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"
 else ST="ВЫКЛЮЧЕН (интернет напрямую)"; SC="#c62828"; fi
 [ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
@@ -250,9 +272,13 @@ select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background
 .banner{padding:12px 14px;border-radius:8px;background:#fff;border:1px solid #f3c1c1;margin:0 0 14px}
 .banner .why{color:#c62828;font-weight:700;text-transform:uppercase;white-space:pre-wrap}
 .banner .how{color:#1a7f37;font-weight:700;text-transform:uppercase;white-space:pre-wrap;margin-top:8px}
+.modef{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0}
+.modef button{padding:6px 14px;font-size:15px}
 .svcs{line-height:1.45}
-.svcf{margin-top:8px}
-.svcf button{font-size:14px;padding:8px 14px}
+.svc{white-space:nowrap}
+.svcb{display:inline;margin:0}
+button.rb{display:inline-block;box-sizing:border-box;width:.72em;height:.72em;min-width:0;padding:0;margin:0 0 0 .3em;border-radius:2px;font-size:1em;line-height:.68em;text-align:center;vertical-align:.09em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
+button.rb .rg{font-size:.62em;line-height:1}
 .sec{margin:18px 0 8px}
 .sec>h3{margin:0 0 10px;font-size:18px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;margin:0}
@@ -287,9 +313,11 @@ echo '<h2>Aurora router panel</h2>'
 [ -n "$MSG" ] && echo "<div class=msg>$(printf '%s' "$MSG" | esc)</div>"
 cat <<HTML
 <div class=c id=status><table>
+<tr><td>Режим:</td><td><form method=post class=modef><input type=hidden name=action value=mode>
+<select name=mode><option value=ru $M1>Всё, кроме российских сайтов</option><option value=all $M2>Всё через VLESS</option></select>
+<button>Применить</button></form></td></tr>
 <tr><td>Прозрачный режим для сети:</td><td><b style="color:$SC">$ST</b></td></tr>
-<tr><td>Служба (демон):</td><td><div class=svcs>$SVC</div>
-<form method=post class=svcf><input type=hidden name=action value=restart><button type=submit>Перезапустить службу</button></form></td></tr>
+<tr><td>Служба (демон):</td><td><div class=svcs>$SVC</div></td></tr>
 <tr><td>Протокол:</td><td><b>$PN</b></td></tr>
 <tr><td>Сервер:</td><td>$HOST ($SNI)</td></tr>
 <tr><td>IP выхода:</td><td id=egress>определяется…</td></tr>
@@ -300,9 +328,6 @@ cat <<HTML
 <form method=post><input type=hidden name=action value=test><button>Тест подключения</button></form>
 <form method=post><input type=hidden name=action value=speed><button>Скорость</button></form>
 </div>
-<div class=c><form method=post><input type=hidden name=action value=mode><b>Режим:</b>
-<select name=mode><option value=ru $M1>Всё, кроме российских сайтов</option><option value=all $M2>Всё через VLESS</option></select>
-<button>Применить</button></form></div>
 <div class=sec>
 <h3>VPN</h3>
 <div class="grid vpn">

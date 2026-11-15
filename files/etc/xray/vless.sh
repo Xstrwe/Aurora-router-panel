@@ -2,7 +2,7 @@
 # vless.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
 #         | sockssave <json> | httpsave <json>
 #         | store vless|hy2|naive|wg|socks|http <file> | proto vless|hy2|naive|wg|socks|http
-#         | mode ru|all | on | off | status | restart | egress
+#         | mode ru|all | on | off | status | restart | restart-svc xray|naive|hysteria|wireguard | egress
 #         | autoset <proto> <0|1> <1h|6h|24h>
 #         | src <proto> <infile> <outfile> <0|1> | update <proto>
 #         | mergecfg socks|http <base.json> <settings.json> <out.json>
@@ -411,11 +411,13 @@ proc_stable(){
   p2=$(pidof "$1" 2>/dev/null) || return 1
   [ "$p1" = "$p2" ]
 }
-# $1 init script name, $2 process name. Full enable+restart, then wait until the
-# process is up and stays up for STABLE_SECS seconds.
+# $1 init script name, $2 process name, $3 "0" to skip enabling the service at boot
+# (used for a daemon that belongs to a protocol that is not the active one).
+# Full restart, then wait until the process is up and stays up for STABLE_SECS seconds.
 restart_init(){
   name=$1
   proc=$2
+  en=${3:-1}
   errf=/tmp/aurora-restart-$name.err
   : > "$errf"
   if [ -n "${VLESS_AU_SVC_RESTART:-}" ]; then
@@ -426,7 +428,7 @@ restart_init(){
     echo "нет скрипта $INITD/$name" > "$errf"
     return 3
   fi
-  "$INITD/$name" enable >>"$errf" 2>&1 || true
+  [ "$en" = 0 ] || "$INITD/$name" enable >>"$errf" 2>&1 || true
   "$INITD/$name" restart >>"$errf" 2>&1 || true
   i=0
   while [ "$i" -lt 15 ]; do
@@ -454,54 +456,36 @@ require_bin(){ # $1 path, $2 short name (XRAY|HYSTERIA|NAIVE)
 }
 # Fully restart the daemons the active connection needs: always Xray
 # (stop, wait for ports, start), plus Hysteria or Naive when that protocol is connected.
-do_restart(){
-  rm -f /tmp/xray-restart.err
-  require_bin "$XRAY_BIN" XRAY
-  if [ "$PROTO" = hy2 ]; then require_bin "$HYSTERIA_BIN" HYSTERIA; fi
-  if [ "$PROTO" = naive ]; then require_bin "$NAIVE_BIN" NAIVE; fi
-  if [ ! -s "$D/config.json" ]; then
-    fail_restart "НЕТ ФАЙЛА КОНФИГА /ETC/XRAY/CONFIG.JSON" "НАЖМИТЕ «ПОДКЛЮЧИТЬ» У ВЫБРАННОГО ПРОТОКОЛА, ЧТОБЫ СОЗДАТЬ КОНФИГ, И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+# Each restart_* below ends the whole script through fail_restart on failure.
+# $HYEN / $NAEN: 1 when that daemon belongs to the active protocol (then it is
+# also enabled at boot), 0 when it is restarted on its own.
+restart_hysteria(){
+  if ! restart_init hysteria-client hysteria "$HYEN"; then
+    e=$(tr '\n' ' ' < /tmp/aurora-restart-hysteria-client.err 2>/dev/null || true)
+    case "$e" in
+      *нет\ скрипта*)
+        fail_restart "НЕТ СКРИПТА /ETC/INIT.D/HYSTERIA-CLIENT" "ПЕРЕУСТАНОВИТЕ ПАКЕТ AURORA-ROUTER-PANEL: В НЁМ ДОЛЖЕН БЫТЬ СКРИПТ ЗАПУСКА"
+        ;;
+    esac
+    msg="HYSTERIA НЕ ЗАПУСТИЛАСЬ"
+    [ -n "$e" ] && msg="$msg: $(upper "$e")"
+    fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/HYSTERIA/CLIENT.YAML И LOGREAD -E HYSTERIA, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
   fi
-  if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
-    if ! XRAY_LOCATION_ASSET=${VLESS_XRAY_ASSET:-/usr/share/xray} "$XRAY_BIN" run -test -c "$D/config.json" >/tmp/vless.err 2>&1; then
-      why=$(tail -c 400 /tmp/vless.err 2>/dev/null | tr '\n' ' ')
-      case "$why" in
-        *[Pp]ermission\ denied*)
-          fail_restart "НЕТ ПРАВ НА КОНФИГ ИЛИ ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT И ПРОВЕРЬТЕ ПРАВА /ETC/XRAY/CONFIG.JSON И $(upper "$XRAY_BIN")"
-          ;;
-        *)
-          fail_restart "XRAY ОТКЛОНИЛ КОНФИГ: $(upper "$why")" "ИСПРАВЬТЕ КОНФИГ КОМАНДОЙ XRAY RUN -TEST -C /ETC/XRAY/CONFIG.JSON, ЗАНОВО НАЖМИТЕ «ПОДКЛЮЧИТЬ» И ПОВТОРИТЕ ПЕРЕЗАПУСК"
-          ;;
-      esac
-    fi
+}
+restart_naive(){
+  if ! restart_init naive-client naive "$NAEN"; then
+    e=$(tr '\n' ' ' < /tmp/aurora-restart-naive-client.err 2>/dev/null || true)
+    case "$e" in
+      *нет\ скрипта*)
+        fail_restart "НЕТ СКРИПТА /ETC/INIT.D/NAIVE-CLIENT" "ПЕРЕУСТАНОВИТЕ ПАКЕТ AURORA-ROUTER-PANEL: В НЁМ ДОЛЖЕН БЫТЬ СКРИПТ ЗАПУСКА"
+        ;;
+    esac
+    msg="NAIVE НЕ ЗАПУСТИЛСЯ"
+    [ -n "$e" ] && msg="$msg: $(upper "$e")"
+    fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/NAIVE/CONFIG.JSON И LOGREAD -E NAIVE, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
   fi
-  # The Xray outbound points at Hysteria (10818) / Naive (10828): bring those up first.
-  if [ "$PROTO" = hy2 ]; then
-    if ! restart_init hysteria-client hysteria; then
-      e=$(tr '\n' ' ' < /tmp/aurora-restart-hysteria-client.err 2>/dev/null || true)
-      case "$e" in
-        *нет\ скрипта*)
-          fail_restart "НЕТ СКРИПТА /ETC/INIT.D/HYSTERIA-CLIENT" "ПЕРЕУСТАНОВИТЕ ПАКЕТ AURORA-ROUTER-PANEL: В НЁМ ДОЛЖЕН БЫТЬ СКРИПТ ЗАПУСКА"
-          ;;
-      esac
-      msg="HYSTERIA НЕ ЗАПУСТИЛАСЬ"
-      [ -n "$e" ] && msg="$msg: $(upper "$e")"
-      fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/HYSTERIA/CLIENT.YAML И LOGREAD -E HYSTERIA, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
-    fi
-  fi
-  if [ "$PROTO" = naive ]; then
-    if ! restart_init naive-client naive; then
-      e=$(tr '\n' ' ' < /tmp/aurora-restart-naive-client.err 2>/dev/null || true)
-      case "$e" in
-        *нет\ скрипта*)
-          fail_restart "НЕТ СКРИПТА /ETC/INIT.D/NAIVE-CLIENT" "ПЕРЕУСТАНОВИТЕ ПАКЕТ AURORA-ROUTER-PANEL: В НЁМ ДОЛЖЕН БЫТЬ СКРИПТ ЗАПУСКА"
-          ;;
-      esac
-      msg="NAIVE НЕ ЗАПУСТИЛСЯ"
-      [ -n "$e" ] && msg="$msg: $(upper "$e")"
-      fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/NAIVE/CONFIG.JSON И LOGREAD -E NAIVE, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
-    fi
-  fi
+}
+restart_xray(){
   if ! xrestart; then
     errf=$(tail -c 400 /tmp/xray-restart.err 2>/dev/null | tr '\n' ' ')
     case "$errf" in
@@ -526,6 +510,61 @@ do_restart(){
     fail_restart "ПРОЗРАЧНЫЙ РЕЖИМ НЕ ВКЛЮЧИЛСЯ: НЕТ ТАБЛИЦЫ NFT INET XRAY" "ВЫПОЛНИТЕ /ETC/XRAY/TPROXY.SH UP ИЛИ НАЖМИТЕ «ВКЛЮЧИТЬ», ЗАТЕМ ПРОВЕРЬТЕ NFT LIST TABLE INET XRAY"
   fi
   rm -f "$EGRESS_CACHE"
+}
+# Config/binary/test checks shared by every Xray restart.
+check_xray(){
+  if [ ! -s "$D/config.json" ]; then
+    fail_restart "НЕТ ФАЙЛА КОНФИГА /ETC/XRAY/CONFIG.JSON" "НАЖМИТЕ «ПОДКЛЮЧИТЬ» У ВЫБРАННОГО ПРОТОКОЛА, ЧТОБЫ СОЗДАТЬ КОНФИГ, И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+  fi
+  if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
+    if ! XRAY_LOCATION_ASSET=${VLESS_XRAY_ASSET:-/usr/share/xray} "$XRAY_BIN" run -test -c "$D/config.json" >/tmp/vless.err 2>&1; then
+      why=$(tail -c 400 /tmp/vless.err 2>/dev/null | tr '\n' ' ')
+      case "$why" in
+        *[Pp]ermission\ denied*)
+          fail_restart "НЕТ ПРАВ НА КОНФИГ ИЛИ ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT И ПРОВЕРЬТЕ ПРАВА /ETC/XRAY/CONFIG.JSON И $(upper "$XRAY_BIN")"
+          ;;
+        *)
+          fail_restart "XRAY ОТКЛОНИЛ КОНФИГ: $(upper "$why")" "ИСПРАВЬТЕ КОНФИГ КОМАНДОЙ XRAY RUN -TEST -C /ETC/XRAY/CONFIG.JSON, ЗАНОВО НАЖМИТЕ «ПОДКЛЮЧИТЬ» И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+          ;;
+      esac
+    fi
+  fi
+}
+do_restart(){
+  rm -f /tmp/xray-restart.err
+  HYEN=1; NAEN=1
+  require_bin "$XRAY_BIN" XRAY
+  if [ "$PROTO" = hy2 ]; then require_bin "$HYSTERIA_BIN" HYSTERIA; fi
+  if [ "$PROTO" = naive ]; then require_bin "$NAIVE_BIN" NAIVE; fi
+  check_xray
+  # The Xray outbound points at Hysteria (10818) / Naive (10828): bring those up first.
+  if [ "$PROTO" = hy2 ]; then restart_hysteria; fi
+  if [ "$PROTO" = naive ]; then restart_naive; fi
+  restart_xray
+  echo OK
+}
+# Restart exactly one service: xray | naive | hysteria | wireguard.
+# WireGuard has no process of its own: it is an outbound inside Xray, so its
+# restart is an Xray restart. The active protocol is never changed.
+do_restart_svc(){
+  rm -f /tmp/xray-restart.err
+  case "$1" in
+    xray|wireguard)
+      require_bin "$XRAY_BIN" XRAY
+      check_xray
+      restart_xray;;
+    hysteria)
+      require_bin "$HYSTERIA_BIN" HYSTERIA
+      [ -s "$HYD/client.yaml" ] || fail_restart "НЕТ ФАЙЛА /ETC/HYSTERIA/CLIENT.YAML" "ВСТАВЬТЕ ССЫЛКУ HYSTERIA2 В ПОЛЕ И НАЖМИТЕ «ПОДКЛЮЧИТЬ HYSTERIA2»"
+      HYEN=0; [ "$PROTO" = hy2 ] && HYEN=1
+      restart_hysteria;;
+    naive)
+      require_bin "$NAIVE_BIN" NAIVE
+      [ -s "$NAD/config.json" ] || fail_restart "НЕТ ФАЙЛА /ETC/NAIVE/CONFIG.JSON" "ВСТАВЬТЕ ССЫЛКУ NAIVE В ПОЛЕ И НАЖМИТЕ «ПОДКЛЮЧИТЬ NAIVE»"
+      NAEN=0; [ "$PROTO" = naive ] && NAEN=1
+      restart_naive;;
+    *) fail_restart "НЕИЗВЕСТНАЯ СЛУЖБА" "ВЫБЕРИТЕ XRAY, NAIVE, HYSTERIA ИЛИ WIREGUARD";;
+  esac
   echo OK
 }
 # Public address as seen from the far end of the active tunnel.
@@ -582,11 +621,16 @@ mode) case "$2" in ru|all) ;; *) err "mode ru|all";; esac; gen $D/link.txt "$2";
 on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; xrestart || err "Xray не запустился"; echo OK;;
 off) touch $D/tproxy.disabled; $D/tproxy.sh down; echo OK;;
 restart) do_restart;;
+restart-svc) do_restart_svc "$2";;
 egress) egress_ip || exit 1;;
 status)
   echo "running=$(pidof xray >/dev/null && echo 1 || echo 0)"
   echo "hysteria=$(pidof hysteria >/dev/null && echo 1 || echo 0)"
   echo "naive=$(pidof naive >/dev/null && echo 1 || echo 0)"
+  echo "inst_xray=$([ -x "$XRAY_BIN" ] && echo 1 || echo 0)"
+  echo "inst_hysteria=$([ -x "$HYSTERIA_BIN" ] && echo 1 || echo 0)"
+  echo "inst_naive=$([ -x "$NAIVE_BIN" ] && echo 1 || echo 0)"
+  echo "wg_conf=$([ -s "$D/wg.json" ] && echo 1 || echo 0)"
   echo "tproxy=$(nft list table inet xray >/dev/null 2>&1 && echo 1 || echo 0)"
   echo "mode=$MODE"; echo "proto=$PROTO"; echo "server_ip=$(cat $D/server_ip 2>/dev/null)";;
 autoset)

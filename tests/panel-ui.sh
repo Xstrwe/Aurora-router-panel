@@ -334,6 +334,7 @@ fi
 # --- rendered page ---
 render() {
 	env PIDOF_UP="$1" NFT_FAIL="${2:-}" VLESS_AU_EGRESS="$3" \
+		VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/no-hysteria" \
 		REQUEST_METHOD=GET \
 		"$CGI"
 }
@@ -347,10 +348,9 @@ svc=$(row 'Служба (демон):')
 if printf '%s' "$proto" | grep -q '>Hysteria2<' \
    && printf '%s' "$exitrow" | grep -q 'id=egress' \
    && ! printf '%s' "$exitrow" | grep -q '192.0.2' \
-   && printf '%s\n' "$html" | grep -q 'color:#1a7f37">Xray' \
-   && printf '%s\n' "$html" | grep -q 'color:#c62828">Hysteria' \
-   && printf '%s\n' "$html" | grep -q 'Перезапустить службу' \
-   && printf '%s\n' "$html" | grep -q 'Xray</b> / <b style="color:#c62828">Hysteria' \
+   && printf '%s' "$svc" | grep -q 'color:#1a7f37" title="работает">Xray</span>' \
+   && printf '%s' "$svc" | grep -q 'color:#c62828;font-weight:700" title="не установлен">Hysteria</span>' \
+   && ! printf '%s\n' "$html" | grep -q 'Перезапустить службу' \
    && printf '%s' "$html" | grep -q '192.0.2.20:443'; then
 	ok "status card shows the connected protocol, daemon colours and the far-end IP"
 else
@@ -513,7 +513,7 @@ rm -f "$D/socks.json"
 echo hy2 > "$D/proto"
 
 # Restart failure banner is the first body content, reason red, fix green.
-body='action=restart'
+body='action=restartsvc&svc=xray'
 html4=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_XRAY_BIN="$TMP/no-such-xray" \
 	REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
 # Banner before the title, and no yellow duplicate of the same error.
@@ -533,6 +533,97 @@ if grep -q '.banner .why{color:#c62828' "$CGI" && grep -q '.banner .how{color:#1
 else
 	bad "banner colours"
 fi
+
+# --- one row of services, each with its own small restart button ---
+nrb=$(printf '%s\n' "$html" | grep -o 'class=rb' | wc -l | tr -d ' ')
+if [ "$nrb" = 4 ] \
+   && printf '%s' "$svc" | grep -q 'Xray</span>.*</span> / <span class=svc>.*Naive</span>.*</span> / <span class=svc>.*Hysteria</span>.*</span> / <span class=svc>.*WireGuard</span>' \
+   && printf '%s\n' "$html" | grep -q 'name=svc value=wireguard' \
+   && grep -q 'button.rb{[^}]*width:.72em;height:.72em' "$CGI"; then
+	ok "services are one row: Xray / Naive / Hysteria / WireGuard, each with a small restart button"
+else
+	bad "service row (buttons=$nrb)"
+fi
+# Mode is the first row of the status card (above the transparent-mode row) and still posts action=mode.
+if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr><td>Режим:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr><td>Прозрачный режим для сети:</td>' \
+   && ! printf '%s\n' "$html" | grep -q 'id=modecard' \
+   && [ "$(printf '%s\n' "$html" | grep -c '<b>Режим:</b>')" = 0 ]; then
+	ok "the mode selector is the first row of the status card; no separate mode card"
+else
+	bad "mode row position"
+fi
+# The mode action still works.
+body='action=mode&mode=all'
+htmlm=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vless-fail.sh" REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
+if printf '%s\n' "$htmlm" | grep -q 'class=msg>ERROR: boom'; then ok "mode POST is still passed to vless.sh mode"; else bad "mode post"; fi
+# Whitelist: an unknown or injected service name is refused and nothing runs.
+body='action=restartsvc&svc=xray%3Btouch%20/tmp/aurora-pwned'
+rm -f /tmp/aurora-pwned
+htmli=$(printf '%s' "$body" | env PIDOF_UP=xray REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
+if [ ! -e /tmp/aurora-pwned ] && printf '%s\n' "$htmli" | grep -q 'class=why>НЕИЗВЕСТНАЯ СЛУЖБА'; then
+	ok "restart accepts only whitelisted service names"
+else
+	bad "restart whitelist"
+fi
+rm -f /tmp/aurora-pwned
+# Each button restarts only its own service and never changes the active protocol.
+echo vless > "$D/proto"
+mkdir -p "$TMP/etc-hy" "$TMP/etc-na"
+echo 'server: x' > "$TMP/etc-hy/client.yaml"; echo '{}' > "$TMP/etc-na/config.json"
+cat > "$TMP/initd/hysteria-client" <<EOF
+#!/bin/sh
+echo "hysteria-client \$1" >> "$TMP/initd.log"
+[ "\$1" = restart ] && echo hysteria > "$TMP/pidof.state"
+exit 0
+EOF
+cat > "$TMP/initd/naive-client" <<EOF
+#!/bin/sh
+echo "naive-client \$1" >> "$TMP/initd.log"
+[ "\$1" = restart ] && echo naive > "$TMP/pidof.state"
+exit 0
+EOF
+chmod 755 "$TMP/initd/"*
+rm -f "$TMP/initd.log"; echo none > "$TMP/pidof.state"
+svcenv() { env PIDOF_FILE="$TMP/pidof.state" VLESS_INITD="$TMP/initd" VLESS_HYSTERIA_DIR="$TMP/etc-hy" VLESS_NAIVE_DIR="$TMP/etc-na" VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" "$@"; }
+o1=$(svcenv "$SH" restart-svc hysteria 2>/dev/null || true)
+o2=$(svcenv "$SH" restart-svc naive 2>/dev/null || true)
+if [ "$o1" = OK ] && [ "$o2" = OK ] \
+   && [ "$(cat "$D/proto")" = vless ] \
+   && ! grep -q 'enable' "$TMP/initd.log" \
+   && ! grep -q xray "$TMP/initd.log" \
+   && [ "$(grep -c restart "$TMP/initd.log")" = 2 ]; then
+	ok "restarting an idle Hysteria/Naive touches only that daemon, keeps the protocol, does not enable it"
+else
+	bad "svc restart idle ($o1/$o2: $(cat "$TMP/initd.log" 2>/dev/null | tr '\n' ';'))"
+fi
+# Active protocol: the daemon is enabled as well.
+echo naive > "$D/proto"; rm -f "$TMP/initd.log"
+svcenv "$SH" restart-svc naive >/dev/null 2>&1 || true
+echo vless > "$D/proto"
+if grep -q 'naive-client enable' "$TMP/initd.log"; then ok "restarting the active protocol's daemon also enables it"; else bad "svc enable active"; fi
+# Xray / WireGuard restart xray (nft checked), unknown name fails, missing config is reported.
+rm -f "$D/xrestart.log"; echo xray > "$TMP/pidof.state"
+o3=$(svcenv env VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc xray 2>/dev/null || true)
+o4=$(svcenv env VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc wireguard 2>/dev/null || true)
+o5=$(svcenv env NFT_FAIL=1 VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc xray 2>/dev/null || true)
+o6=$(svcenv "$SH" restart-svc bogus 2>/dev/null || true)
+if [ "$o3" = OK ] && [ "$o4" = OK ] && [ "$(wc -l < "$D/xrestart.log" | tr -d ' ')" -ge 2 ] \
+   && printf '%s\n' "$o5" | grep -q '^ERROR: ПРОЗРАЧНЫЙ РЕЖИМ НЕ ВКЛЮЧИЛСЯ' \
+   && printf '%s\n' "$o6" | grep -q '^ERROR: НЕИЗВЕСТНАЯ СЛУЖБА'; then
+	ok "xray and wireguard restart xray and check nft; unknown names are rejected"
+else
+	bad "svc xray/wg ($o3/$o4/$o5/$o6)"
+fi
+# A daemon that fails to start is reported with a reason and a fix; an uninstalled one too.
+o7=$(svcenv env VLESS_NAIVE_BIN="$TMP/no-naive" "$SH" restart-svc naive 2>/dev/null || true)
+o8=$(svcenv env VLESS_AU_SVC_RESTART="$TMP/hooks/svc-fail.sh" "$SH" restart-svc hysteria 2>/dev/null || true)
+if printf '%s\n' "$o7" | grep -q '^HINT: УСТАНОВИТЕ NAIVE' \
+   && printf '%s\n' "$o8" | grep -q 'HYSTERIA НЕ ЗАПУСТИЛАСЬ: CLIENT.YAML: AUTH FAILED'; then
+	ok "a failed single-service restart reports the reason and the fix"
+else
+	bad "svc failure ($o7/$o8)"
+fi
+rm -f /tmp/aurora-restart-*-client.err
 
 rm -f /tmp/xray-restart.err /tmp/aurora-restart-hysteria-client.err /tmp/aurora-restart-naive-client.err /tmp/vless.err
 

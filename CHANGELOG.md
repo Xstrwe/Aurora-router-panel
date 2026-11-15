@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.4.0
+
+- Status card: the service row is **Служба (демон)**. It lists the daemons
+  the active connection uses (always Xray; Hysteria when the protocol is
+  Hysteria2; Naive when it is Naive), separated by ` / `. A running daemon
+  is green; a stopped one is red and bold. **Перезапустить службу** fully
+  restarts those daemons (`xray-client` via the existing stop/wait/start,
+  plus `hysteria-client` or `naive-client`). If the restart fails, a banner
+  at the top of the page shows the reason in red uppercase and a concrete
+  fix in green uppercase (config test, missing binary, busy port, permissions).
+- **Протокол** follows the protocol last applied by a Connect button
+  (VLESS, Hysteria2, Naive, WireGuard, SOCKS5 or HTTP). **IP выхода** is the
+  public address returned by an echo request through the live tunnel
+  (Xray SOCKS `10808`, which is the entry of the chain), not the first
+  server address saved in the config.
+- VPN cards are one equal-size grid. Each link, including the WireGuard
+  config, is a two-line field; longer text scrolls inside the field.
+- Proxy section: **Добавить SOCKS5** and **Добавить HTTP** reveal that
+  card. A proxy that is already saved is shown expanded. The footer notes
+  stay.
+
+
 ## 1.3.0a4
 
 - **Прокси** section: SOCKS5 and HTTP are no longer static address cards.

@@ -53,7 +53,7 @@ Without `xray` and the geo files the page installs, but you cannot save a link o
 
    ```sh
    cd /tmp
-   wget -O vrp.ipk https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.3.0/aurora-router-panel_1.3.0_all.ipk
+   wget -O vrp.ipk https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.4.0/aurora-router-panel_1.4.0_all.ipk
    opkg install /tmp/vrp.ipk
    rm -f /tmp/vrp.ipk
    ```
@@ -107,12 +107,12 @@ Install the new `.ipk` the same way as above. Files that are not part of the pac
 
 The page UI is currently in Russian; this README names every button and label by its English meaning.
 
-- **Status card:** transparent mode, Xray state, active protocol, server host (with its SNI), and an on-demand exit-IP check.
+- **Status card:** transparent mode; the daemons the active connection uses (Xray, plus Hysteria or Naive when that protocol is connected), green when running and red when not, with **Restart service**; the protocol last applied by a Connect button; server host (with its SNI); and the public egress IP, measured by a request through the live tunnel rather than taken from the first server address.
 - **Enable / Disable:** turn transparent mode on or off. When off, the LAN uses the internet directly.
 - **Test connection / Speed:** connection and speed tests through the tunnel.
 - **Mode:** "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
-- **VPN section:** the four protocol cards in a two-column grid that starts on the same line (VLESS and Hysteria2 on the left, Naive and WireGuard on the right; one column on a narrow screen). Each card is only as tall as its content: a field for the link or config that grows with its content, an auto-update row (checkbox and interval on one line), and the buttons **Connect …** and **Update now** side by side. If a protocol has no saved link or config, the field is hidden behind an **Add** button; pressing it reveals the field. A small note at the bottom of the section says IPv6 is not proxied.
-- **Proxy section:** two cards, SOCKS5 and HTTP, in the same two-column grid. There is no link field: an **Add** button reveals separate fields (address, port, login, password; HTTP also has a TLS toggle, SNI, and “do not verify the certificate”). **Connect SOCKS5** / **Connect HTTP** saves the fields and applies them as the tunnel’s upstream. These cards have no auto-update row and no **Update now**. A small hint under the section reminds you of the local LAN proxies for individual apps: SOCKS5 `192.168.8.1:10808` and HTTP `192.168.8.1:10809`. An HTTP upstream cannot carry UDP (QUIC is blocked, other UDP goes direct).
+- **VPN section:** the four protocol cards in a two-column grid of equal width and height (VLESS and Hysteria2 on the left, Naive and WireGuard on the right; one column on a narrow screen). Each card has a two-line field; a longer link or WireGuard config scrolls inside the field. The WireGuard card always shows that field (there is no Add button on it). Under the field: an auto-update row (checkbox and interval on one line) and the buttons **Connect …** and **Update now** side by side. A small note at the bottom of the section says IPv6 is not proxied.
+- **Proxy section:** **Add SOCKS5** and **Add HTTP**. Pressing a button reveals that card's form (address, port, login, password; HTTP also has a TLS toggle, SNI, and “do not verify the certificate”). If a proxy is already saved, its card is shown expanded. **Connect SOCKS5** / **Connect HTTP** saves the fields and applies them as the tunnel’s upstream. These cards have no auto-update row and no **Update now**. A small hint under the section reminds you of the local LAN proxies for individual apps: SOCKS5 `192.168.8.1:10808` and HTTP `192.168.8.1:10809`. An HTTP upstream cannot carry UDP (QUIC is blocked, other UDP goes direct).
 
 ### Command line
 
@@ -128,7 +128,9 @@ vless.sh httpsave <file>    # save HTTP upstream JSON and connect (plus tls, sni
 vless.sh proto vless|hy2|naive|wg|socks|http   # switch to an already saved protocol
 vless.sh mode ru|all
 vless.sh on | off           # transparent mode on / off
-vless.sh status             # running=, tproxy=, mode=, proto=, server_ip=
+vless.sh restart            # fully restart the daemons for the active protocol
+vless.sh egress             # public egress IP through the active tunnel
+vless.sh status             # running=, hysteria=, naive=, tproxy=, mode=, proto=, server_ip=
 vless.sh autoset <proto> <0|1> <1h|6h|24h>   # auto-update on/off and interval
 vless.sh src <proto> <infile> <outfile> <0|1> # link field input: an http(s) URL is remembered as the subscription source
 vless.sh update <proto>     # run the autoupdate for one protocol now
@@ -256,8 +258,8 @@ Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `
 
   ```sh
   cd /tmp
-  wget -O vrp.ipk https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.3.0/aurora-router-panel_1.3.0_all.ipk
-  wget -O vrp.ipk.sha256 https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.3.0/aurora-router-panel_1.3.0_all.ipk.sha256
+  wget -O vrp.ipk https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.4.0/aurora-router-panel_1.4.0_all.ipk
+  wget -O vrp.ipk.sha256 https://github.com/Xstrwe/Aurora-router-panel/releases/download/v1.4.0/aurora-router-panel_1.4.0_all.ipk.sha256
   ls -l vrp.ipk
   sha256sum vrp.ipk; cat vrp.ipk.sha256              # the two hashes must match
   tar tzf vrp.ipk                                    # must list ./debian-binary ./control.tar.gz ./data.tar.gz

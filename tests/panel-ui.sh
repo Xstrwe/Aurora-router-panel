@@ -138,6 +138,16 @@ export VLESS_SH=$SH
 export PATH="$TMP/bin:$PATH"
 export PIDOF_UP="xray"
 export VLESS_AU_STABLE_SECS=0
+# WireGuard: not installed unless a test says otherwise; `ip link show wg-aurora` follows a state file.
+export VLESS_WG_BIN="$TMP/no-wg"
+export VLESS_WG_SYSMOD="$TMP/no-wg-module"
+export VLESS_WG_KO="$TMP/no-ko"
+cat > "$TMP/bin/ip" <<EOF
+#!/bin/sh
+if [ "\$1 \$2" = "link show" ]; then [ -f "$TMP/wgup.state" ]; exit \$?; fi
+exit 0
+EOF
+chmod 755 "$TMP/bin/ip"
 export VLESS_AU_XRETRY_PAUSE=0
 export VLESS_AU_RECOVER_LOCK="$TMP/recover.lock"
 cat > "$TMP/hooks/recover-rec.sh" <<EOF
@@ -156,8 +166,8 @@ run() {
 # --- version is a letter iteration after 1.4.0 ---
 ver=$(sed -n 's/^Version: //p' "$ROOT/control/control" | head -1)
 cls=$("$VC" classify "$ver")
-if [ "$ver" = 1.5.0a1 ] && [ "$cls" = pre ]; then
-	ok "package version 1.5.0a1 is a pre-release"
+if [ "$ver" = 1.5.0a2 ] && [ "$cls" = pre ]; then
+	ok "package version 1.5.0a2 is a pre-release"
 else
 	bad "version ($ver class=$cls)"
 fi
@@ -612,17 +622,14 @@ if grep -q 'naive-client enable' "$TMP/initd.log"; then ok "restarting the activ
 # Xray / WireGuard restart xray (nft checked), unknown name fails, missing config is reported.
 rm -f "$D/xrestart.log"; echo xray > "$TMP/pidof.state"
 o3=$(svcenv env VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc xray 2>/dev/null || true)
-echo wg > "$D/proto"
-o4=$(svcenv env VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc wireguard 2>/dev/null || true)
-echo vless > "$D/proto"
 o5=$(svcenv env NFT_FAIL=1 VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc xray 2>/dev/null || true)
 o6=$(svcenv "$SH" restart-svc bogus 2>/dev/null || true)
-if [ "$o3" = OK ] && [ "$o4" = OK ] && [ "$(wc -l < "$D/xrestart.log" | tr -d ' ')" -ge 2 ] \
+if [ "$o3" = OK ] && [ "$(wc -l < "$D/xrestart.log" | tr -d ' ')" -ge 2 ] \
    && printf '%s\n' "$o5" | grep -q '^ERROR: TRANSPARENT MODE IS NOT ACTIVE' \
    && printf '%s\n' "$o6" | grep -q '^ERROR: UNKNOWN SERVICE'; then
-	ok "xray and wireguard restart xray and check nft; unknown names are rejected"
+	ok "xray restart checks nft; unknown names are rejected"
 else
-	bad "svc xray/wg ($o3/$o4/$o5/$o6)"
+	bad "svc xray ($o3/$o5/$o6)"
 fi
 # A daemon that fails to start is reported with a reason and a fix; an uninstalled one too.
 o7=$(svcenv env VLESS_NAIVE_BIN="$TMP/no-naive" "$SH" restart-svc naive 2>/dev/null || true)
@@ -711,38 +718,176 @@ else
 	bad "recover helper (starts=$(grep -c start "$TMP/xinit.log" 2>/dev/null))"
 fi
 
-# WireGuard that is not the connected protocol: Xray is not touched at all.
-reset_x 0
+# --- WireGuard is its own service (kernel interface wg-aurora, init script wireguard-client) ---
+cat > "$TMP/bin/wg-ok" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod 755 "$TMP/bin/wg-ok"
+mkdir -p "$TMP/wg-module"
+cat > "$TMP/hooks/svc-wg-ok.sh" <<EOF
+#!/bin/sh
+printf '%s %s\n' "\$1" "\$2" >> "$D/svc.log"
+echo "\$1" >> "$D/order.log"
+: > "$TMP/wgup.state"
+exit 0
+EOF
+cat > "$TMP/hooks/svc-wg-fail.sh" <<EOF
+#!/bin/sh
+echo "\$1" >> "$D/order.log"
+echo 'cannot resolve the WireGuard endpoint vpn.example:51820' > /tmp/aurora-restart-wireguard-client.err
+exit 1
+EOF
+chmod 755 "$TMP/hooks/svc-wg-ok.sh" "$TMP/hooks/svc-wg-fail.sh"
+cat > "$TMP/bin/ucode" <<'EOF'
+#!/bin/sh
+# Stand-in for gen.uc: a base config with a placeholder proxy outbound.
+echo '{"inbounds":[],"outbounds":[{"tag":"proxy","protocol":"vless","settings":{}},{"tag":"direct","protocol":"freedom"}],"routing":{"domainStrategy":"IPIfNonMatch","rules":[{"type":"field","inboundTag":["dns-in"],"outboundTag":"proxy"}]}}'
+EOF
+chmod 755 "$TMP/bin/ucode"
+wgenv() { env PIDOF_FILE="$TMP/pidof.state" NETSTAT_FILE="$TMP/netstat.out" VLESS_INITD="$TMP/xinitd-none" VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module" VLESS_XRAY_BIN="$TMP/bin/xray-ok" "$@"; }
+echo '{"protocol":"wireguard","settings":{"secretKey":"K","address":["10.0.0.2/32"],"mtu":1420,"peers":[{"publicKey":"P","endpoint":"192.0.2.40:51820","allowedIPs":["0.0.0.0/0"]}]}}' > "$D/wg.json"
+reset_x 0; rm -f "$D/svc.log" "$D/order.log" "$D/xrestart.log" "$TMP/wgup.state"
 echo vless > "$D/proto"
-o=$(xenv "$SH" restart-svc wireguard 2>/dev/null || true)
-if printf '%s\n' "$o" | grep -q '^ERROR: WIREGUARD (RUNS INSIDE XRAY): WIREGUARD IS NOT CONNECTED' \
+
+# WireGuard button: restarts only wireguard-client; Xray, transparent mode and recovery are never touched.
+o=$(wgenv env VLESS_AU_SVC_RESTART="$TMP/hooks/svc-wg-ok.sh" "$SH" restart-svc wireguard 2>/dev/null || true)
+if [ "$o" = OK ] && grep -qx 'wireguard-client wireguard' "$D/svc.log" && [ "$(wc -l < "$D/svc.log" | tr -d ' ')" = 1 ] \
+   && [ ! -e "$TMP/xinit.log" ] && [ ! -e "$D/tproxy.log" ] && [ ! -e "$D/recover.log" ] && [ ! -e "$D/xrestart.log" ] \
+   && [ "$(cat "$D/proto")" = vless ]; then
+	ok "the WireGuard restart touches only wireguard-client, never Xray or transparent mode"
+else
+	bad "wg restart ($o | $(cat "$D/svc.log" 2>/dev/null | tr '\n' ';'))"
+fi
+# Not installed / config not saved / start failure: concrete banner, Xray untouched.
+rm -f "$TMP/wgup.state"
+o1=$(env VLESS_WG_BIN="$TMP/no-wg" "$SH" restart-svc wireguard 2>/dev/null || true)
+mv "$D/wg.json" "$TMP/wg.json.keep"
+o2=$(wgenv "$SH" restart-svc wireguard 2>/dev/null || true)
+mv "$TMP/wg.json.keep" "$D/wg.json"
+o3=$(wgenv env VLESS_AU_SVC_RESTART="$TMP/hooks/svc-wg-fail.sh" "$SH" restart-svc wireguard 2>/dev/null || true)
+if printf '%s\n' "$o1" | grep -q '^ERROR: WIREGUARD IS NOT INSTALLED' \
+   && printf '%s\n' "$o1" | grep -q 'KMOD-WIREGUARD WIREGUARD-TOOLS' \
+   && printf '%s\n' "$o2" | grep -q '^ERROR: FILE MISSING: /ETC/XRAY/WG.JSON' \
+   && printf '%s\n' "$o3" | grep -q '^ERROR: WIREGUARD DID NOT START: CANNOT RESOLVE THE WIREGUARD ENDPOINT VPN.EXAMPLE:51820' \
    && [ ! -e "$TMP/xinit.log" ] && [ ! -e "$D/tproxy.log" ] && [ ! -e "$D/recover.log" ]; then
-	ok "restarting an inactive WireGuard does not touch Xray or transparent mode"
+	ok "WireGuard reports not installed, missing config and start failures with the reason"
 else
-	bad "wg inactive ($o)"
+	bad "wg errors ($o1 | $o2 | $o3)"
 fi
-# Active WireGuard: the banner names the pressed service, then the real reason.
-reset_x 99
-echo wg > "$D/proto"
-o=$(xenv VLESS_AU_XRESTART_MAX=2 "$SH" restart-svc wireguard 2>/dev/null || true)
-echo vless > "$D/proto"
-if printf '%s\n' "$o" | grep -q '^ERROR: WIREGUARD (RUNS INSIDE XRAY): PORT IN USE: 12346/TCP'; then
-	ok "a WireGuard restart failure names WireGuard and the concrete reason"
+# Switching to WireGuard: the interface comes up first, Xray gets a freedom outbound bound to it.
+cp "$D/config.json" "$TMP/config.keep"; cp "$D/proto" "$TMP/proto.keep"; cp "$D/link.txt" "$TMP/link.keep" 2>/dev/null
+rm -f "$D/svc.log" "$D/order.log" "$D/xrestart.log" "$TMP/wgup.state"
+o=$(wgenv env VLESS_AU_SKIP_XRAY_TEST=1 VLESS_AU_SVC_RESTART="$TMP/hooks/svc-wg-ok.sh" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" proto wg 2>/dev/null || true)
+if [ "$o" = OK ] && [ "$(cat "$D/proto")" = wg ] \
+   && [ "$(jq -r '.outbounds[]|select(.tag=="proxy")|.protocol' "$D/config.json")" = freedom ] \
+   && [ "$(jq -r '.outbounds[]|select(.tag=="proxy")|.streamSettings.sockopt.interface' "$D/config.json")" = wg-aurora ] \
+   && ! grep -q '"wireguard"' "$D/config.json" \
+   && [ "$(sed -n 1p "$D/order.log")" = wireguard-client ] && grep -qx xray "$D/order.log"; then
+	ok "WireGuard as the active protocol: interface first, Xray proxy outbound bound to wg-aurora"
 else
-	bad "wg banner ($o)"
+	bad "proto wg ($o | $(tr '\n' ';' < "$D/order.log" 2>/dev/null) | $(jq -c '.outbounds' "$D/config.json" 2>/dev/null | cut -c1-200))"
 fi
-# The WireGuard button is disabled unless WireGuard is the connected protocol.
-htmlw=$(render xray 0 "$TMP/hooks/egress-final.sh")
-echo wg > "$D/proto"; echo '{}' > "$D/wg.json"
-htmlw2=$(render xray 0 "$TMP/hooks/egress-final.sh")
-echo vless > "$D/proto"; rm -f "$D/wg.json"
-if printf '%s\n' "$htmlw" | grep -q 'name=svc value=wireguard><button type=submit class=rb disabled' \
-   && ! printf '%s\n' "$htmlw2" | grep -q 'name=svc value=wireguard><button type=submit class=rb disabled' \
-   && grep -q 'button.rb:disabled' "$CGI"; then
-	ok "the WireGuard restart button is disabled unless WireGuard is connected"
+# A failed WireGuard start changes nothing: config, proto and Xray stay as they were.
+cp "$TMP/config.keep" "$D/config.json"; echo vless > "$D/proto"
+rm -f "$D/order.log" "$D/xrestart.log" "$TMP/wgup.state"
+o=$(wgenv env VLESS_AU_SKIP_XRAY_TEST=1 VLESS_AU_SVC_RESTART="$TMP/hooks/svc-wg-fail.sh" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" proto wg 2>/dev/null || true)
+if printf '%s\n' "$o" | grep -q '^ERROR: WireGuard did not start: cannot resolve the WireGuard endpoint' \
+   && [ "$(cat "$D/proto")" = vless ] && cmp -s "$D/config.json" "$TMP/config.keep" && [ ! -e "$D/xrestart.log" ]; then
+	ok "a WireGuard that cannot start leaves config, protocol and Xray untouched"
 else
-	bad "wg button disabled state"
+	bad "proto wg failure ($o)"
 fi
+cp "$TMP/config.keep" "$D/config.json"; echo vless > "$D/proto"; rm -f "$TMP/wgup.state"
+
+# Service row: not installed / config not saved / running / not running, each with its button state.
+wgrow() { # args: extra env... -> the WireGuard span and its button
+	env PIDOF_UP=xray VLESS_AU_EGRESS="$TMP/hooks/egress-final.sh" VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/no-hysteria" REQUEST_METHOD=GET "$@" "$CGI" \
+	| tr '\n' ' ' | sed 's/.*<span class=svc>\(<span[^>]*>WireGuard<\/span>.*\)/\1/' | cut -c1-520
+}
+wr1=$(wgrow)
+mv "$D/wg.json" "$TMP/wg.json.keep"
+wr2=$(wgrow VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module")
+mv "$TMP/wg.json.keep" "$D/wg.json"
+wr3=$(wgrow VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module")
+: > "$TMP/wgup.state"
+wr4=$(wgrow VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module")
+rm -f "$TMP/wgup.state"
+if printf '%s' "$wr1" | grep -q 'color:#c62828;font-weight:700" title="not installed' && printf '%s' "$wr1" | grep -q 'class=rb disabled' \
+   && printf '%s' "$wr2" | grep -q 'color:#c62828;font-weight:700" title="config not saved' && printf '%s' "$wr2" | grep -q 'class=rb disabled' \
+   && printf '%s' "$wr3" | grep -q 'color:#c62828;font-weight:700" title="not running' && ! printf '%s' "$wr3" | grep -q 'class=rb disabled' \
+   && printf '%s' "$wr4" | grep -q 'color:#1a7f37" title="running' && ! printf '%s' "$wr4" | grep -q 'class=rb disabled'; then
+	ok "the WireGuard row shows its real state: not installed, config not saved, not running, running"
+else
+	bad "wg row ($wr1 | $wr2 | $wr3 | $wr4)"
+fi
+# The init script itself, with stubbed ip / wg / nslookup: commands, config handed to wg, DNS fallback.
+INIT_WG=$ROOT/files/etc/init.d/wireguard-client
+mkdir -p "$TMP/wgi"
+cat > "$TMP/wgi/ip" <<EOF
+#!/bin/sh
+echo "ip \$*" >> "$TMP/wgi/calls.log"
+[ -n "\${IP_FAIL:-}" ] && case "\$*" in *"\$IP_FAIL"*) exit 1;; esac
+exit 0
+EOF
+cat > "$TMP/wgi/wg" <<EOF
+#!/bin/sh
+echo "wg \$*" >> "$TMP/wgi/calls.log"
+cat > "$TMP/wgi/setconf.txt"
+exit 0
+EOF
+cat > "$TMP/wgi/nslookup" <<EOF
+#!/bin/sh
+[ -n "\${NS_FAIL:-}" ] && exit 1
+printf 'Server: 127.0.0.1\nAddress: 127.0.0.1#53\n\nName: \$1\nAddress: 203.0.113.77\n'
+EOF
+chmod 755 "$TMP/wgi/ip" "$TMP/wgi/wg" "$TMP/wgi/nslookup"
+wgi() { env PATH="$TMP/wgi:$PATH" AURORA_WG_JSON="$TMP/wgi/wg.json" AURORA_WG_CACHE="$TMP/wgi/wg.resolved" "$@" sh -c ". '$INIT_WG'; start"; }
+echo '{"protocol":"wireguard","settings":{"secretKey":"SECRETKEY","address":["10.0.0.2/32"],"mtu":1380,"peers":[{"publicKey":"PUBKEY","preSharedKey":"PSK","endpoint":"vpn.example:51820","allowedIPs":["0.0.0.0/0"]}]}}' > "$TMP/wgi/wg.json"
+rm -f "$TMP/wgi/calls.log" "$TMP/wgi/wg.resolved"
+rc1=0; wgi >/dev/null 2>&1 || rc1=$?
+c=$(cat "$TMP/wgi/calls.log")
+if [ $rc1 = 0 ] \
+   && printf '%s\n' "$c" | grep -qx 'ip link add wg-aurora type wireguard' \
+   && printf '%s\n' "$c" | grep -qx 'wg setconf wg-aurora /dev/stdin' \
+   && grep -qx 'PrivateKey = SECRETKEY' "$TMP/wgi/setconf.txt" && grep -qx 'PublicKey = PUBKEY' "$TMP/wgi/setconf.txt" \
+   && grep -qx 'PresharedKey = PSK' "$TMP/wgi/setconf.txt" && grep -qx 'Endpoint = 203.0.113.77:51820' "$TMP/wgi/setconf.txt" \
+   && grep -qx 'AllowedIPs = 0.0.0.0/0' "$TMP/wgi/setconf.txt" \
+   && printf '%s\n' "$c" | grep -qx 'ip address add 10.0.0.2/32 dev wg-aurora' \
+   && printf '%s\n' "$c" | grep -qx 'ip link set dev wg-aurora mtu 1380 up' \
+   && printf '%s\n' "$c" | grep -qx 'ip route replace default dev wg-aurora table 871' \
+   && printf '%s\n' "$c" | grep -qx 'ip rule add oif wg-aurora lookup 871 pref 871' \
+   && ! printf '%s\n' "$c" | grep -q 'ip route.* table main\|ip route add default dev wg-aurora$' \
+   && grep -qx 'vpn.example 203.0.113.77' "$TMP/wgi/wg.resolved"; then
+	ok "wireguard-client builds wg-aurora from wg.json: setconf, address, MTU, policy route, no main-table change"
+else
+	bad "wireguard-client start (rc=$rc1: $(tr '\n' ';' < "$TMP/wgi/calls.log"))"
+fi
+# DNS down: the cached endpoint address is used; no cache and no DNS: a clear error and a clean-up.
+rm -f "$TMP/wgi/calls.log"
+rc2=0; wgi env NS_FAIL=1 >/dev/null 2>&1 || rc2=$?
+rm -f "$TMP/wgi/wg.resolved" "$TMP/wgi/calls.log"
+rc3=0; msg=$(wgi env NS_FAIL=1 2>&1) || rc3=$?
+if [ $rc2 = 0 ] && grep -qx 'Endpoint = 203.0.113.77:51820' "$TMP/wgi/setconf.txt" \
+   && [ $rc3 != 0 ] && printf '%s' "$msg" | grep -q 'cannot resolve the WireGuard endpoint vpn.example:51820' \
+   && grep -qx 'ip link del wg-aurora' "$TMP/wgi/calls.log"; then
+	ok "wireguard-client falls back to the cached endpoint address and cleans up when it cannot resolve"
+else
+	bad "wireguard-client dns (rc2=$rc2 rc3=$rc3 msg=$msg)"
+fi
+# Missing config, or no ip-full (rule fails): error text and the interface is removed again.
+mv "$TMP/wgi/wg.json" "$TMP/wgi/wg.json.keep"
+rc4=0; msg1=$(wgi 2>&1) || rc4=$?
+mv "$TMP/wgi/wg.json.keep" "$TMP/wgi/wg.json"
+rm -f "$TMP/wgi/calls.log"
+rc5=0; msg2=$(wgi env IP_FAIL="rule add" 2>&1) || rc5=$?
+if [ $rc4 != 0 ] && printf '%s' "$msg1" | grep -q 'WireGuard config is not saved' \
+   && [ $rc5 != 0 ] && printf '%s' "$msg2" | grep -q 'ip-full is required' && grep -qx 'ip link del wg-aurora' "$TMP/wgi/calls.log"; then
+	ok "wireguard-client reports a missing config or ip-full and removes the half-built interface"
+else
+	bad "wireguard-client errors ($msg1 | $msg2)"
+fi
+
 rm -f /tmp/xray-restart.err /tmp/vless.err
 
 rm -f /tmp/xray-restart.err /tmp/aurora-restart-hysteria-client.err /tmp/aurora-restart-naive-client.err /tmp/vless.err

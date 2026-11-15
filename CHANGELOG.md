@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.5.0a2
+
+- WireGuard is now its own service, like Naive and Hysteria. The new init
+  script `wireguard-client` brings up a kernel interface `wg-aurora` from
+  `/etc/xray/wg.json` (it needs `kmod-wireguard`, `wireguard-tools`, `ip-full`
+  and `jq`). It does not touch the main routing table: only sockets bound to the
+  interface use it, through policy routing (`ip rule oif wg-aurora`, table 871).
+- With WireGuard as the active protocol, Xray's proxy outbound is a `freedom`
+  outbound bound to `wg-aurora`, so the Russian-sites split (`ru` mode) and DNS
+  work as with the other protocols. Switching to WireGuard starts the interface
+  first and changes nothing if it cannot come up.
+- The WireGuard ↻ button restarts only `wireguard-client` and never touches
+  Xray or transparent mode. The service row shows the real state: running, not
+  running, config not saved, or not installed (red, with the reason).
+- `vless.sh status` reports `wireguard=` and `inst_wireguard=`. Switching to
+  another protocol stops `wireguard-client`.
+- The WireGuard endpoint name is resolved when the interface starts; the last
+  good answer is kept in `/etc/xray/wg.resolved` in case DNS depends on the
+  tunnel.
+- Upgrading from a version that ran WireGuard inside Xray regenerates the
+  config on install.
+
 ## 1.5.0a1
 
 - Interface wording update.

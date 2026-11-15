@@ -239,9 +239,8 @@ else
   SNI="no SNI"
 fi
 # All services behind the VPN cards, always listed. Xray = xray-client, Naive =
-# naive-client, Hysteria = hysteria-client. WireGuard has no process of its own:
-# it is an outbound inside Xray, so it counts as running when Xray runs and WireGuard
-# is the connected protocol.
+# naive-client, Hysteria = hysteria-client, WireGuard = wireguard-client (kernel
+# interface wg-aurora; running means the interface is up).
 if [ "${S_inst_xray:-0}" != 1 ]; then T_X="not installed"
 elif [ "$S_running" = 1 ]; then T_X="running"; else T_X="not running"; fi
 if [ "${S_inst_naive:-0}" != 1 ]; then T_N="not installed"; N_UP=0
@@ -249,10 +248,10 @@ elif [ "${S_naive:-0}" = 1 ]; then T_N="running"; N_UP=1; else T_N="not running"
 if [ "${S_inst_hysteria:-0}" != 1 ]; then T_H="not installed"; H_UP=0
 elif [ "${S_hysteria:-0}" = 1 ]; then T_H="running"; H_UP=1; else T_H="not running"; H_UP=0; fi
 W_UP=0; W_DIS=disabled
-if [ "${S_wg_conf:-0}" != 1 ]; then T_W="WireGuard config not saved"
-elif [ "$S_proto" = wg ] && [ "$S_running" = 1 ]; then T_W="running (inside Xray)"; W_UP=1; W_DIS=
-elif [ "$S_proto" = wg ]; then T_W="not running (runs inside Xray)"; W_DIS=
-else T_W="WireGuard runs inside Xray and is not the connected protocol now: nothing to restart"; fi
+if [ "${S_inst_wireguard:-0}" != 1 ]; then T_W="not installed (opkg install kmod-wireguard wireguard-tools)"
+elif [ "${S_wg_conf:-0}" != 1 ]; then T_W="config not saved"
+elif [ "${S_wireguard:-0}" = 1 ]; then T_W="running"; W_UP=1; W_DIS=
+else T_W="not running"; W_DIS=; fi
 X_UP=0; [ "$S_running" = 1 ] && [ "${S_inst_xray:-0}" = 1 ] && X_UP=1
 SVC="$(svc_item xray Xray "$X_UP" "$T_X") / $(svc_item naive Naive "$N_UP" "$T_N") / $(svc_item hysteria Hysteria "$H_UP" "$T_H") / $(svc_item wireguard WireGuard "$W_UP" "$T_W" "$W_DIS")"
 if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ENABLED"; SC="#1a7f37"

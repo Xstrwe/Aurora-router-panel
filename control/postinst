@@ -60,6 +60,12 @@ fi
 
 /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 
+# Upgrade from versions where WireGuard was an Xray outbound: regenerate the
+# config so that WireGuard runs as its own service (wireguard-client).
+if [ "$(cat /etc/xray/proto 2>/dev/null)" = wg ] && grep -q '"protocol": *"wireguard"' /etc/xray/config.json 2>/dev/null; then
+	/etc/xray/vless.sh proto wg >/dev/null 2>&1 || echo "WARNING: could not move WireGuard to its own service; press Connect WireGuard on the panel page."
+fi
+
 mkdir -p /etc/xray/autoupdate
 # Install the hourly autoupdate cron line (idempotent). Does not enable any proto.
 if [ -f /usr/libexec/aurora-panel/autoupdate-lib.sh ]; then

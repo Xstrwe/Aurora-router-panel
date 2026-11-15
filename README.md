@@ -6,7 +6,7 @@ It ships as an `.ipk` package (`Architecture: all`, scripts only) plus a signed 
 
 ## Features
 
-- Switch the active protocol with one button: **VLESS (Reality)**, **Hysteria2**, **Naive** or **WireGuard** (through Xray's built-in outbound; no `wireguard-tools` needed).
+- Switch the active protocol with one button: **VLESS (Reality)**, **Hysteria2**, **Naive** or **WireGuard** (a native kernel WireGuard interface `wg-aurora`, brought up by its own service `wireguard-client`; needs `kmod-wireguard`, `wireguard-tools` and `ip-full`, which GL.iNet firmware ships).
 - **Transparent mode** for the LAN: TCP is redirected and UDP is TPROXY'd to Xray with nftables. Local and private ranges and the proxy server itself bypass the tunnel. DNS from the router and the LAN is handled by Xray.
 - Routing modes: everything except Russian sites goes through the tunnel (`ru`), or everything does (`all`).
 - **Per-protocol autoupdate** of the config from a subscription or link, with automatic rollback if the new config breaks the connection.
@@ -18,7 +18,7 @@ It ships as an `.ipk` package (`Architecture: all`, scripts only) plus a signed 
 
 - Developed and tested on the **GL.iNet GL-BE6500** with **OpenWrt 23.05** (`aarch64_cortex-a53`). Other OpenWrt 23.05 routers with nftables and enough flash should work, but are untested. The LAN bridge is assumed to be `br-lan` with the router at `192.168.8.1`.
 - IPv6 is not proxied.
-- The WireGuard option is experimental.
+- WireGuard is its own service like Naive and Hysteria: Xray's proxy outbound is bound to the `wg-aurora` interface, and traffic reaches it through a policy rule (`ip rule oif wg-aurora`, table 871), so the router's own traffic and the main routing table are not changed.
 
 ## Requirements
 
@@ -85,7 +85,7 @@ The script picks the static build for your architecture from the klzgrad/naivepr
 
 ## Upgrading
 
-Install the new `.ipk` the same way as above. Files that are not part of the package are kept: `/etc/xray/{link.txt,config.json,hy2.txt,naive.txt,wg.conf,wg.json,socks.json,http.json,server_ip,mode,proto,httpd.conf}`, `/etc/xray/autoupdate/*`, `/etc/hysteria/client.yaml`, `/etc/naive/config.json` and `/usr/bin/naive`.
+Install the new `.ipk` the same way as above. Files that are not part of the package are kept: `/etc/xray/{link.txt,config.json,hy2.txt,naive.txt,wg.conf,wg.json,wg.resolved,socks.json,http.json,server_ip,mode,proto,httpd.conf}`, `/etc/xray/autoupdate/*`, `/etc/hysteria/client.yaml`, `/etc/naive/config.json` and `/usr/bin/naive`.
 
 ### Upgrading from `vless-router-panel`
 
@@ -107,7 +107,7 @@ Install the new `.ipk` the same way as above. Files that are not part of the pac
 
 The page UI is in English; this README uses the same button and label names.
 
-- **Status card:** transparent mode; every service behind the VPN cards in one row (Xray, Naive, Hysteria, WireGuard), green when running and red bold when not, each followed by its own small ↻ restart button (WireGuard runs inside Xray, so its button restarts Xray); the protocol last applied by a Connect button; server host (with its SNI); and the public egress IP, measured by a request through the live tunnel (not the first server address). The IP is filled in after the page has loaded, so a dead tunnel never delays the page.
+- **Status card:** transparent mode; every service behind the VPN cards in one row (Xray, Naive, Hysteria, WireGuard), green when running and red bold when not, each followed by its own small ↻ restart button (each button restarts only its own service; the WireGuard one never touches Xray; a service that is not installed or has no saved config is shown red with the reason); the protocol last applied by a Connect button; server host (with its SNI); and the public egress IP, measured by a request through the live tunnel (not the first server address). The IP is filled in after the page has loaded, so a dead tunnel never delays the page.
 - **Mode:** the first row of the status card: "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
 - **Enable / Disable:** turn transparent mode on or off. When off, the LAN uses the internet directly.
 - **Test connection / Speed:** connection and speed tests through the tunnel.
@@ -131,7 +131,7 @@ vless.sh on | off           # transparent mode on / off
 vless.sh restart            # fully restart the daemons for the active protocol
 vless.sh restart-svc xray|naive|hysteria|wireguard   # restart one service only
 vless.sh egress             # public egress IP through the active tunnel (3 s probe, cached 60 s)
-vless.sh status             # running=, hysteria=, naive=, tproxy=, mode=, proto=, server_ip=
+vless.sh status             # running=, hysteria=, naive=, wireguard=, tproxy=, mode=, proto=, server_ip=
 vless.sh autoset <proto> <0|1> <1h|6h|24h>   # auto-update on/off and interval
 vless.sh src <proto> <infile> <outfile> <0|1> # link field input: an http(s) URL is remembered as the subscription source
 vless.sh update <proto>     # run the autoupdate for one protocol now
@@ -294,13 +294,14 @@ Start with `vless.sh status` (expect `running=1` and `tproxy=1`) and the logs: `
 ### 7. Hysteria2 or WireGuard does not connect
 
 - **Symptom:** after pressing **Connect Hysteria2** or **Connect WireGuard** the page reports an error, or it connects but there is no traffic (generate_204 fails).
-- **Cause:** both use UDP. Many networks block or throttle UDP, or QUIC on a given port. For Hysteria2 the usual culprits are a missing `/usr/bin/hysteria`, a wrong password, SNI or port in the link, or a firewall in front of the server. WireGuard is experimental here: it runs through Xray's built-in outbound and needs a complete `.conf`; an MTU that is too large also stalls traffic.
+- **Cause:** both use UDP. Many networks block or throttle UDP, or QUIC on a given port. For Hysteria2 the usual culprits are a missing `/usr/bin/hysteria`, a wrong password, SNI or port in the link, or a firewall in front of the server. WireGuard needs `kmod-wireguard` and `wireguard-tools` and a complete `.conf`; an MTU that is too large also stalls traffic.
 - **Fix:**
 
   ```sh
   ls -l /usr/bin/hysteria                            # Hysteria2 only: the binary must exist
   /etc/init.d/hysteria-client status; logread -e hysteria | tail
-  logread -e xray | tail                             # WireGuard handshake or routing errors
+  logread -e xray | tail                             # Xray errors
+  wg show wg-aurora                                  # WireGuard handshake and counters
   curl -s -o /dev/null -w '%{http_code}\n' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204   # expect 204
   ```
 

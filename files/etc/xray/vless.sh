@@ -12,6 +12,8 @@ NAD=${VLESS_NAIVE_DIR:-/etc/naive}
 XRAY_BIN=${VLESS_XRAY_BIN:-/usr/bin/xray}
 HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
 NAIVE_BIN=${VLESS_NAIVE_BIN:-/usr/bin/naive}
+WG_BIN=${VLESS_WG_BIN:-/usr/bin/wg}
+WGIF=wg-aurora
 AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
 INITD=${VLESS_INITD:-/etc/init.d}
 STABLE_SECS=${VLESS_AU_STABLE_SECS:-3}
@@ -27,6 +29,12 @@ PROTO=$(cat $D/proto 2>/dev/null || echo vless)
 # shellcheck disable=SC1090
 [ -f "$AU_LIB" ] && . "$AU_LIB"
 svc(){ [ -x /etc/init.d/$1 ] || return 0; if [ "$2" = 1 ]; then /etc/init.d/$1 enable >/dev/null 2>&1; /etc/init.d/$1 restart >/dev/null 2>&1; else /etc/init.d/$1 stop >/dev/null 2>&1; /etc/init.d/$1 disable >/dev/null 2>&1; fi; }
+# WireGuard is a kernel interface (init script wireguard-client), not an Xray outbound.
+wg_inst(){ # wireguard-tools and the kernel module are present
+  [ -x "$WG_BIN" ] || return 1
+  [ -d "${VLESS_WG_SYSMOD:-/sys/module/wireguard}" ] || ls "${VLESS_WG_KO:-/lib/modules/$(uname -r)}"/wireguard.ko >/dev/null 2>&1
+}
+wg_up(){ ip link show "$WGIF" >/dev/null 2>&1; }
 xports_busy(){ # 0 if any of tcp 10808/12346 or udp 12345 is still bound
   [ -n "${VLESS_AU_PORTS_BUSY:-}" ] && return 0
   netstat -lnt 2>/dev/null | grep -qE ':(10808|12346) ' && return 0
@@ -71,7 +79,12 @@ xrestart(){
   $D/tproxy.sh down >/dev/null 2>&1
   return 1
 }
-hyup(){ [ "$1" = hy2 ] && svc hysteria-client 1 || svc hysteria-client 0; [ "$1" = naive ] && svc naive-client 1 || svc naive-client 0; }
+hyup(){
+  [ "$1" = hy2 ] && svc hysteria-client 1 || svc hysteria-client 0
+  [ "$1" = naive ] && svc naive-client 1 || svc naive-client 0
+  # WireGuard is started (and enabled) by wg_restart before Xray; here it is only stopped when not needed.
+  [ "$1" = wg ] || svc wireguard-client 0
+}
 au_tproxy(){
   [ -f $D/tproxy.disabled ] && return 0
   if [ -n "${VLESS_AU_TPROXY:-}" ]; then sh "$VLESS_AU_TPROXY" up; return $?; fi
@@ -148,12 +161,18 @@ gen(){ # $1 linkfile $2 mode $3 proto
   fi
   if [ "$P" = wg ]; then
     [ -s $D/wg.json ] || err "Save a WireGuard config first"
-    jq --slurpfile w $D/wg.json '(.outbounds[] | select(.tag=="proxy")) |= ($w[0] + {tag:"proxy",streamSettings:{sockopt:{mark:255}}})' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
+    # WireGuard is a kernel interface: Xray's proxy outbound is a freedom outbound bound to it (like the SOCKS outbound of Naive/Hysteria)
+    jq --arg i "$WGIF" '(.outbounds[] | select(.tag=="proxy")) |= {tag:"proxy",protocol:"freedom",settings:{domainStrategy:"UseIPv4"},streamSettings:{sockopt:{mark:255,interface:$i}}}' /tmp/vless.json > /tmp/vless.j2 && mv /tmp/vless.j2 /tmp/vless.json || err "jq"
   fi
   if [ -z "${VLESS_AU_SKIP_XRAY_TEST:-}" ]; then
     XRAY_LOCATION_ASSET=/usr/share/xray xray run -test -c /tmp/vless.json >/tmp/vless.err 2>&1 || err "Xray rejected the config: $(tail -3 /tmp/vless.err)"
   else
     jq -e . /tmp/vless.json >/dev/null 2>&1 || err "config is not JSON"
+  fi
+  # WireGuard first: if the interface cannot be brought up, nothing else has been touched yet.
+  if [ "$P" = wg ]; then
+    WGEN=1
+    wg_restart || err "WireGuard did not start: $(wg_reason)"
   fi
   cp $D/config.json $D/config.prev.json 2>/dev/null
   mv /tmp/vless.json $D/config.json; mv /tmp/vless.link $D/link.txt; echo "$IP" > $D/server_ip; echo "$2" > $D/mode; echo "$P" > $D/proto
@@ -408,7 +427,6 @@ upper(){ printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr '\n' ' ' | sed 's/  
 # Set by the Xray restart: when it fails while transparent mode is on, a detached
 # "recover" keeps trying to bring Xray and transparent mode back.
 RECOVER_ON_FAIL=""
-SVC_PFX=""
 spawn_recover(){
   if [ -n "${VLESS_AU_RECOVER_CMD:-}" ]; then sh "$VLESS_AU_RECOVER_CMD"; return 0; fi
   setsid sh "$0" recover >/dev/null 2>&1 </dev/null &
@@ -419,7 +437,7 @@ fail_restart(){
     spawn_recover
     _hint="$_hint. AUTOMATIC RECOVERY HAS STARTED: XRAY AND TRANSPARENT MODE WILL COME BACK BY THEMSELVES WITHIN A COUPLE OF MINUTES"
   fi
-  printf 'ERROR: %s%s\n' "$SVC_PFX" "$1"
+  printf 'ERROR: %s\n' "$1"
   printf 'HINT: %s\n' "$_hint"
   exit 1
 }
@@ -534,6 +552,39 @@ restart_naive(){
     fail_restart "$msg" "CHECK /ETC/NAIVE/CONFIG.JSON AND LOGREAD -E NAIVE, THEN RESTART AGAIN"
   fi
 }
+# Bring the native WireGuard service up. wg_restart returns 0/1 and leaves the
+# reason in the err file; restart_wireguard reports a failure as a banner.
+wg_errf=/tmp/aurora-restart-wireguard-client.err
+wg_reason(){ tr '\n' ' ' < "$wg_errf" 2>/dev/null | sed 's/  */ /g; s/ $//'; }
+wg_restart(){
+  : > "$wg_errf"
+  if [ -n "${VLESS_AU_SVC_RESTART:-}" ]; then
+    sh "$VLESS_AU_SVC_RESTART" wireguard-client wireguard || return 1
+    wg_up; return $?
+  fi
+  if [ ! -x "$INITD/wireguard-client" ]; then
+    echo "no script $INITD/wireguard-client" > "$wg_errf"
+    return 3
+  fi
+  [ "${WGEN:-1}" = 0 ] || "$INITD/wireguard-client" enable >>"$wg_errf" 2>&1 || true
+  "$INITD/wireguard-client" restart >>"$wg_errf" 2>&1 || true
+  wg_up && return 0
+  [ -s "$wg_errf" ] || echo "interface $WGIF did not come up" > "$wg_errf"
+  return 1
+}
+restart_wireguard(){
+  if ! wg_restart; then
+    e=$(wg_reason)
+    case "$e" in
+      *no\ script*)
+        fail_restart "SCRIPT MISSING: /ETC/INIT.D/WIREGUARD-CLIENT" "REINSTALL THE AURORA-ROUTER-PANEL PACKAGE: IT PROVIDES THE START SCRIPT"
+        ;;
+    esac
+    msg="WIREGUARD DID NOT START"
+    [ -n "$e" ] && msg="$msg: $(upper "$e")"
+    fail_restart "$msg" "CHECK /ETC/XRAY/WG.JSON AND LOGREAD -E WIREGUARD, THEN RESTART AGAIN"
+  fi
+}
 restart_xray(){
   [ -f "$D/tproxy.disabled" ] || RECOVER_ON_FAIL=1
   _mark=""
@@ -592,10 +643,12 @@ do_restart(){
   require_bin "$XRAY_BIN" XRAY
   if [ "$PROTO" = hy2 ]; then require_bin "$HYSTERIA_BIN" HYSTERIA; fi
   if [ "$PROTO" = naive ]; then require_bin "$NAIVE_BIN" NAIVE; fi
+  if [ "$PROTO" = wg ]; then wg_inst || fail_restart "WIREGUARD IS NOT INSTALLED" "INSTALL THE PACKAGES: OPKG UPDATE && OPKG INSTALL KMOD-WIREGUARD WIREGUARD-TOOLS"; fi
   check_xray
   # The Xray outbound points at Hysteria (10818) / Naive (10828): bring those up first.
   if [ "$PROTO" = hy2 ]; then restart_hysteria; fi
   if [ "$PROTO" = naive ]; then restart_naive; fi
+  if [ "$PROTO" = wg ]; then WGEN=1; restart_wireguard; fi
   restart_xray
   echo OK
 }
@@ -610,15 +663,11 @@ do_restart_svc(){
       check_xray
       restart_xray;;
     wireguard)
-      # WireGuard is an outbound inside Xray: restarting it means restarting Xray,
-      # which only makes sense (and is only done) while WireGuard is the connected protocol.
-      SVC_PFX="WIREGUARD (RUNS INSIDE XRAY): "
-      if [ "$PROTO" != wg ]; then
-        fail_restart "WIREGUARD IS NOT CONNECTED, NOTHING TO RESTART" "XRAY WAS NOT TOUCHED: CONNECT WIREGUARD WITH THE «CONNECT WIREGUARD» BUTTON, THEN RESTART IT"
-      fi
-      require_bin "$XRAY_BIN" XRAY
-      check_xray
-      restart_xray;;
+      # Native WireGuard service only: Xray and transparent mode are never touched.
+      wg_inst || fail_restart "WIREGUARD IS NOT INSTALLED" "INSTALL THE PACKAGES: OPKG UPDATE && OPKG INSTALL KMOD-WIREGUARD WIREGUARD-TOOLS"
+      [ -s "$D/wg.json" ] || fail_restart "FILE MISSING: /ETC/XRAY/WG.JSON" "PASTE A WIREGUARD CONFIG INTO THE FIELD AND PRESS «CONNECT WIREGUARD»"
+      WGEN=0; [ "$PROTO" = wg ] && WGEN=1
+      restart_wireguard;;
     hysteria)
       require_bin "$HYSTERIA_BIN" HYSTERIA
       [ -s "$HYD/client.yaml" ] || fail_restart "FILE MISSING: /ETC/HYSTERIA/CLIENT.YAML" "PASTE A HYSTERIA2 LINK INTO THE FIELD AND PRESS «CONNECT HYSTERIA2»"
@@ -704,9 +753,11 @@ status)
   echo "running=$(pidof xray >/dev/null && echo 1 || echo 0)"
   echo "hysteria=$(pidof hysteria >/dev/null && echo 1 || echo 0)"
   echo "naive=$(pidof naive >/dev/null && echo 1 || echo 0)"
+  echo "wireguard=$(wg_up && echo 1 || echo 0)"
   echo "inst_xray=$([ -x "$XRAY_BIN" ] && echo 1 || echo 0)"
   echo "inst_hysteria=$([ -x "$HYSTERIA_BIN" ] && echo 1 || echo 0)"
   echo "inst_naive=$([ -x "$NAIVE_BIN" ] && echo 1 || echo 0)"
+  echo "inst_wireguard=$(wg_inst && echo 1 || echo 0)"
   echo "wg_conf=$([ -s "$D/wg.json" ] && echo 1 || echo 0)"
   echo "tproxy=$(nft list table inet xray >/dev/null 2>&1 && echo 1 || echo 0)"
   echo "mode=$MODE"; echo "proto=$PROTO"; echo "server_ip=$(cat $D/server_ip 2>/dev/null)";;

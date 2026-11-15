@@ -33,6 +33,8 @@ chmod 755 "$DATA/www-aurora/cgi-bin/vless" \
           "$DATA/etc/init.d/xray-client" \
           "$DATA/etc/init.d/hysteria-client" \
           "$DATA/etc/init.d/naive-client" \
+  "$DATA/etc/init.d/wireguard-client" \
+          "$DATA/etc/init.d/wireguard-client" \
           "$DATA/usr/libexec/aurora-panel/install-naive.sh" \
           "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh"
 
@@ -44,6 +46,7 @@ for s in \
   "$DATA/etc/init.d/xray-client" \
   "$DATA/etc/init.d/hysteria-client" \
   "$DATA/etc/init.d/naive-client" \
+  "$DATA/etc/init.d/wireguard-client" \
   "$DATA/usr/libexec/aurora-panel/install-naive.sh" \
   "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh" \
   "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh" \
@@ -141,6 +144,7 @@ test -x "$VERIFY/data/etc/xray/tproxy.sh"
 test -x "$VERIFY/data/etc/init.d/xray-client"
 test -x "$VERIFY/data/etc/init.d/hysteria-client"
 test -x "$VERIFY/data/etc/init.d/naive-client"
+test -x "$VERIFY/data/etc/init.d/wireguard-client"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/install-naive.sh"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-run.sh"
 test -f "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-lib.sh"

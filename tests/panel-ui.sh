@@ -28,8 +28,10 @@ JSON
 
 cat > "$TMP/bin/pidof" <<'EOF'
 #!/bin/sh
-for p in $PIDOF_UP; do
-	[ "$p" = "$1" ] && exit 0
+UP=$PIDOF_UP
+[ -n "${PIDOF_FILE:-}" ] && UP=$(cat "$PIDOF_FILE" 2>/dev/null)
+for p in $UP; do
+	if [ "$p" = "$1" ]; then echo 4242; exit 0; fi
 done
 exit 1
 EOF
@@ -63,6 +65,7 @@ chmod 755 "$TMP/bin/pidof" "$TMP/bin/nft" "$TMP/bin/xray-ok" "$TMP/bin/xray-badc
 cat > "$TMP/hooks/xrestart-ok.sh" <<EOF
 #!/bin/sh
 echo ok >> "$D/xrestart.log"
+echo xray >> "$D/order.log"
 exit 0
 EOF
 cat > "$TMP/hooks/xrestart-fail.sh" <<EOF
@@ -83,6 +86,7 @@ EOF
 cat > "$TMP/hooks/svc-ok.sh" <<EOF
 #!/bin/sh
 printf '%s %s\n' "\$1" "\$2" >> "$D/svc.log"
+echo "\$1" >> "$D/order.log"
 exit 0
 EOF
 cat > "$TMP/hooks/svc-fail.sh" <<EOF
@@ -104,12 +108,36 @@ cat > "$TMP/hooks/egress-junk.sh" <<'EOF'
 printf '%s\n' 'not-an-ip'
 EOF
 chmod 755 "$TMP/hooks/"*.sh
+cat > "$TMP/hooks/vless-fail.sh" <<'EOF'
+#!/bin/sh
+case "$1" in status) printf 'running=1\nhysteria=0\nnaive=0\ntproxy=1\nmode=ru\nproto=vless\nserver_ip=\n';; *) echo "ERROR: boom";; esac
+EOF
+cat > "$TMP/bin/curl" <<EOF
+#!/bin/sh
+echo x >> "$TMP/curl.count"
+printf '%s\n' '203.0.113.9'
+EOF
+chmod 755 "$TMP/bin/curl" "$TMP/hooks/vless-fail.sh"
+# Fake init dir: a daemon that starts, and one that starts and dies after a second.
+mkdir -p "$TMP/initd"
+cat > "$TMP/initd/good-client" <<EOF
+#!/bin/sh
+[ "\$1" = restart ] && echo good > "$TMP/pidof.state"
+exit 0
+EOF
+cat > "$TMP/initd/crash-client" <<EOF
+#!/bin/sh
+if [ "\$1" = restart ]; then echo crash > "$TMP/pidof.state"; ( sleep 1; : > "$TMP/pidof.state" ) & fi
+exit 0
+EOF
+chmod 755 "$TMP/initd/"*
 
 export VLESS_PANEL_DIR=$D
 export VLESS_AU_LIB=$LIB
 export VLESS_SH=$SH
 export PATH="$TMP/bin:$PATH"
 export PIDOF_UP="xray"
+export VLESS_AU_STABLE_SECS=0
 unset VLESS_AU_PORTS_BUSY VLESS_AU_SVC_RESTART VLESS_AU_EGRESS VLESS_AU_SKIP_XRAY_TEST || true
 
 run() {
@@ -311,12 +339,13 @@ render() {
 }
 
 html=$(render xray 0 "$TMP/hooks/egress-final.sh")
+ipget() { env PIDOF_UP="$1" VLESS_AU_EGRESS="$2" REQUEST_METHOD=GET QUERY_STRING=ip "$CGI"; }
 row() { printf '%s\n' "$html" | sed -n "s/.*<tr><td>$1<\\/td><td>\\(.*\\)<\\/td><\\/tr>.*/\\1/p" | head -1; }
 proto=$(row 'Протокол:')
-exitrow=$(row 'IP выхода:')
+exitrow=$(printf '%s\n' "$html" | grep '<td>IP выхода:</td>' | head -1)
 svc=$(row 'Служба (демон):')
 if printf '%s' "$proto" | grep -q '>Hysteria2<' \
-   && printf '%s' "$exitrow" | grep -q '203.0.113.50' \
+   && printf '%s' "$exitrow" | grep -q 'id=egress' \
    && ! printf '%s' "$exitrow" | grep -q '192.0.2' \
    && printf '%s\n' "$html" | grep -q 'color:#1a7f37">Xray' \
    && printf '%s\n' "$html" | grep -q 'color:#c62828">Hysteria' \
@@ -327,6 +356,92 @@ if printf '%s' "$proto" | grep -q '>Hysteria2<' \
 else
 	bad "status card proto=$proto exit=$exitrow"
 fi
+
+# The egress IP is fetched after load via ?ip; the page itself never runs the probe.
+ipout=$(ipget xray "$TMP/hooks/egress-final.sh")
+ipjunk=$(ipget xray "$TMP/hooks/egress-junk.sh")
+if printf '%s\n' "$ipout" | grep -q '^Content-Type: text/plain' \
+   && [ "$(printf '%s\n' "$ipout" | sed '1,/^$/d')" = 203.0.113.50 ] \
+   && [ -z "$(printf '%s\n' "$ipjunk" | sed '1,/^$/d')" ] \
+   && printf '%s\n' "$html" | grep -q "fetch('?ip'"; then
+	ok "egress IP is served by GET ?ip and fetched from JS after load"
+else
+	bad "ip endpoint ($ipout / $ipjunk)"
+fi
+cat > "$TMP/hooks/egress-slow.sh" <<'EOF'
+#!/bin/sh
+sleep 20
+echo 203.0.113.1
+EOF
+chmod 755 "$TMP/hooks/egress-slow.sh"
+t0=$(date +%s)
+render xray 0 "$TMP/hooks/egress-slow.sh" >/dev/null
+t1=$(date +%s)
+if [ $((t1 - t0)) -lt 5 ]; then ok "page loads without waiting for a slow egress probe"; else bad "page blocked $((t1 - t0))s"; fi
+rm -f "$TMP/hooks/egress-slow.sh"
+
+# egress probe: one curl, cached for 60 s, invalidated by a different key
+rm -f "$TMP/curl.count" "$TMP/egress.cache"
+g1=$(env VLESS_AU_EGRESS_CACHE="$TMP/egress.cache" "$SH" egress 2>/dev/null || true)
+g2=$(env VLESS_AU_EGRESS_CACHE="$TMP/egress.cache" "$SH" egress 2>/dev/null || true)
+n=$(wc -l < "$TMP/curl.count" | tr -d ' ')
+if [ "$g1" = 203.0.113.9 ] && [ "$g2" = 203.0.113.9 ] && [ "$n" = 1 ] \
+   && grep -q -- '-m 3 ' "$SH"; then
+	ok "egress is one 3 s probe, then served from the 60 s cache"
+else
+	bad "egress cache g1=$g1 g2=$g2 curls=$n"
+fi
+echo vless > "$D/proto"
+env VLESS_AU_EGRESS_CACHE="$TMP/egress.cache" "$SH" egress >/dev/null 2>&1 || true
+n=$(wc -l < "$TMP/curl.count" | tr -d ' ')
+echo hy2 > "$D/proto"
+if [ "$n" = 2 ]; then ok "egress cache is dropped when the protocol changes"; else bad "egress cache key (curls=$n)"; fi
+
+# --- restart order, stability and tproxy ---
+echo hy2 > "$D/proto"
+rm -f "$D/order.log" "$D/svc.log" "$D/xrestart.log"
+env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" VLESS_AU_SVC_RESTART="$TMP/hooks/svc-ok.sh" "$SH" restart >/dev/null 2>&1 || true
+if [ "$(tr '\n' ' ' < "$D/order.log")" = "hysteria-client xray " ]; then
+	ok "restart brings Hysteria up before Xray"
+else
+	bad "restart order ($(tr '\n' ' ' < "$D/order.log" 2>/dev/null))"
+fi
+echo vless > "$D/proto"
+
+# restart_init on its own: the real function, against a fake init dir.
+body=$(awk '/^proc_stable\(\)/{p=1} p{print} /^require_bin\(\)/{exit}' "$SH" | sed '$d')
+cat > "$TMP/ri.sh" <<EOF
+INITD=$TMP/initd
+STABLE_SECS=2
+$body
+restart_init "\$1" "\$2"
+EOF
+echo none > "$TMP/pidof.state"
+if env PIDOF_FILE="$TMP/pidof.state" sh "$TMP/ri.sh" good-client good; then
+	ok "restart_init accepts a daemon that stays up"
+else
+	bad "restart_init good"
+fi
+if ! env PIDOF_FILE="$TMP/pidof.state" sh "$TMP/ri.sh" crash-client crash && grep -q 'сразу завершился' /tmp/aurora-restart-crash-client.err; then
+	ok "restart_init rejects a daemon that dies right after start"
+else
+	bad "restart_init crash"
+fi
+rm -f /tmp/aurora-restart-good-client.err /tmp/aurora-restart-crash-client.err "$TMP/ri.sh"
+
+# Transparent mode must be up after a restart (unless switched off).
+rm -f "$D/tproxy.disabled"
+out=$(env NFT_FAIL=1 VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart 2>/dev/null || true)
+if printf '%s\n' "$out" | grep -q '^ERROR: ПРОЗРАЧНЫЙ РЕЖИМ НЕ ВКЛЮЧИЛСЯ' \
+   && printf '%s\n' "$out" | grep -q '^HINT: .*TPROXY.SH UP'; then
+	ok "restart reports a missing nft table"
+else
+	bad "restart tproxy check ($out)"
+fi
+touch "$D/tproxy.disabled"
+out=$(env NFT_FAIL=1 VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart 2>/dev/null || true)
+rm -f "$D/tproxy.disabled"
+if [ "$out" = OK ]; then ok "restart does not require nft when transparent mode is switched off"; else bad "restart tproxy disabled ($out)"; fi
 
 # Four VPN fields, fixed, WireGuard included; proxy button vs expanded card.
 ntxt=$(printf '%s\n' "$html" | grep -c '<textarea ' || true)
@@ -344,13 +459,43 @@ else
 	bad "rendered layout (textareas=$ntxt)"
 fi
 
-# Junk echo must not display the first hop.
-html2=$(render xray 0 "$TMP/hooks/egress-junk.sh")
-exit2=$(printf '%s\n' "$html2" | sed -n 's/.*<tr><td>IP выхода:<\/td><td>\(.*\)<\/td><\/tr>.*/\1/p' | head -1)
-if [ "$exit2" = 'не удалось определить' ]; then
-	ok "page does not substitute the server address when the echo fails"
+# Two visible lines exactly: height = 2 * line-height + borders, no vertical padding.
+if grep -q 'line-height:18px;padding:0 8px;height:38px;min-height:38px;max-height:38px' "$CGI"; then
+	ok "link fields are exactly two lines high"
 else
-	bad "failed egress row ($exit2)"
+	bad "textarea height"
+fi
+
+# SNI / insecure row: shown with TLS on, hidden with TLS off, and [hidden] wins in CSS.
+if printf '%s\n' "$html" | grep -q 'class="tls-extra span2">' \
+   && grep -q '.tls-extra\[hidden\]{display:none}' "$CGI" \
+   && ! grep -q 'style="display:contents"' "$CGI"; then
+	ok "HTTP SNI row is shown with TLS on; CSS lets hidden win"
+else
+	bad "tls-extra markup"
+fi
+cp "$D/http.json" "$D/http.json.bak"
+echo '{"address":"proxy.example","port":8080,"tls":false}' > "$D/http.json"
+htmlt=$(render xray 0 "$TMP/hooks/egress-final.sh")
+mv "$D/http.json.bak" "$D/http.json"
+if printf '%s\n' "$htmlt" | grep -q 'class="tls-extra span2" hidden>'; then
+	ok "HTTP SNI row starts hidden when TLS is off"
+else
+	bad "tls-extra hidden when TLS off"
+fi
+
+# A failed SOCKS5 save keeps the card open with what was typed.
+body='action=sockssave&proto=socks&addr=10.9.9.9&port=1080&user=bob&pass=s3'
+rm -f "$D/socks.json"
+htmlf=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vless-fail.sh" \
+	REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
+if printf '%s\n' "$htmlf" | grep -q 'id=card-socks>' \
+   && printf '%s\n' "$htmlf" | grep -q 'value="10.9.9.9"' \
+   && printf '%s\n' "$htmlf" | grep -q 'value="bob"' \
+   && printf '%s\n' "$htmlf" | grep -q 'class=msg>ERROR'; then
+	ok "failed SOCKS5 save keeps the card open with the typed values"
+else
+	bad "failed save keeps values"
 fi
 
 # SOCKS5 is the connected protocol when that Connect button was used.

@@ -43,7 +43,14 @@ BLK
 proxy_fields(){
   F=$D/$1.json
   ADDR=; PORT=; USER=; PASS=; SNI=; TLS=; INS=
-  if [ -s "$F" ]; then
+  if [ "$PF_BAD" = "$1" ]; then
+    # The save failed: keep what was typed.
+    ADDR=$(printf '%s' "$PF_ADDR" | esc); PORT=$(printf '%s' "$PF_PORT" | esc)
+    USER=$(printf '%s' "$PF_USER" | esc); PASS=$(printf '%s' "$PF_PASS" | esc)
+    SNI=$(printf '%s' "$PF_SNI" | esc)
+    [ "$PF_TLS" = true ] && TLS=checked
+    [ "$PF_INS" = true ] && INS=checked
+  elif [ -s "$F" ]; then
     ADDR=$(jq -r '.address // empty' "$F" | esc)
     PORT=$(jq -r '.port // empty' "$F" | esc)
     USER=$(jq -r '.user // empty' "$F" | esc)
@@ -60,9 +67,10 @@ proxy_fields(){
 <label>Пароль <input type=password name=pass value="$PASS" autocomplete=new-password></label>
 BLK
   if [ "$1" = http ]; then
+    TLSX_H=" hidden"; [ -n "$TLS" ] && TLSX_H=
     cat <<BLK
 <label class="chk span2"><input type=checkbox name=tls value=1 $TLS> TLS</label>
-<div class="tls-extra span2" style="display:contents">
+<div class="tls-extra span2"$TLSX_H>
 <label>SNI <input type=text name=sni value="$SNI" autocomplete=off spellcheck=false></label>
 <label class=chk><input type=checkbox name=insecure value=1 $INS> не проверять сертификат</label>
 </div>
@@ -80,8 +88,18 @@ svc_html(){
     printf '<b style="color:#c62828">%s</b>' "$1"
   fi
 }
+# GET ?ip: the page asks for the egress IP after it has loaded, so a dead tunnel
+# never delays the page itself (one probe, 3 s limit, cached for 60 s).
+if [ "$REQUEST_METHOD" != POST ] && [ "$QUERY_STRING" = ip ]; then
+  echo "Content-Type: text/plain; charset=utf-8"
+  echo "Cache-Control: no-store"
+  echo
+  $V egress 2>/dev/null | tr -d '\r\n\t ' | head -c 80
+  exit 0
+fi
 MSG=""
 A=""
+PF_BAD=""
 if [ "$REQUEST_METHOD" = POST ]; then
   POST=$(head -c "${CONTENT_LENGTH:-0}")
   A=$(fld action)
@@ -139,9 +157,10 @@ YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
       PORT=$(ud "$(fld port)")
       USER=$(ud "$(fld user)")
       PASS=$(ud "$(fld pass)")
+      TLS=false; INS=false; SNI=
       if [ "$AP" = http ]; then
-        TLS=false; [ "$(fld tls)" = 1 ] && TLS=true
-        INS=false; [ "$(fld insecure)" = 1 ] && INS=true
+        [ "$(fld tls)" = 1 ] && TLS=true
+        [ "$(fld insecure)" = 1 ] && INS=true
         SNI=$(ud "$(fld sni)")
         jq -n --arg a "$ADDR" --arg p "$PORT" --arg u "$USER" --arg w "$PASS" --argjson tls "$TLS" --arg s "$SNI" --argjson ins "$INS"           '{address:$a,port:$p,user:$u,pass:$w,tls:$tls,sni:$s,allowInsecure:$ins}' > $IN || MSG="ERROR: не удалось собрать настройки"
       else
@@ -151,7 +170,11 @@ YouTube: $([ "$Y" = 200 ] && echo открывается || echo "код $Y")"
       if [ -z "$MSG" ]; then
         MSG=$($V $A $IN 2>&1)
       fi
-      rm -f $IN;;
+      rm -f $IN
+      case "$MSG" in *ERROR*)
+        PF_BAD=$AP; PF_ADDR=$ADDR; PF_PORT=$PORT; PF_USER=$USER; PF_PASS=$PASS
+        PF_SNI=$SNI; PF_TLS=$TLS; PF_INS=$INS;;
+      esac;;
   esac
   case "$A" in test|speed|update) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Готово";; esac;; esac
 fi
@@ -167,17 +190,6 @@ if [ "$A" = restart ]; then
   esac
 fi
 eval "$($V status | sed 's/^/S_/')"
-# Egress IP comes from an echo request through the live tunnel, never from the first server address.
-EXIT=$($V egress 2>/dev/null | tr -d '\r\n\t ' | head -c 80)
-case "$EXIT" in
-  [0-9]*.[0-9]*.[0-9]*.[0-9]*) ;;
-  *:*)
-    printf '%s' "$EXIT" | grep -Eq '^[0-9A-Fa-f:]+$' || EXIT=""
-    ;;
-  *) EXIT="";;
-esac
-if [ -n "$EXIT" ]; then EXIT_HTML=$(printf '%s' "$EXIT" | esc)
-else EXIT_HTML='не удалось определить'; fi
 HY2=$(field_raw hy2 | esc)
 NV=$(field_raw naive | esc)
 WG=$(field_raw wg | esc)
@@ -216,13 +228,13 @@ case "$S_proto" in
   hy2) SVC="$SVC / $(svc_html Hysteria "${S_hysteria:-0}")";;
   naive) SVC="$SVC / $(svc_html Naive "${S_naive:-0}")";;
 esac
-if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"; BA=off; BT="Выключить VLESS"; BC="#c62828"
-else ST="ВЫКЛЮЧЕН (интернет напрямую)"; SC="#c62828"; BA=on; BT="Включить VLESS"; BC="#1a7f37"; fi
+if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"
+else ST="ВЫКЛЮЧЕН (интернет напрямую)"; SC="#c62828"; fi
 [ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
 SOCKS_CARD_H=" hidden"; SOCKS_BTN_H=
 HTTP_CARD_H=" hidden"; HTTP_BTN_H=
-if [ -s "$D/socks.json" ]; then SOCKS_CARD_H=; SOCKS_BTN_H=hidden; fi
-if [ -s "$D/http.json" ]; then HTTP_CARD_H=; HTTP_BTN_H=hidden; fi
+if [ -s "$D/socks.json" ] || [ "$PF_BAD" = socks ]; then SOCKS_CARD_H=; SOCKS_BTN_H=hidden; fi
+if [ -s "$D/http.json" ] || [ "$PF_BAD" = http ]; then HTTP_CARD_H=; HTTP_BTN_H=hidden; fi
 echo "Content-Type: text/html; charset=utf-8"
 echo "Cache-Control: no-store"
 echo
@@ -233,7 +245,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:1040px;margi
 .c{background:#fff;border-radius:12px;padding:16px 18px;margin:14px 0;box-shadow:0 1px 4px #0002}
 button{border:0;border-radius:10px;color:#fff;background:#1565c0;padding:10px 18px;font-size:16px;cursor:pointer}
 .big{width:100%;font-size:22px;padding:18px}
-textarea{width:100%;box-sizing:border-box;resize:none;overflow:auto;height:calc(1.45em * 2 + 16px);min-height:calc(1.45em * 2 + 16px);max-height:calc(1.45em * 2 + 16px);font-family:monospace;font-size:12px;line-height:1.45;padding:6px 8px;word-break:break-all;field-sizing:fixed;white-space:pre-wrap}
+textarea{display:block;width:100%;box-sizing:border-box;resize:none;overflow:auto;border:1px solid #ccc;border-radius:6px;font-family:monospace;font-size:12px;line-height:18px;padding:0 8px;height:38px;min-height:38px;max-height:38px;word-break:break-all;field-sizing:fixed;white-space:pre-wrap}
 select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}td{padding:3px 8px 3px 0}
 .banner{padding:12px 14px;border-radius:8px;background:#fff;border:1px solid #f3c1c1;margin:0 0 14px}
 .banner .why{color:#c62828;font-weight:700;text-transform:uppercase;white-space:pre-wrap}
@@ -255,6 +267,8 @@ select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background
 .pf input[type=text],.pf input[type=password],.pf input[type=number]{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;font-family:inherit}
 .pf .chk{flex-direction:row;align-items:center;gap:8px}
 .pf .span2{grid-column:1/-1}
+.tls-extra{display:contents}
+.tls-extra[hidden]{display:none}
 .http-udp{color:#777;font-size:12px;margin:10px 0 0}
 .au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
 .au select{font-size:14px;padding:4px}
@@ -278,7 +292,7 @@ cat <<HTML
 <form method=post class=svcf><input type=hidden name=action value=restart><button type=submit>Перезапустить службу</button></form></td></tr>
 <tr><td>Протокол:</td><td><b>$PN</b></td></tr>
 <tr><td>Сервер:</td><td>$HOST ($SNI)</td></tr>
-<tr><td>IP выхода:</td><td>$EXIT_HTML</td></tr>
+<tr><td>IP выхода:</td><td id=egress>определяется…</td></tr>
 </table></div>
 <div class=c style="display:flex;flex-wrap:wrap;gap:8px">
 <form method=post><input type=hidden name=action value=on><button style="background:#1a7f37">Включить</button></form>
@@ -368,6 +382,16 @@ document.querySelectorAll('button.addproxy').forEach(function(b){
   });
 });
 document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventListener('change',function(){syncTls(c)});syncTls(c)});
+(function(){
+  var el=document.getElementById('egress');if(!el)return;
+  function fail(){el.textContent='не удалось определить'}
+  var ctl=window.AbortController?new AbortController():null;
+  var t=setTimeout(function(){if(ctl)ctl.abort()},8000);
+  fetch('?ip',{cache:'no-store',signal:ctl?ctl.signal:undefined}).then(function(r){return r.text()}).then(function(x){
+    clearTimeout(t);x=x.trim();
+    if(/^(\d{1,3}\.){3}\d{1,3}\$/.test(x)||/^[0-9A-Fa-f:]+:[0-9A-Fa-f:]+\$/.test(x))el.textContent=x;else fail();
+  }).catch(function(){clearTimeout(t);fail()});
+})();
 eqCards();
 window.addEventListener('resize',eqCards);
 </script>

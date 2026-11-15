@@ -7,7 +7,7 @@ License: MIT
 Section: net
 Priority: optional
 Architecture: all
-Installed-Size: 69
+Installed-Size: 71
 Maintainer: Xstrwe <https://github.com/Xstrwe>
 Source: https://github.com/Xstrwe/Aurora-router-panel
 Description: Aurora router panel (formerly "VLESS на роутере") for OpenWrt (uhttpd :8088).
@@ -18,6 +18,6 @@ Description: Aurora router panel (formerly "VLESS на роутере") for Open
  installed xray binary in /usr/bin and geoip/geosite in /usr/share/xray.
  hysteria and naive binaries are optional; install naive with /usr/libexec/aurora-panel/install-naive.sh.
 Filename: aurora-router-panel_1.4.0_all.ipk
-Size: 25324
-SHA256sum: 6492b7a123203ca06e9632dc7953866d54b6fb04670075dda2d32e0ba02a0f3c
+Size: 26369
+SHA256sum: d7485afa64ced31a0cc77a2e9544f02fd976fd34ea9a8028f2c633dfbc6f86da
 

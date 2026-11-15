@@ -15,12 +15,24 @@
   public address returned by an echo request through the live tunnel
   (Xray SOCKS `10808`, which is the entry of the chain), not the first
   server address saved in the config.
+- **IP выхода** no longer blocks the page: the page renders at once and
+  the browser asks `?ip` afterwards (one probe, 3 s limit, cached for 60 s;
+  the cache is dropped on restart). A dead tunnel shows
+  "не удалось определить" instead of hanging the page.
+- The restart is stricter: Hysteria / Naive are restarted before Xray (its
+  outbound points at them), each daemon must still be the same process a few
+  seconds after start, and the transparent mode (`nft` table `inet xray`) must
+  be up unless it was switched off. Otherwise the banner explains why.
 - VPN cards are one equal-size grid. Each link, including the WireGuard
-  config, is a two-line field; longer text scrolls inside the field.
+  config, is a field of exactly two visible lines; longer text scrolls inside.
 - Proxy section: **Добавить SOCKS5** and **Добавить HTTP** reveal that
   card. A proxy that is already saved is shown expanded. The footer notes
   stay.
-
+  A failed SOCKS5 / HTTP save keeps the card open with the typed values.
+  The HTTP card shows SNI and "не проверять сертификат" only while TLS is
+  checked (fixes the hidden attribute being overridden).
+- The release workflow only runs in `Xstrwe/Aurora-router-panel`, so the
+  private `-dev` mirror never tries to publish.
 
 ## 1.3.0a4
 

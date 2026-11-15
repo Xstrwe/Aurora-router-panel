@@ -13,6 +13,9 @@ XRAY_BIN=${VLESS_XRAY_BIN:-/usr/bin/xray}
 HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
 NAIVE_BIN=${VLESS_NAIVE_BIN:-/usr/bin/naive}
 AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
+INITD=${VLESS_INITD:-/etc/init.d}
+STABLE_SECS=${VLESS_AU_STABLE_SECS:-3}
+EGRESS_CACHE=${VLESS_AU_EGRESS_CACHE:-/tmp/aurora-egress.cache}
 err(){ echo "ERROR: $*"; exit 1; }
 PROTO=$(cat $D/proto 2>/dev/null || echo vless)
 # shellcheck disable=SC1090
@@ -399,7 +402,17 @@ busy_ports(){
   fi
   printf '%s' " 10808/TCP 12346/TCP 12345/UDP"
 }
-# $1 init script name, $2 process name. Full enable+restart, then wait until the process is up.
+# $1 process name, $2 seconds. 0 if the process is up now and is still the same
+# process (same pid) after the wait, i.e. it did not crash or respawn.
+proc_stable(){
+  p1=$(pidof "$1" 2>/dev/null) || return 1
+  [ -n "$p1" ] || return 1
+  [ "$2" -gt 0 ] 2>/dev/null && sleep "$2"
+  p2=$(pidof "$1" 2>/dev/null) || return 1
+  [ "$p1" = "$p2" ]
+}
+# $1 init script name, $2 process name. Full enable+restart, then wait until the
+# process is up and stays up for STABLE_SECS seconds.
 restart_init(){
   name=$1
   proc=$2
@@ -409,15 +422,19 @@ restart_init(){
     sh "$VLESS_AU_SVC_RESTART" "$name" "$proc"
     return $?
   fi
-  if [ ! -x "/etc/init.d/$name" ]; then
-    echo "нет скрипта /etc/init.d/$name" > "$errf"
+  if [ ! -x "$INITD/$name" ]; then
+    echo "нет скрипта $INITD/$name" > "$errf"
     return 3
   fi
-  /etc/init.d/"$name" enable >>"$errf" 2>&1 || true
-  /etc/init.d/"$name" restart >>"$errf" 2>&1 || true
+  "$INITD/$name" enable >>"$errf" 2>&1 || true
+  "$INITD/$name" restart >>"$errf" 2>&1 || true
   i=0
   while [ "$i" -lt 15 ]; do
-    pidof "$proc" >/dev/null 2>&1 && return 0
+    if pidof "$proc" >/dev/null 2>&1; then
+      proc_stable "$proc" "$STABLE_SECS" && return 0
+      echo "процесс $proc запустился и сразу завершился" >> "$errf"
+      return 1
+    fi
     i=$((i+1))
     sleep 1
   done
@@ -452,32 +469,13 @@ do_restart(){
         *[Pp]ermission\ denied*)
           fail_restart "НЕТ ПРАВ НА КОНФИГ ИЛИ ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT И ПРОВЕРЬТЕ ПРАВА /ETC/XRAY/CONFIG.JSON И $(upper "$XRAY_BIN")"
           ;;
-        *[Aa]ddress\ already\ in\ use*)
-          fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
-          ;;
         *)
           fail_restart "XRAY ОТКЛОНИЛ КОНФИГ: $(upper "$why")" "ИСПРАВЬТЕ КОНФИГ КОМАНДОЙ XRAY RUN -TEST -C /ETC/XRAY/CONFIG.JSON, ЗАНОВО НАЖМИТЕ «ПОДКЛЮЧИТЬ» И ПОВТОРИТЕ ПЕРЕЗАПУСК"
           ;;
       esac
     fi
   fi
-  if ! xrestart; then
-    errf=$(tail -c 400 /tmp/xray-restart.err 2>/dev/null | tr '\n' ' ')
-    case "$errf" in
-      *[Pp]ermission\ denied*)
-        fail_restart "НЕТ ПРАВ НА ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT, ПРОВЕРЬТЕ CHMOD 755 $(upper "$XRAY_BIN") И ВЛАДЕЛЬЦА /ETC/XRAY"
-        ;;
-      *[Aa]ddress\ already\ in\ use*)
-        fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
-        ;;
-    esac
-    if xports_busy; then
-      fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
-    fi
-    extra=""
-    [ -n "$errf" ] && extra=": $(upper "$errf")"
-    fail_restart "XRAY НЕ ЗАПУСТИЛСЯ${extra}" "ПОСМОТРИТЕ LOGREAD -E XRAY, УСТРАНИТЕ ПРИЧИНУ И ПОВТОРИТЕ ПЕРЕЗАПУСК"
-  fi
+  # The Xray outbound points at Hysteria (10818) / Naive (10828): bring those up first.
   if [ "$PROTO" = hy2 ]; then
     if ! restart_init hysteria-client hysteria; then
       e=$(tr '\n' ' ' < /tmp/aurora-restart-hysteria-client.err 2>/dev/null || true)
@@ -504,6 +502,30 @@ do_restart(){
       fail_restart "$msg" "ПРОВЕРЬТЕ /ETC/NAIVE/CONFIG.JSON И LOGREAD -E NAIVE, ЗАТЕМ ПОВТОРИТЕ ПЕРЕЗАПУСК"
     fi
   fi
+  if ! xrestart; then
+    errf=$(tail -c 400 /tmp/xray-restart.err 2>/dev/null | tr '\n' ' ')
+    case "$errf" in
+      *[Pp]ermission\ denied*)
+        fail_restart "НЕТ ПРАВ НА ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT, ПРОВЕРЬТЕ CHMOD 755 $(upper "$XRAY_BIN") И ВЛАДЕЛЬЦА /ETC/XRAY"
+        ;;
+      *[Aa]ddress\ already\ in\ use*)
+        fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+        ;;
+    esac
+    if xports_busy; then
+      fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+    fi
+    extra=""
+    [ -n "$errf" ] && extra=": $(upper "$errf")"
+    fail_restart "XRAY НЕ ЗАПУСТИЛСЯ${extra}" "ПОСМОТРИТЕ LOGREAD -E XRAY, УСТРАНИТЕ ПРИЧИНУ И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+  fi
+  if ! proc_stable xray "$STABLE_SECS"; then
+    fail_restart "XRAY ЗАПУСТИЛСЯ И ЗАВЕРШИЛСЯ" "ПОСМОТРИТЕ LOGREAD -E XRAY, УСТРАНИТЕ ПРИЧИНУ И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+  fi
+  if [ ! -f "$D/tproxy.disabled" ] && ! nft list table inet xray >/dev/null 2>&1; then
+    fail_restart "ПРОЗРАЧНЫЙ РЕЖИМ НЕ ВКЛЮЧИЛСЯ: НЕТ ТАБЛИЦЫ NFT INET XRAY" "ВЫПОЛНИТЕ /ETC/XRAY/TPROXY.SH UP ИЛИ НАЖМИТЕ «ВКЛЮЧИТЬ», ЗАТЕМ ПРОВЕРЬТЕ NFT LIST TABLE INET XRAY"
+  fi
+  rm -f "$EGRESS_CACHE"
   echo OK
 }
 # Public address as seen from the far end of the active tunnel.
@@ -517,6 +539,11 @@ egress_valid(){
   printf '%s' "$1" | grep -Eq '^[0-9A-Fa-f:]+:[0-9A-Fa-f:]+$' && return 0
   return 1
 }
+# One probe with a 3 s limit; a good answer is cached for 60 s per
+# (xray pid, protocol, config mtime), so page loads do not hammer the tunnel.
+egress_key(){
+  printf '%s|%s|%s' "$(pidof xray 2>/dev/null)" "$PROTO" "$(stat -c %Y "$D/config.json" 2>/dev/null)"
+}
 egress_ip(){
   if [ -n "${VLESS_AU_EGRESS:-}" ]; then
     ip=$(sh "$VLESS_AU_EGRESS" 2>/dev/null | tr -d '\r\n\t ') || true
@@ -525,14 +552,18 @@ egress_ip(){
     return 0
   fi
   pidof xray >/dev/null 2>&1 || return 1
-  for url in https://api.ipify.org https://ifconfig.me/ip http://api.ipify.org; do
-    ip=$(curl -fsS -m 5 --socks5-hostname 127.0.0.1:10808 "$url" 2>/dev/null | tr -d '\r\n\t ') || ip=
-    if egress_valid "$ip"; then
-      printf '%s\n' "$ip"
-      return 0
+  key=$(egress_key)
+  if [ -f "$EGRESS_CACHE" ]; then
+    now=$(date +%s); mt=$(stat -c %Y "$EGRESS_CACHE" 2>/dev/null || echo 0)
+    if [ $((now - mt)) -lt 60 ] && [ "$(sed -n 1p "$EGRESS_CACHE")" = "$key" ]; then
+      ip=$(sed -n 2p "$EGRESS_CACHE")
+      if egress_valid "$ip"; then printf '%s\n' "$ip"; return 0; fi
     fi
-  done
-  return 1
+  fi
+  ip=$(curl -fsS -m 3 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null | tr -d '\r\n\t ') || ip=
+  egress_valid "$ip" || return 1
+  printf '%s\n%s\n' "$key" "$ip" > "$EGRESS_CACHE" 2>/dev/null
+  printf '%s\n' "$ip"
 }
 MODE=$(cat $D/mode 2>/dev/null || echo ru)
 case "$1" in

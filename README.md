@@ -107,11 +107,11 @@ Install the new `.ipk` the same way as above. Files that are not part of the pac
 
 The page UI is currently in Russian; this README names every button and label by its English meaning.
 
-- **Status card:** transparent mode; the daemons the active connection uses (Xray, plus Hysteria or Naive when that protocol is connected), green when running and red when not, with **Restart service**; the protocol last applied by a Connect button; server host (with its SNI); and the public egress IP, measured by a request through the live tunnel rather than taken from the first server address.
+- **Status card:** transparent mode; the daemons the active connection uses (Xray, plus Hysteria or Naive when that protocol is connected), green when running and red when not, with **Restart service**; the protocol last applied by a Connect button; server host (with its SNI); and the public egress IP, measured by a request through the live tunnel (not the first server address). The IP is filled in after the page has loaded, so a dead tunnel never delays the page.
 - **Enable / Disable:** turn transparent mode on or off. When off, the LAN uses the internet directly.
 - **Test connection / Speed:** connection and speed tests through the tunnel.
 - **Mode:** "everything except Russian sites" (`ru`) or "everything through the tunnel" (`all`).
-- **VPN section:** the four protocol cards in a two-column grid of equal width and height (VLESS and Hysteria2 on the left, Naive and WireGuard on the right; one column on a narrow screen). Each card has a two-line field; a longer link or WireGuard config scrolls inside the field. The WireGuard card always shows that field (there is no Add button on it). Under the field: an auto-update row (checkbox and interval on one line) and the buttons **Connect …** and **Update now** side by side. A small note at the bottom of the section says IPv6 is not proxied.
+- **VPN section:** the four protocol cards in a two-column grid of equal width and height (VLESS and Hysteria2 on the left, Naive and WireGuard on the right; one column on a narrow screen). Each card has a field of exactly two visible lines; a longer link or WireGuard config scrolls inside the field. The WireGuard card always shows that field (there is no Add button on it). Under the field: an auto-update row (checkbox and interval on one line) and the buttons **Connect …** and **Update now** side by side. A small note at the bottom of the section says IPv6 is not proxied.
 - **Proxy section:** **Add SOCKS5** and **Add HTTP**. Pressing a button reveals that card's form (address, port, login, password; HTTP also has a TLS toggle, SNI, and “do not verify the certificate”). If a proxy is already saved, its card is shown expanded. **Connect SOCKS5** / **Connect HTTP** saves the fields and applies them as the tunnel’s upstream. These cards have no auto-update row and no **Update now**. A small hint under the section reminds you of the local LAN proxies for individual apps: SOCKS5 `192.168.8.1:10808` and HTTP `192.168.8.1:10809`. An HTTP upstream cannot carry UDP (QUIC is blocked, other UDP goes direct).
 
 ### Command line
@@ -129,7 +129,7 @@ vless.sh proto vless|hy2|naive|wg|socks|http   # switch to an already saved prot
 vless.sh mode ru|all
 vless.sh on | off           # transparent mode on / off
 vless.sh restart            # fully restart the daemons for the active protocol
-vless.sh egress             # public egress IP through the active tunnel
+vless.sh egress             # public egress IP through the active tunnel (3 s probe, cached 60 s)
 vless.sh status             # running=, hysteria=, naive=, tproxy=, mode=, proto=, server_ip=
 vless.sh autoset <proto> <0|1> <1h|6h|24h>   # auto-update on/off and interval
 vless.sh src <proto> <infile> <outfile> <0|1> # link field input: an http(s) URL is remembered as the subscription source

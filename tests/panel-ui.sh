@@ -539,7 +539,7 @@ nrb=$(printf '%s\n' "$html" | grep -o 'class=rb' | wc -l | tr -d ' ')
 if [ "$nrb" = 4 ] \
    && printf '%s' "$svc" | grep -q 'Xray</span>.*</span> / <span class=svc>.*Naive</span>.*</span> / <span class=svc>.*Hysteria</span>.*</span> / <span class=svc>.*WireGuard</span>' \
    && printf '%s\n' "$html" | grep -q 'name=svc value=wireguard' \
-   && grep -q 'button.rb{[^}]*width:.72em;height:.72em' "$CGI"; then
+   && grep -q 'button.rb{[^}]*width:1.2em;height:1.2em' "$CGI"; then
 	ok "services are one row: Xray / Naive / Hysteria / WireGuard, each with a small restart button"
 else
 	bad "service row (buttons=$nrb)"

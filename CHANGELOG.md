@@ -10,7 +10,7 @@
   запущен" or "не установлен"). WireGuard has no process of its own: it is an
   outbound inside Xray, so it is green when Xray runs and WireGuard is the
   connected protocol, and its button restarts Xray. Each service has its own
-  small square **↻** button, as tall as a capital letter of the label; there
+  small square **↻** button, 1.2 em (about the line height of the label, centred on the capital letters); there
   is no big restart button any more. A button restarts only that service
   (`vless.sh restart-svc xray|naive|hysteria|wireguard`, a fixed whitelist),
   never changes the active protocol, and restarting a service that is not the

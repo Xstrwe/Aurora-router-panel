@@ -277,8 +277,8 @@ select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background
 .svcs{line-height:1.45}
 .svc{white-space:nowrap}
 .svcb{display:inline;margin:0}
-button.rb{display:inline-block;box-sizing:border-box;width:.72em;height:.72em;min-width:0;padding:0;margin:0 0 0 .3em;border-radius:2px;font-size:1em;line-height:.68em;text-align:center;vertical-align:.09em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
-button.rb .rg{font-size:.62em;line-height:1}
+button.rb{display:inline-block;box-sizing:border-box;width:1.2em;height:1.2em;min-width:0;padding:0;margin:0 .1em 0 .3em;border-radius:3px;font-size:1em;line-height:1.2em;text-align:center;vertical-align:.04em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
+button.rb .rg{font-size:.9em;line-height:1.2em}
 .sec{margin:18px 0 8px}
 .sec>h3{margin:0 0 10px;font-size:18px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;margin:0}

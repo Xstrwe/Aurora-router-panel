@@ -18,6 +18,6 @@ Description: Aurora router panel (formerly "VLESS на роутере") for Open
  installed xray binary in /usr/bin and geoip/geosite in /usr/share/xray.
  hysteria and naive binaries are optional; install naive with /usr/libexec/aurora-panel/install-naive.sh.
 Filename: aurora-router-panel_1.4.0_all.ipk
-Size: 27867
-SHA256sum: 3e4f4ce94743ebc90da6384f9c9d82fb00dc1bc187eeab4d3f5cedefbec3ffc7
+Size: 27871
+SHA256sum: 9166c64b7541cd18c192389220abd76745c9b1202cede9eb4da181dfdc9e06ae
 

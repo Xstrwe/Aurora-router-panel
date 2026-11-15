@@ -81,7 +81,8 @@ BLK
 BLK
 }
 # One entry of the service row: $1 whitelist key, $2 label, $3 1 if running,
-# $4 tooltip. Running = green, not running = red bold, then a tiny restart button.
+# $4 tooltip, $5 "disabled" to grey out the restart button. Running = green,
+# not running = red bold, then a tiny restart button.
 svc_item(){
   if [ "$3" = 1 ]; then
     _st="color:#1a7f37"
@@ -89,7 +90,10 @@ svc_item(){
     _st="color:#c62828;font-weight:700"
   fi
   _t=$(printf '%s' "$4" | esc)
-  printf '<span class=svc><span style="%s" title="%s">%s</span><form method=post class=svcb><input type=hidden name=action value=restartsvc><input type=hidden name=svc value=%s><button type=submit class=rb title="Перезапустить: %s" aria-label="Перезапустить %s"><span class=rg>&#8635;</span></button></form></span>' "$_st" "$_t" "$2" "$1" "$2" "$2"
+  _d=""; _bt="Перезапустить: $2"
+  if [ "$5" = disabled ]; then _d=" disabled"; _bt="$4"; fi
+  _bt=$(printf '%s' "$_bt" | esc)
+  printf '<span class=svc><span style="%s" title="%s">%s</span><form method=post class=svcb><input type=hidden name=action value=restartsvc><input type=hidden name=svc value=%s><button type=submit class=rb%s title="%s" aria-label="Перезапустить %s"><span class=rg>&#8635;</span></button></form></span>' "$_st" "$_t" "$2" "$1" "$_d" "$_bt" "$2"
 }
 # GET ?ip: the page asks for the egress IP after it has loaded, so a dead tunnel
 # never delays the page itself (one probe, 3 s limit, cached for 60 s).
@@ -244,12 +248,13 @@ if [ "${S_inst_naive:-0}" != 1 ]; then T_N="не установлен"; N_UP=0
 elif [ "${S_naive:-0}" = 1 ]; then T_N="работает"; N_UP=1; else T_N="не запущен"; N_UP=0; fi
 if [ "${S_inst_hysteria:-0}" != 1 ]; then T_H="не установлен"; H_UP=0
 elif [ "${S_hysteria:-0}" = 1 ]; then T_H="работает"; H_UP=1; else T_H="не запущен"; H_UP=0; fi
-W_UP=0
+W_UP=0; W_DIS=disabled
 if [ "${S_wg_conf:-0}" != 1 ]; then T_W="конфиг WireGuard не сохранён"
-elif [ "$S_proto" = wg ] && [ "$S_running" = 1 ]; then T_W="работает (внутри Xray)"; W_UP=1
-else T_W="WireGuard работает внутри Xray и сейчас не подключён; кнопка перезапускает Xray"; fi
+elif [ "$S_proto" = wg ] && [ "$S_running" = 1 ]; then T_W="работает (внутри Xray)"; W_UP=1; W_DIS=
+elif [ "$S_proto" = wg ]; then T_W="не запущен (работает внутри Xray)"; W_DIS=
+else T_W="WireGuard работает внутри Xray и сейчас не подключён: перезапускать нечего"; fi
 X_UP=0; [ "$S_running" = 1 ] && [ "${S_inst_xray:-0}" = 1 ] && X_UP=1
-SVC="$(svc_item xray Xray "$X_UP" "$T_X") / $(svc_item naive Naive "$N_UP" "$T_N") / $(svc_item hysteria Hysteria "$H_UP" "$T_H") / $(svc_item wireguard WireGuard "$W_UP" "$T_W")"
+SVC="$(svc_item xray Xray "$X_UP" "$T_X") / $(svc_item naive Naive "$N_UP" "$T_N") / $(svc_item hysteria Hysteria "$H_UP" "$T_H") / $(svc_item wireguard WireGuard "$W_UP" "$T_W" "$W_DIS")"
 if [ "$S_tproxy" = 1 ] && [ "$S_running" = 1 ]; then ST="ВКЛЮЧЁН"; SC="#1a7f37"
 else ST="ВЫКЛЮЧЕН (интернет напрямую)"; SC="#c62828"; fi
 [ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
@@ -278,6 +283,7 @@ select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background
 .svc{white-space:nowrap}
 .svcb{display:inline;margin:0}
 button.rb{display:inline-block;box-sizing:border-box;width:1.2em;height:1.2em;min-width:0;padding:0;margin:0 .1em 0 .3em;border-radius:3px;font-size:1em;line-height:1.2em;text-align:center;vertical-align:.04em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
+button.rb:disabled{opacity:.35;cursor:not-allowed}
 button.rb .rg{font-size:.9em;line-height:1.2em}
 .sec{margin:18px 0 8px}
 .sec>h3{margin:0 0 10px;font-size:18px}

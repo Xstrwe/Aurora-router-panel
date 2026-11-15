@@ -138,6 +138,14 @@ export VLESS_SH=$SH
 export PATH="$TMP/bin:$PATH"
 export PIDOF_UP="xray"
 export VLESS_AU_STABLE_SECS=0
+export VLESS_AU_XRETRY_PAUSE=0
+export VLESS_AU_RECOVER_LOCK="$TMP/recover.lock"
+cat > "$TMP/hooks/recover-rec.sh" <<EOF
+#!/bin/sh
+echo recover >> "$D/recover.log"
+EOF
+chmod 755 "$TMP/hooks/recover-rec.sh"
+export VLESS_AU_RECOVER_CMD="$TMP/hooks/recover-rec.sh"
 unset VLESS_AU_PORTS_BUSY VLESS_AU_SVC_RESTART VLESS_AU_EGRESS VLESS_AU_SKIP_XRAY_TEST || true
 
 run() {
@@ -148,8 +156,8 @@ run() {
 # --- version is the next round release ---
 ver=$(sed -n 's/^Version: //p' "$ROOT/control/control" | head -1)
 cls=$("$VC" classify "$ver")
-if [ "$ver" = 1.4.0 ] && [ "$cls" = full ]; then
-	ok "package version 1.4.0 is a full release"
+if [ "$ver" = 1.5.0 ] && [ "$cls" = full ]; then
+	ok "package version 1.5.0 is a full release"
 else
 	bad "version ($ver class=$cls)"
 fi
@@ -604,7 +612,9 @@ if grep -q 'naive-client enable' "$TMP/initd.log"; then ok "restarting the activ
 # Xray / WireGuard restart xray (nft checked), unknown name fails, missing config is reported.
 rm -f "$D/xrestart.log"; echo xray > "$TMP/pidof.state"
 o3=$(svcenv env VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc xray 2>/dev/null || true)
+echo wg > "$D/proto"
 o4=$(svcenv env VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc wireguard 2>/dev/null || true)
+echo vless > "$D/proto"
 o5=$(svcenv env NFT_FAIL=1 VLESS_AU_XRESTART="$TMP/hooks/xrestart-ok.sh" "$SH" restart-svc xray 2>/dev/null || true)
 o6=$(svcenv "$SH" restart-svc bogus 2>/dev/null || true)
 if [ "$o3" = OK ] && [ "$o4" = OK ] && [ "$(wc -l < "$D/xrestart.log" | tr -d ' ')" -ge 2 ] \
@@ -624,6 +634,116 @@ else
 	bad "svc failure ($o7/$o8)"
 fi
 rm -f /tmp/aurora-restart-*-client.err
+
+# --- real xrestart path: retries, tproxy, recovery, banner texts ---
+cat > "$D/tproxy.sh" <<EOF
+#!/bin/sh
+echo "\$1" >> "$D/tproxy.log"
+EOF
+chmod 755 "$D/tproxy.sh"
+cat > "$TMP/bin/netstat" <<'EOF'
+#!/bin/sh
+[ -f "$NETSTAT_FILE" ] && cat "$NETSTAT_FILE"
+exit 0
+EOF
+chmod 755 "$TMP/bin/netstat"
+cat > "$TMP/initd/xray-client" <<EOF
+#!/bin/sh
+case "\$1" in
+stop) echo stop >> "$TMP/xinit.log"; : > "$TMP/pidof.state"; : > "$TMP/netstat.out";;
+start) echo start >> "$TMP/xinit.log"
+  n=\$(grep -c start "$TMP/xinit.log")
+  if [ "\$n" -gt "\$(cat "$TMP/xfails")" ]; then
+    echo xray > "$TMP/pidof.state"
+    printf 'tcp 0 0 :::10808 :::* LISTEN\ntcp 0 0 :::12346 :::* LISTEN\n' > "$TMP/netstat.out"
+  fi;;
+esac
+exit 0
+EOF
+chmod 755 "$TMP/initd/xray-client"
+cat > "$TMP/hooks/log-eaddr.sh" <<'EOF'
+#!/bin/sh
+echo 'daemon.info xray[1]: Failed to start: app/proxyman/inbound: failed to listen TCP on 12346 > listen tcp 0.0.0.0:12346: bind: address already in use'
+EOF
+chmod 755 "$TMP/hooks/log-eaddr.sh"
+xenv() { env PIDOF_FILE="$TMP/pidof.state" NETSTAT_FILE="$TMP/netstat.out" VLESS_INITD="$TMP/initd" VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_AU_XSTART_WAIT=1 VLESS_AU_XRESTART_MAX=30 VLESS_AU_LOGREAD="$TMP/hooks/log-eaddr.sh" "$@"; }
+reset_x() { rm -f "$TMP/xinit.log" "$D/tproxy.log" "$D/recover.log" "$D/tproxy.disabled"; echo "$1" > "$TMP/xfails"; echo xray > "$TMP/pidof.state"; : > "$TMP/netstat.out"; }
+echo vless > "$D/proto"
+
+# A start that fails twice (port still held) succeeds on the third attempt; transparent mode ends up on.
+reset_x 2
+o=$(xenv "$SH" restart-svc xray 2>/dev/null || true)
+if [ "$o" = OK ] && [ "$(grep -c start "$TMP/xinit.log")" = 3 ] && tail -1 "$D/tproxy.log" | grep -q up && [ ! -e "$D/recover.log" ]; then
+	ok "xray restart retries a failed start and ends with transparent mode on"
+else
+	bad "xray retry ($o starts=$(grep -c start "$TMP/xinit.log" 2>/dev/null) tproxy=$(tr '\n' ' ' < "$D/tproxy.log" 2>/dev/null))"
+fi
+
+# A start that never works: banner names the port from the log, recovery is started, LAN is left direct.
+reset_x 99
+o=$(xenv VLESS_AU_XRESTART_MAX=2 "$SH" restart-svc xray 2>/dev/null || true)
+if printf '%s\n' "$o" | grep -q '^ERROR: ПОРТ ЗАНЯТ: 12346/TCP' \
+   && printf '%s\n' "$o" | grep -q 'АВТОМАТИЧЕСКОЕ ВОССТАНОВЛЕНИЕ' \
+   && [ -s "$D/recover.log" ] && tail -1 "$D/tproxy.log" | grep -q down; then
+	ok "a failed xray restart reports the real reason, starts recovery and does not leave a blackhole"
+else
+	bad "xray fail ($o | recover=$(cat "$D/recover.log" 2>/dev/null) tproxy=$(tr '\n' ' ' < "$D/tproxy.log" 2>/dev/null))"
+fi
+
+# Transparent mode switched off by the user: no recovery is started.
+reset_x 99
+touch "$D/tproxy.disabled"
+o=$(xenv VLESS_AU_XRESTART_MAX=2 "$SH" restart-svc xray 2>/dev/null || true)
+if printf '%s\n' "$o" | grep -q '^ERROR:' && [ ! -e "$D/recover.log" ] && ! printf '%s\n' "$o" | grep -q 'ВОССТАНОВЛЕНИЕ'; then
+	ok "no recovery is started while transparent mode is switched off"
+else
+	bad "recover while disabled ($o)"
+fi
+rm -f "$D/tproxy.disabled"
+
+# The recover helper itself: restarts Xray, turns transparent mode on, releases its lock.
+reset_x 1
+rm -rf "$TMP/recover.lock"
+xenv env VLESS_AU_RECOVER_CMD= "$SH" recover >/dev/null 2>&1 || true
+if [ "$(grep -c start "$TMP/xinit.log")" -ge 2 ] && tail -1 "$D/tproxy.log" | grep -q up && [ ! -d "$TMP/recover.lock" ]; then
+	ok "recover restarts Xray until it listens, then switches transparent mode on"
+else
+	bad "recover helper (starts=$(grep -c start "$TMP/xinit.log" 2>/dev/null))"
+fi
+
+# WireGuard that is not the connected protocol: Xray is not touched at all.
+reset_x 0
+echo vless > "$D/proto"
+o=$(xenv "$SH" restart-svc wireguard 2>/dev/null || true)
+if printf '%s\n' "$o" | grep -q '^ERROR: WIREGUARD (РАБОТАЕТ ВНУТРИ XRAY): WIREGUARD СЕЙЧАС НЕ ПОДКЛЮЧЁН' \
+   && [ ! -e "$TMP/xinit.log" ] && [ ! -e "$D/tproxy.log" ] && [ ! -e "$D/recover.log" ]; then
+	ok "restarting an inactive WireGuard does not touch Xray or transparent mode"
+else
+	bad "wg inactive ($o)"
+fi
+# Active WireGuard: the banner names the pressed service, then the real reason.
+reset_x 99
+echo wg > "$D/proto"
+o=$(xenv VLESS_AU_XRESTART_MAX=2 "$SH" restart-svc wireguard 2>/dev/null || true)
+echo vless > "$D/proto"
+if printf '%s\n' "$o" | grep -q '^ERROR: WIREGUARD (РАБОТАЕТ ВНУТРИ XRAY): ПОРТ ЗАНЯТ: 12346/TCP'; then
+	ok "a WireGuard restart failure names WireGuard and the concrete reason"
+else
+	bad "wg banner ($o)"
+fi
+# The WireGuard button is disabled unless WireGuard is the connected protocol.
+htmlw=$(render xray 0 "$TMP/hooks/egress-final.sh")
+echo wg > "$D/proto"; echo '{}' > "$D/wg.json"
+htmlw2=$(render xray 0 "$TMP/hooks/egress-final.sh")
+echo vless > "$D/proto"; rm -f "$D/wg.json"
+if printf '%s\n' "$htmlw" | grep -q 'name=svc value=wireguard><button type=submit class=rb disabled' \
+   && ! printf '%s\n' "$htmlw2" | grep -q 'name=svc value=wireguard><button type=submit class=rb disabled' \
+   && grep -q 'button.rb:disabled' "$CGI"; then
+	ok "the WireGuard restart button is disabled unless WireGuard is connected"
+else
+	bad "wg button disabled state"
+fi
+rm -f /tmp/xray-restart.err /tmp/vless.err
 
 rm -f /tmp/xray-restart.err /tmp/aurora-restart-hysteria-client.err /tmp/aurora-restart-naive-client.err /tmp/vless.err
 

@@ -2,7 +2,7 @@
 # vless.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
 #         | sockssave <json> | httpsave <json>
 #         | store vless|hy2|naive|wg|socks|http <file> | proto vless|hy2|naive|wg|socks|http
-#         | mode ru|all | on | off | status | restart | restart-svc xray|naive|hysteria|wireguard | egress
+#         | mode ru|all | on | off | status | restart | restart-svc xray|naive|hysteria|wireguard | recover | egress
 #         | autoset <proto> <0|1> <1h|6h|24h>
 #         | src <proto> <infile> <outfile> <0|1> | update <proto>
 #         | mergecfg socks|http <base.json> <settings.json> <out.json>
@@ -16,6 +16,12 @@ AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
 INITD=${VLESS_INITD:-/etc/init.d}
 STABLE_SECS=${VLESS_AU_STABLE_SECS:-3}
 EGRESS_CACHE=${VLESS_AU_EGRESS_CACHE:-/tmp/aurora-egress.cache}
+# Xray start attempts: seconds to wait for one attempt, pause between attempts,
+# and the total budget (uhttpd gives a script 90 s).
+XSTART_WAIT=${VLESS_AU_XSTART_WAIT:-8}
+XRETRY_PAUSE=${VLESS_AU_XRETRY_PAUSE:-3}
+XRESTART_MAX=${VLESS_AU_XRESTART_MAX:-75}
+RECOVER_LOCK=${VLESS_AU_RECOVER_LOCK:-/tmp/aurora-recover.lock}
 err(){ echo "ERROR: $*"; exit 1; }
 PROTO=$(cat $D/proto 2>/dev/null || echo vless)
 # shellcheck disable=SC1090
@@ -31,19 +37,38 @@ xports_up(){ # 0 when both tcp 10808 and 12346 listen
   _n=$(netstat -lnt 2>/dev/null)
   echo "$_n" | grep -q ':10808 ' && echo "$_n" | grep -q ':12346 '
 }
-xrestart(){
-  if [ -n "${VLESS_AU_XRESTART:-}" ]; then sh "$VLESS_AU_XRESTART"; return $?; fi
-  /etc/init.d/xray-client stop >/tmp/xray-restart.err 2>&1
+xstop(){
+  $INITD/xray-client stop >>/tmp/xray-restart.err 2>&1
   # wait up to 10s for xray to exit, then kill it
   i=0; while [ $i -lt 10 ] && pidof xray >/dev/null; do sleep 1; i=$((i+1)); done
   pidof xray >/dev/null && { killall -9 xray >/dev/null 2>&1; sleep 1; }
   # wait until the listen ports are released (a second instance would fail to bind)
   i=0; while [ $i -lt 10 ] && xports_busy; do sleep 1; i=$((i+1)); done
-  /etc/init.d/xray-client start >>/tmp/xray-restart.err 2>&1
-  i=0; while [ $i -lt 15 ]; do
-    pidof xray >/dev/null && xports_up && return 0
-    sleep 1; i=$((i+1))
+}
+# Stop and start Xray. Under load the new process can fail to bind 12346 for up
+# to about a minute after the old one died (connections left over from it), so a
+# start is retried with a clean stop in between until XRESTART_MAX seconds pass.
+# Transparent mode is switched off while Xray is not listening (otherwise the LAN
+# would be redirected to a closed port) and back on as soon as it is.
+xrestart(){
+  if [ -n "${VLESS_AU_XRESTART:-}" ]; then sh "$VLESS_AU_XRESTART"; return $?; fi
+  : > /tmp/xray-restart.err
+  t0=$(date +%s)
+  while :; do
+    xstop
+    $INITD/xray-client start >>/tmp/xray-restart.err 2>&1
+    i=0; down=0
+    while [ $i -lt $XSTART_WAIT ]; do
+      if pidof xray >/dev/null && xports_up; then au_tproxy; return 0; fi
+      sleep 1; i=$((i+1))
+      if [ $i -ge 3 ] && [ $down = 0 ]; then down=1; $D/tproxy.sh down >/dev/null 2>&1; fi
+    done
+    [ $(( $(date +%s) - t0 )) -ge "$XRESTART_MAX" ] && break
+    sleep "$XRETRY_PAUSE"
   done
+  # Leave the crash loop; the LAN stays direct until Xray is back (see recover).
+  $INITD/xray-client stop >>/tmp/xray-restart.err 2>&1
+  $D/tproxy.sh down >/dev/null 2>&1
   return 1
 }
 hyup(){ [ "$1" = hy2 ] && svc hysteria-client 1 || svc hysteria-client 0; [ "$1" = naive ] && svc naive-client 1 || svc naive-client 0; }
@@ -62,7 +87,7 @@ au_fetch(){
   if [ -n "${VLESS_AU_CURL:-}" ]; then
     sh "$VLESS_AU_CURL" "$1" "$2" || err "не удалось скачать обновление"
   else
-    curl -fL --max-time 25 --max-filesize 1048576 -A 'aurora-router-panel-autoupdate/1.4.0' -o "$2" "$1" || err "не удалось скачать обновление"
+    curl -fL --max-time 25 --max-filesize 1048576 -A 'aurora-router-panel-autoupdate/1.5.0' -o "$2" "$1" || err "не удалось скачать обновление"
   fi
   [ -s "$2" ] || err "пустой ответ сервера автообновления"
   sz=$(wc -c < "$2" | tr -d ' ')
@@ -380,10 +405,34 @@ do_update(){
 # ASCII uppercase for log lines mixed into the Russian banner. Cyrillic is
 # already uppercase in the messages below; tr leaves it unchanged.
 upper(){ printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//'; }
+# Set by the Xray restart: when it fails while transparent mode is on, a detached
+# "recover" keeps trying to bring Xray and transparent mode back.
+RECOVER_ON_FAIL=""
+SVC_PFX=""
+spawn_recover(){
+  if [ -n "${VLESS_AU_RECOVER_CMD:-}" ]; then sh "$VLESS_AU_RECOVER_CMD"; return 0; fi
+  setsid sh "$0" recover >/dev/null 2>&1 </dev/null &
+}
 fail_restart(){
-  printf 'ERROR: %s\n' "$1"
-  printf 'HINT: %s\n' "$2"
+  _hint=$2
+  if [ -n "$RECOVER_ON_FAIL" ] && [ ! -f "$D/tproxy.disabled" ]; then
+    spawn_recover
+    _hint="$_hint. АВТОМАТИЧЕСКОЕ ВОССТАНОВЛЕНИЕ ЗАПУЩЕНО: XRAY И ПРОЗРАЧНЫЙ РЕЖИМ ВЕРНУТСЯ САМИ В ТЕЧЕНИЕ ПАРЫ МИНУТ"
+  fi
+  printf 'ERROR: %s%s\n' "$SVC_PFX" "$1"
+  printf 'HINT: %s\n' "$_hint"
   exit 1
+}
+# Last "Failed to start" reason Xray wrote to the log after $1 (a marker line taken before the restart).
+xray_log_reason(){
+  if [ -n "${VLESS_AU_LOGREAD:-}" ]; then _l=$(sh "$VLESS_AU_LOGREAD" 2>/dev/null)
+  else
+    _all=$(logread -e xray 2>/dev/null)
+    if [ -n "$1" ] && printf '%s\n' "$_all" | grep -qF -- "$1"; then
+      _l=$(printf '%s\n' "$_all" | awk -v m="$1" 'f{print} index($0,m){f=1}')
+    else _l=$_all; fi
+  fi
+  printf '%s\n' "$_l" | grep -E 'Failed to start|panic|fatal' | tail -1 | sed -e 's/.*Failed to start: //' -e 's/.* > //' | cut -c1-160
 }
 busy_ports(){
   if [ -n "${VLESS_AU_PORTS_BUSY:-}" ] && [ "$VLESS_AU_PORTS_BUSY" != 1 ]; then
@@ -486,21 +535,28 @@ restart_naive(){
   fi
 }
 restart_xray(){
+  [ -f "$D/tproxy.disabled" ] || RECOVER_ON_FAIL=1
+  _mark=""
+  [ -z "${VLESS_AU_LOGREAD:-}" ] && _mark=$(logread -e xray 2>/dev/null | tail -n 1 | cut -c1-120)
   if ! xrestart; then
+    lr=$(xray_log_reason "$_mark")
     errf=$(tail -c 400 /tmp/xray-restart.err 2>/dev/null | tr '\n' ' ')
-    case "$errf" in
+    case "$errf $lr" in
       *[Pp]ermission\ denied*)
         fail_restart "НЕТ ПРАВ НА ЗАПУСК XRAY" "ЗАПУСТИТЕ ПЕРЕЗАПУСК ОТ ROOT, ПРОВЕРЬТЕ CHMOD 755 $(upper "$XRAY_BIN") И ВЛАДЕЛЬЦА /ETC/XRAY"
         ;;
       *[Aa]ddress\ already\ in\ use*)
-        fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
+        bp=$(printf '%s' "$lr" | sed -n 's/.*:\([0-9][0-9]*\): bind.*/\1/p')
+        [ -n "$bp" ] && bp="$bp/TCP" || bp=$(busy_ports | sed 's/^ *//')
+        fail_restart "ПОРТ ЗАНЯТ: $bp" "ПОРТ ЕЩЁ ДЕРЖАТ СОЕДИНЕНИЯ СТАРОГО ПРОЦЕССА XRAY, ПОДОЖДИТЕ ОКОЛО МИНУТЫ И ПОВТОРИТЕ ПЕРЕЗАПУСК; ЕСЛИ НЕ ПРОХОДИТ, НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP И ОСТАНОВИТЕ ЕГО"
         ;;
     esac
     if xports_busy; then
       fail_restart "ПОРТ ЗАНЯТ: $(busy_ports | sed 's/^ *//')" "НАЙДИТЕ ПРОЦЕСС ЧЕРЕЗ NETSTAT -LNTUP, ОСТАНОВИТЕ ЕГО И ПОВТОРИТЕ ПЕРЕЗАПУСК"
     fi
     extra=""
-    [ -n "$errf" ] && extra=": $(upper "$errf")"
+    [ -n "$lr" ] && extra=": $(upper "$lr")"
+    [ -z "$extra" ] && [ -n "$errf" ] && extra=": $(upper "$errf")"
     fail_restart "XRAY НЕ ЗАПУСТИЛСЯ${extra}" "ПОСМОТРИТЕ LOGREAD -E XRAY, УСТРАНИТЕ ПРИЧИНУ И ПОВТОРИТЕ ПЕРЕЗАПУСК"
   fi
   if ! proc_stable xray "$STABLE_SECS"; then
@@ -549,7 +605,17 @@ do_restart(){
 do_restart_svc(){
   rm -f /tmp/xray-restart.err
   case "$1" in
-    xray|wireguard)
+    xray)
+      require_bin "$XRAY_BIN" XRAY
+      check_xray
+      restart_xray;;
+    wireguard)
+      # WireGuard is an outbound inside Xray: restarting it means restarting Xray,
+      # which only makes sense (and is only done) while WireGuard is the connected protocol.
+      SVC_PFX="WIREGUARD (РАБОТАЕТ ВНУТРИ XRAY): "
+      if [ "$PROTO" != wg ]; then
+        fail_restart "WIREGUARD СЕЙЧАС НЕ ПОДКЛЮЧЁН, ПЕРЕЗАПУСКАТЬ НЕЧЕГО" "XRAY НЕ ТРОНУТ: ПОДКЛЮЧИТЕ WIREGUARD КНОПКОЙ «ПОДКЛЮЧИТЬ WIREGUARD», ЗАТЕМ ПЕРЕЗАПУСТИТЕ"
+      fi
       require_bin "$XRAY_BIN" XRAY
       check_xray
       restart_xray;;
@@ -622,6 +688,17 @@ on) rm -f $D/tproxy.disabled; hyup "$PROTO"; /etc/init.d/xray-client enable; xre
 off) touch $D/tproxy.disabled; $D/tproxy.sh down; echo OK;;
 restart) do_restart;;
 restart-svc) do_restart_svc "$2";;
+recover)
+  # Detached helper started after a failed Xray restart: keep trying until Xray
+  # listens again (xrestart switches transparent mode back on), then stop.
+  mkdir "$RECOVER_LOCK" 2>/dev/null || exit 0
+  trap 'rmdir "$RECOVER_LOCK" 2>/dev/null' EXIT
+  n=0
+  while [ $n -lt 6 ]; do
+    [ -f "$D/tproxy.disabled" ] && exit 0
+    xrestart && { au_tproxy; exit 0; }
+    n=$((n+1))
+  done;;
 egress) egress_ip || exit 1;;
 status)
   echo "running=$(pidof xray >/dev/null && echo 1 || echo 0)"

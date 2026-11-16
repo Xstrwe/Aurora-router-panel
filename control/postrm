@@ -1,5 +1,5 @@
 #!/bin/sh
-# Remove the uhttpd 'vless' instance only on a full uninstall, not on upgrade.
+# Remove the uhttpd 'vpn_panel' instance only on a full uninstall, not on upgrade.
 # Leave user state (/etc/xray/link.txt, config.json, hy2.txt, naive.txt,
 # wg.conf, wg.json, server_ip, mode, proto, httpd.conf,
 # /etc/hysteria/client.yaml, /etc/naive/config.json,
@@ -8,14 +8,16 @@
 [ "$PKG_UPGRADE" = "1" ] && exit 0
 
 # Fallback if prerm could not source the helper (files already removed).
-if [ -f /etc/crontabs/root ] && grep -q 'aurora-router-panel-autoupdate' /etc/crontabs/root; then
-	sed -i '/aurora-router-panel-autoupdate/d' /etc/crontabs/root
+if [ -f /etc/crontabs/root ] && grep -q 'vpn-panel-gl-inet-autoupdate' /etc/crontabs/root; then
+	sed -i '/vpn-panel-gl-inet-autoupdate/d' /etc/crontabs/root
 	/etc/init.d/cron restart >/dev/null 2>&1 || true
 fi
 
-if uci -q get uhttpd.aurora >/dev/null; then
-	uci -q delete uhttpd.aurora
-	uci commit uhttpd
-	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
-fi
+for SEC in vpn_panel aurora vless; do
+	if uci -q get uhttpd.$SEC >/dev/null; then
+		uci -q delete uhttpd.$SEC
+		uci commit uhttpd
+		/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+	fi
+done
 exit 0

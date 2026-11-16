@@ -33,7 +33,7 @@ env:
 jobs:
   build:
     # Publish only from the public repository; the private -dev mirror never releases.
-    if: github.repository == 'Xstrwe/Aurora-router-panel'
+    if: github.repository == 'Xstrwe/vpn.panel-gl.inet'
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.resolve.outputs.publish }}
@@ -112,8 +112,12 @@ jobs:
           for t in $(gh release list --limit 500 --json tagName --jq '.[].tagName'); do
             gh release download "$t" --pattern '*.ipk' --dir "$SITE/all" --skip-existing 2>/dev/null || true
           done
+          # Releases up to 1.4.0 were published as aurora-router-panel_<version>_all.ipk. They
+          # stay downloadable (legacy/) but are not part of the index of this package.
+          mkdir -p "$SITE/legacy"
+          mv "$SITE"/all/aurora-router-panel_*.ipk "$SITE/legacy/" 2>/dev/null || true
           # The freshly built package always wins over a downloaded copy of the same version.
-          cp -f "feed/all/aurora-router-panel_${VER}_all.ipk" "$SITE/all/"
+          cp -f "feed/all/vpn-panel-gl-inet_${VER}_all.ipk" "$SITE/all/"
           # Packages / Packages.gz list the newest version (opkg ordering).
           tools/mkfeed.sh "$SITE/all"
           NEWEST=$(sed -n 's/^Version: //p' "$SITE/all/Packages" | head -1)
@@ -135,25 +139,25 @@ jobs:
           usign -S -m _site/all/Packages -s "$RUNNER_TEMP/aurora.sec" -x _site/all/Packages.sig
           rm -f "$RUNNER_TEMP/aurora.sec"
           # The published public key must verify what we just signed.
-          usign -V -m _site/all/Packages -p keys/aurora-router-panel.pub -x _site/all/Packages.sig
-          echo "Signature verified with keys/aurora-router-panel.pub"
+          usign -V -m _site/all/Packages -p keys/vpn-panel-gl-inet.pub -x _site/all/Packages.sig
+          echo "Signature verified with keys/vpn-panel-gl-inet.pub"
 
       - name: Add keys and index page to the Pages site
         if: steps.resolve.outputs.publish == 'true'
         run: |
           set -eu
           SITE=_site
-          FP=$(usign -F -p keys/aurora-router-panel.pub)
-          cp keys/aurora-router-panel.pub "$SITE/aurora-router-panel.pub"
-          cp keys/aurora-router-panel.pub "$SITE/keys/$FP"
+          FP=$(usign -F -p keys/vpn-panel-gl-inet.pub)
+          cp keys/vpn-panel-gl-inet.pub "$SITE/vpn-panel-gl-inet.pub"
+          cp keys/vpn-panel-gl-inet.pub "$SITE/keys/$FP"
           touch "$SITE/.nojekyll"
           BASE="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}"
           LINKS=$(cd "$SITE/all" && for f in *.ipk; do printf '<li><a href="all/%s">%s</a></li>\n' "$f" "$f"; done)
           cat > "$SITE/index.html" <<HTML
           <!doctype html>
           <meta charset="utf-8">
-          <title>Aurora-router-panel opkg feed</title>
-          <h1>Aurora-router-panel opkg feed</h1>
+          <title>vpn.panel-gl.inet opkg feed</title>
+          <h1>vpn.panel-gl.inet opkg feed</h1>
           <p>Signed opkg feed for OpenWrt (architecture <code>all</code>).
           Source: <a href="https://github.com/${GITHUB_REPOSITORY}">${GITHUB_REPOSITORY}</a>.
           The index lists the newest version, pre-releases included; every older file stays available.</p>
@@ -161,14 +165,14 @@ jobs:
           # public key (usign key id $FP)
           wget -O /etc/opkg/keys/$FP $BASE/keys/$FP
           # feed
-          echo 'src/gz aurora $BASE/all' >> /etc/opkg/customfeeds.conf
-          opkg update &amp;&amp; opkg install aurora-router-panel
+          echo 'src/gz vpn_panel $BASE/all' >> /etc/opkg/customfeeds.conf
+          opkg update &amp;&amp; opkg install vpn-panel-gl-inet
           </pre>
           <ul>
           <li><a href="all/Packages">all/Packages</a>,
               <a href="all/Packages.gz">Packages.gz</a>,
               <a href="all/Packages.sig">Packages.sig</a></li>
-          <li><a href="aurora-router-panel.pub">aurora-router-panel.pub</a></li>
+          <li><a href="vpn-panel-gl-inet.pub">vpn-panel-gl-inet.pub</a></li>
           </ul>
           <h2>Packages</h2>
           <ul>
@@ -192,9 +196,9 @@ jobs:
             exit 1
           fi
           BASE="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}"
-          FP=$(usign -F -p keys/aurora-router-panel.pub)
+          FP=$(usign -F -p keys/vpn-panel-gl-inet.pub)
           {
-            echo "## Aurora-router-panel $VER"
+            echo "## vpn.panel-gl.inet $VER"
             echo
             if [ "$PRE" = true ]; then
               echo "> Pre-release. The opkg feed offers it as the newest version, so \`opkg upgrade\` installs it."
@@ -206,8 +210,8 @@ jobs:
             echo
             echo '```sh'
             echo "wget -O /etc/opkg/keys/$FP $BASE/keys/$FP"
-            echo "echo 'src/gz aurora $BASE/all' >> /etc/opkg/customfeeds.conf"
-            echo "opkg update && opkg install aurora-router-panel"
+            echo "echo 'src/gz vpn_panel $BASE/all' >> /etc/opkg/customfeeds.conf"
+            echo "opkg update && opkg install vpn-panel-gl-inet"
             echo '```'
             echo
             echo "The attached \`.ipk\` can also be installed directly; \`.sha256\` holds its SHA-256 checksum."
@@ -223,10 +227,10 @@ jobs:
           PRE: ${{ steps.resolve.outputs.prerelease }}
         run: |
           set -eu
-          IPK="feed/all/aurora-router-panel_${VER}_all.ipk"
-          ( cd feed/all && sha256sum "aurora-router-panel_${VER}_all.ipk" > "$GITHUB_WORKSPACE/$IPK.sha256" )
+          IPK="feed/all/vpn-panel-gl-inet_${VER}_all.ipk"
+          ( cd feed/all && sha256sum "vpn-panel-gl-inet_${VER}_all.ipk" > "$GITHUB_WORKSPACE/$IPK.sha256" )
           mv "$IPK.sha256" "$RUNNER_TEMP/"
-          SUM="$RUNNER_TEMP/aurora-router-panel_${VER}_all.ipk.sha256"
+          SUM="$RUNNER_TEMP/vpn-panel-gl-inet_${VER}_all.ipk.sha256"
           if [ "$EXISTS" = true ]; then
             echo "Release $TAG exists; refreshing its assets."
             gh release upload "$TAG" "$IPK" "$SUM" --clobber
@@ -237,7 +241,7 @@ jobs:
               TARGET="--target $GITHUB_SHA"
             fi
             FLAGS=""
-            TITLE="Aurora-router-panel $VER"
+            TITLE="vpn.panel-gl.inet $VER"
             if [ "$PRE" = true ]; then
               FLAGS="--prerelease"
               TITLE="$TITLE (pre-release)"
@@ -255,7 +259,7 @@ jobs:
 
   deploy:
     needs: build
-    if: github.repository == 'Xstrwe/Aurora-router-panel' && needs.build.outputs.publish == 'true'
+    if: github.repository == 'Xstrwe/vpn.panel-gl.inet' && needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

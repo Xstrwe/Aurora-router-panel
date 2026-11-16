@@ -1,0 +1,74 @@
+#!/bin/sh /etc/rc.common
+# Native WireGuard client for the Aurora panel: kernel interface "wg-aurora"
+# built from /etc/xray/wg.json. It adds no default route to the main table:
+# only sockets bound to the interface (Xray's "proxy" outbound) use it, through
+# policy routing table 871 ("ip rule oif wg-aurora"). Needs kmod-wireguard,
+# wireguard-tools, ip-full and jq.
+START=94
+STOP=11
+
+WGIF=wg-aurora
+WGTABLE=871
+WGJ=${AURORA_WG_JSON:-/etc/xray/wg.json}
+WGCACHE=${AURORA_WG_CACHE:-/etc/xray/wg.resolved}
+
+wg_fail() { echo "$*" >&2; return 1; }
+
+# host:port -> ip:port. IP literals pass through; a name is resolved, and the
+# last good answer is cached because DNS may itself depend on the tunnel.
+wg_resolve() {
+	_h=${1%:*}; _p=${1##*:}
+	case "$_h" in
+		*[!0-9.]*) ;;
+		*) echo "$1"; return 0;;
+	esac
+	case "$_h" in \[*) echo "$1"; return 0;; esac
+	_ip=$(nslookup "$_h" 2>/dev/null | awk '/^Name:/{n=1} n&&/^Address/{print $NF}' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1)
+	if [ -n "$_ip" ]; then
+		{ grep -v "^$_h " "$WGCACHE" 2>/dev/null; echo "$_h $_ip"; } > "$WGCACHE.tmp" && mv "$WGCACHE.tmp" "$WGCACHE"
+		echo "$_ip:$_p"; return 0
+	fi
+	_ip=$(grep "^$_h " "$WGCACHE" 2>/dev/null | cut -d' ' -f2 | head -1)
+	[ -n "$_ip" ] && { echo "$_ip:$_p"; return 0; }
+	return 1
+}
+
+wg_down() {
+	ip rule del oif "$WGIF" lookup "$WGTABLE" 2>/dev/null
+	ip route flush table "$WGTABLE" 2>/dev/null
+	ip link del "$WGIF" 2>/dev/null
+	return 0
+}
+
+start() {
+	wg_down
+	[ -s "$WGJ" ] || { wg_fail "WireGuard config is not saved ($WGJ)"; return 1; }
+	command -v wg >/dev/null 2>&1 || { wg_fail "wireguard-tools is not installed (wg missing)"; return 1; }
+	[ -d /sys/module/wireguard ] || modprobe wireguard 2>/dev/null
+	ip link add "$WGIF" type wireguard 2>/dev/null || { wg_fail "cannot create the interface $WGIF: kmod-wireguard is not installed or not loaded"; return 1; }
+	_map='{}'
+	for _ep in $(jq -r '.settings.peers[].endpoint // empty' "$WGJ"); do
+		_r=$(wg_resolve "$_ep") || { wg_down; wg_fail "cannot resolve the WireGuard endpoint $_ep"; return 1; }
+		_map=$(printf '%s' "$_map" | jq -c --arg k "$_ep" --arg v "$_r" '. + {($k):$v}')
+	done
+	jq -r --argjson m "$_map" '
+		"[Interface]\nPrivateKey = \(.settings.secretKey)\n" +
+		([.settings.peers[] | "[Peer]\nPublicKey = \(.publicKey)\n"
+			+ (if .preSharedKey then "PresharedKey = \(.preSharedKey)\n" else "" end)
+			+ (if .endpoint then "Endpoint = \($m[.endpoint] // .endpoint)\n" else "" end)
+			+ "AllowedIPs = \((.allowedIPs // ["0.0.0.0/0"]) | join(","))\n"] | join(""))' "$WGJ" \
+		| wg setconf "$WGIF" /dev/stdin 2>/tmp/wireguard-client.err \
+		|| { _e=$(tr '\n' ' ' < /tmp/wireguard-client.err); wg_down; wg_fail "wg setconf failed: $_e"; return 1; }
+	for _a in $(jq -r '.settings.address[]? // empty' "$WGJ"); do
+		ip address add "$_a" dev "$WGIF" 2>/dev/null || true
+	done
+	_mtu=$(jq -r '.settings.mtu // 1420' "$WGJ")
+	ip link set dev "$WGIF" mtu "$_mtu" up 2>/dev/null || { wg_down; wg_fail "cannot bring $WGIF up"; return 1; }
+	ip route replace default dev "$WGIF" table "$WGTABLE" 2>/dev/null || { wg_down; wg_fail "cannot add the route (table $WGTABLE)"; return 1; }
+	ip rule add oif "$WGIF" lookup "$WGTABLE" pref "$WGTABLE" 2>/dev/null || { wg_down; wg_fail "cannot add the policy rule: ip-full is required"; return 1; }
+	return 0
+}
+
+stop() {
+	wg_down
+}

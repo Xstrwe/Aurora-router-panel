@@ -1,5 +1,204 @@
 # Changelog
 
+## 1.5.0a5
+
+Install the VPN clients from the panel. Pre-release.
+
+- New **Install VPN clients** block in the middle of the page with four buttons:
+  **Install VLESS**, **Install Hysteria 2**, **Install Naive** and
+  **Install WireGuard**. Under each button a progress bar shows 0-100% and the current
+  step. The block lists only the clients that are not installed yet (Naive counts as
+  installed only when both `naive` and `dnsproxy` are present). While an install runs its
+  card stays with the progress; at 100% it shows "Installed" for a moment and disappears.
+  On an error the card stays with the reason. When all four clients are installed the whole
+  block (heading, cards and hint) is not on the page.
+- Every client is the official build from its developer and stays a separate program with
+  its own service:
+  - VLESS: the XTLS/Xray-core release for the router's CPU, checked against the published
+    SHA-256, installed to `/usr/bin/xray` with the `geoip.dat` and `geosite.dat` from the
+    same release in `/usr/share/xray`.
+  - Hysteria 2: the apernet/hysteria release binary, checked against the published
+    `hashes.txt`.
+  - Naive: the klzgrad/naiveproxy OpenWrt build via `install-naive.sh`, checked against
+    the SHA-256 digest GitHub publishes for the release file, **together with `dnsproxy`**
+    (AdguardTeam/dnsproxy release for the router's CPU, e.g. `linux-arm64`; checked against
+    its published SHA-256). One progress bar (Naive 0-70%, dnsproxy 70-100%); the card shows
+    both versions and counts as installed only when both are present. Both files are replaced
+    together after both downloads are verified; if the Naive service is running it is restarted
+    once, with rollback of both files.
+  - WireGuard: `kmod-wireguard`, `wireguard-tools` and `ip-full` from opkg.
+- Free space is checked before anything is downloaded. If GitHub is not reachable
+  directly, the download is retried through the local SOCKS entry of the active protocol.
+  Only the service whose own binary is replaced is restarted, and only if it was running;
+  the old files are put back if it does not start. Nothing is downloaded when the
+  package is installed.
+- New `vless.sh install xray|hy2|naive|wg` (runs in the background) and
+  `vless.sh install-status`. Progress is written to `/tmp/aurora-install-<client>.json`.
+- New helper scripts `install-client.sh` and `install-lib.sh` in
+  `/usr/libexec/aurora-panel`. `install-naive.sh` can report progress.
+- `INSTALL.md` and `README.md` describe the Install buttons.
+- The product is now called **vpn.panel-gl.inet** (page title and header, README,
+  INSTALL, package description). The page address is `/cgi-bin/vpn` instead of
+  `/cgi-bin/vless`. The opkg package is **`vpn-panel-gl-inet`**; it replaces
+  `aurora-router-panel` and `vless-router-panel`, so an install upgrades in place and
+  keeps `/etc/xray/*` (links, `httpd.conf` login), `/etc/hysteria` and `/etc/naive`.
+  The uhttpd section is `vpn_panel` (page files in `/www-vpn-panel`, helper scripts in
+  `/usr/libexec/vpn-panel`); the old section, directories and autoupdate cron line are
+  removed on install. The repository is
+  `Xstrwe/vpn.panel-gl.inet` and the feed is now
+  `https://xstrwe.github.io/vpn.panel-gl.inet/all` (the signing key is unchanged; the
+  key file is `keys/vpn-panel-gl-inet.pub`). The old feed address no longer works: change
+  the line in `/etc/opkg/customfeeds.conf` once (see `INSTALL.md`).
+- The backend script is renamed from `/etc/xray/vless.sh` to `/etc/panel/vpn.sh`, and
+  the CGI, init script, autoupdate and install helpers, tests and docs call the new path.
+  Only the script moved: links, saved configs, `httpd.conf`, `proto`, `mode`, the
+  `/etc/xray` helpers (`tproxy.sh`, `gen.uc`, `hy2.uc`) and all other user state stay
+  where they were. The install removes the old `/etc/xray/vless.sh` and leaves no link
+  under that name, so any own script that calls it must use `/etc/panel/vpn.sh` (same
+  commands).
+- The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
+  README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**,
+  **Port** (default 443), **Username**, **Password** (with a show/hide button) and
+  **Scheme** (`https` or `quic`) fields, plus a collapsible **Advanced** section with only
+  keys upstream documents: `insecure-concurrency`, `extra-headers` (one per line),
+  `tunnel-timeout` and `idle-timeout`, and an optional **Subscription URL** with the
+  auto-update row and **Update now** (auto-update re-fetches a subscription; it has
+  nothing to do without one). `vpn.sh naivesave <file>` takes these fields as key=value
+  lines (or, as before, a `naive+https://` / `naive+quic://` link), validates them (host
+  name or IPv4, port 1-65535, one-line username and password) and writes
+  `/etc/naive/config.json` with `"listen"` (unchanged: SOCKS `127.0.0.1:10828` and redir
+  `:12366`), `"proxy": "<scheme>://<user>:<pass>@<host>:<port>"` (username and password
+  percent-encoded) and `"host-resolver-rules": "MAP <host> <ip>"`. New `vpn.sh naive-show`
+  prints the fields as JSON without the password.
+- The saved Naive password is never written into the page: the field is empty with a
+  "saved" placeholder, and leaving it empty keeps the saved password. Existing settings
+  carry over without a save: the fields are read from `/etc/naive/config.json` (or, before
+  the first save, from the saved link), and saving the same values writes the same file.
+- The page decodes form fields with awk instead of `printf %b`, so a backslash in a
+  password or a header stays a backslash.
+- Status card: **Server:** shows only the active protocol's configured server host (the IP
+  when it is configured by IP; no port, no SNI), and **Egress IP:** shows the egress IP
+  followed by that server's port (`<egress-ip>:<port>`). Both come from the active
+  protocol's own saved config.
+- Removed the hints "IPv6 is not proxied." and "Local proxies for individual apps: ..."
+  from the page (nothing else changed: the local proxy ports work as before).
+- Fixed on a real GL-BE6500 (found while testing the buttons):
+  - Install Naive found no build because the router reports its CPU as
+    `aarch64_cortex-a53_neon-vfpv4`; the installer now also tries the name without the
+    FPU suffix and the generic build of the CPU family.
+  - Clients built with Go 1.24 or newer (current Xray and Hysteria 2) listen with MPTCP, and
+    such a listener could not rebind its port while old connections were still in TIME_WAIT,
+    so restarting Xray or Hysteria under traffic failed with "address already in use" for
+    about a minute. The services of Xray, Hysteria 2 and dnsproxy now start with
+    `GODEBUG=multipathtcp=0`; a restart takes about 5-10 seconds.
+
+## 1.5.0a4
+
+Honest status: the panel no longer claims the network is working when it is not.
+Pre-release.
+
+- **Transparent mode** for the network is green **ENABLED** only when the active
+  protocol really passes traffic (the same check the Test button runs). When
+  transparent mode is on but the service is down or no traffic passes, it turns
+  red **ERROR** and a banner at the top of the page says what caused it and how to
+  fix it. When transparent mode is off it stays red **DISABLED**.
+- **Test** and **Speed** now measure the active protocol through its own local
+  entry (Xray, Hysteria, Naive or WireGuard). Before, they always went through the
+  Xray SOCKS port, so with Naive or Hysteria active, Test reported
+  "no connection (code 000)" even though traffic was passing.
+- New `vless.sh health` (`off`, `down`, `broken`, `ok`, cached for 20 s) and
+  `vless.sh probe 204|youtube|ip|speed`.
+
+## 1.5.0a3
+
+Every protocol is now fully independent: its own service, its own steering rules
+and its own split file. Nothing goes through Xray except VLESS. Pre-release.
+
+- **Hysteria2** runs alone (`hysteria-client`) with native `tcpRedirect`, `udpTProxy`
+  and DNS forwarding listeners. **Naive** runs alone (`naive-client`) with its
+  `redir` listener and `dnsproxy` for DNS over TCP. **WireGuard** runs alone
+  (`wireguard-client`, kernel interface) with fwmark policy routing (table 871),
+  masquerade and MSS clamp. Xray is stopped when it is not the active protocol.
+- New `aurora-split.sh`: one nft table per protocol (`aurora_hy`, `aurora_nv`,
+  `aurora_wg`) and one editable split file per protocol (`/etc/hysteria/split.conf`,
+  `/etc/naive/split.conf`, `/etc/xray/wg.split.conf`). Hysteria 2 has no
+  client-side ACL, so the split is done in nftables. New `aurora-geoip.sh` reads
+  the country ranges from Xray's `geoip.dat` (BusyBox `hexdump`, no extra tools).
+- Switching starts the target, checks a connection through the target's own local
+  entry, switches its steering on, checks DNS, then stops the other protocols
+  (including Xray when you leave VLESS). Any failure restores the target's files and
+  keeps the previous protocol. A boot hook (`aurora-steer`) enables the steering
+  only after the protocol works (fail open).
+- Saving, autoupdating, restarting or updating the client of one protocol touches
+  only that protocol. Autoupdate backup and rollback are per protocol; saving a
+  Hysteria2 link never regenerates or restarts Xray.
+- Hysteria2 and Naive store the server address as an IP (the name stays in the
+  SNI / host-resolver rule), so reconnecting never needs DNS through the tunnel.
+- `vless.sh client-update xray|hysteria|naive|wireguard check|install` updates one
+  client from its own upstream (SHA-256 checked for Xray and hysteria) and restarts
+  only that client.
+- The service row shows grey for a daemon that is stopped because it is not the
+  active protocol, red only when the active protocol's daemon is down. The Naive
+  card and messages say "Naive". `vless.sh status` gained `active_up=` and reports the
+  mode and the server address of the active protocol.
+- The `xray-client` init script no longer turns transparent mode on when another
+  protocol is active.
+- Upgrading from 1.5.0a2 rebuilds the active Hysteria2/Naive/WireGuard config and
+  brings it up as its own service.
+
+## 1.5.0a2
+
+- WireGuard is now its own service, like Naive and Hysteria. The new init
+  script `wireguard-client` brings up a kernel interface `wg-aurora` from
+  `/etc/xray/wg.json` (it needs `kmod-wireguard`, `wireguard-tools`, `ip-full`
+  and `jq`). It does not touch the main routing table: only sockets bound to the
+  interface use it, through policy routing (`ip rule oif wg-aurora`, table 871).
+- With WireGuard as the active protocol, Xray's proxy outbound is a `freedom`
+  outbound bound to `wg-aurora`, so the Russian-sites split (`ru` mode) and DNS
+  work as with the other protocols. Switching to WireGuard starts the interface
+  first and changes nothing if it cannot come up.
+- The WireGuard ↻ button restarts only `wireguard-client` and never touches
+  Xray or transparent mode. The service row shows the real state: running, not
+  running, config not saved, or not installed (red, with the reason).
+- `vless.sh status` reports `wireguard=` and `inst_wireguard=`. Switching to
+  another protocol stops `wireguard-client`.
+- The WireGuard endpoint name is resolved when the interface starts; the last
+  good answer is kept in `/etc/xray/wg.resolved` in case DNS depends on the
+  tunnel.
+- Upgrading from a version that ran WireGuard inside Xray regenerates the
+  config on install.
+
+## 1.5.0a1
+
+- Interface wording update.
+
+## 1.5.0
+
+Fix release for 1.4.0: restarting a service from the status card could leave
+Xray down and transparent mode off.
+
+### Fixed
+
+- Xray restart: after the old Xray stops, the new one can fail to bind
+  `0.0.0.0:12346` ("address already in use") for up to about a minute, because
+  of connections left over from the old process. The restart now retries the
+  start (clean stop in between, up to 75 s) instead of giving up after 15 s and
+  leaving procd in a crash loop.
+- Transparent mode is switched off while Xray is not listening, so the LAN is
+  never redirected to a closed port, and is switched on again as soon as Xray
+  listens. If the restart still fails, a detached `vless.sh recover` keeps
+  trying (up to 6 more starts) and re-enables transparent mode when Xray is
+  back, unless it was switched off on purpose.
+- WireGuard runs inside Xray, so its ↻ button now does nothing and leaves Xray
+  alone unless WireGuard is the connected protocol; in that case the button is
+  greyed out with an explanation.
+- Banners name the service that was pressed (for example
+  `WIREGUARD (RUNS INSIDE XRAY): ...`) and give the concrete reason taken from
+  `logread -e xray` (for example the port that could not be bound), plus a note
+  when automatic recovery has been started.
+- Restarting Xray never starts Naive or Hysteria: they are only touched by
+  their own buttons or by switching the protocol.
+
 ## 1.4.0
 
 Round release after 1.3.0a4: a reworked status card, equal-size VPN cards,

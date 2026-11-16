@@ -1,16 +1,16 @@
 #!/bin/sh
-# Hourly cron runner: for each enabled proto, run vless.sh update
+# Hourly cron runner: for each enabled proto, run vpn.sh update
 # when its interval has elapsed. Idempotent; skips a second overlap.
 set -u
 
 D=${VLESS_PANEL_DIR:-/etc/xray}
 HYD=${VLESS_HYSTERIA_DIR:-/etc/hysteria}
 NAD=${VLESS_NAIVE_DIR:-/etc/naive}
-LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
+LIB=${VLESS_AU_LIB:-/usr/libexec/vpn-panel/autoupdate-lib.sh}
 # shellcheck disable=SC1090
 . "$LIB"
 
-SH=${VLESS_SH:-/etc/xray/vless.sh}
+SH=${VLESS_SH:-/etc/panel/vpn.sh}
 LOCK=${VLESS_AU_LOCK:-/var/run/aurora-panel-autoupdate.lock}
 
 log() { logger -t vless-autoupdate "$*" 2>/dev/null || echo "autoupdate: $*" >&2; }

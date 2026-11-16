@@ -1,0 +1,687 @@
+#!/bin/sh
+D=${VLESS_PANEL_DIR:-/etc/xray}
+V=${VLESS_SH:-/etc/panel/vpn.sh}
+AU_LIB=${VLESS_AU_LIB:-/usr/libexec/vpn-panel/autoupdate-lib.sh}
+# shellcheck disable=SC1090
+[ -f "$AU_LIB" ] && . "$AU_LIB"
+esc(){ sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
+# Form-urlencoded value -> raw bytes ("+" = space, %XX = byte). Plain awk, so a typed
+# backslash (e.g. in a password) stays a backslash.
+ud(){ printf '%s' "$1" | LC_ALL=C awk 'BEGIN{for(i=1;i<256;i++)h[sprintf("%02X",i)]=sprintf("%c",i)}
+  {gsub(/\+/," "); s=$0; r=""; while((p=index(s,"%"))>0){x=toupper(substr(s,p+1,2)); if(x in h){r=r substr(s,1,p-1) h[x]; s=substr(s,p+3)} else {r=r substr(s,1,p); s=substr(s,p+1)}} printf "%s",r s}'; }
+fld(){ printf '%s' "$POST" | tr '&' '\n' | sed -n "s/^$1=//p" | head -1; }
+# $1 proto: the "Auto-update" row (checkbox + interval, one line) inside a card form
+au_row(){
+  au_load "$1"
+  EN=""; [ "$AU_ENABLED" = 1 ] && EN=checked
+  I1=""; I6=""; I24=""
+  case "$AU_INTERVAL" in 1h) I1=selected ;; 6h) I6=selected ;; *) I24=selected ;; esac
+  cat <<BLK
+<div class=au><b>Auto-update</b>
+<label><input type=checkbox name=en value=1 $EN> on</label>
+<label>Interval <select name=int>
+<option value=1h $I1>1 hour</option>
+<option value=6h $I6>6 hours</option>
+<option value=24h $I24>24 hours</option>
+</select></label></div>
+BLK
+}
+# $1 proto: text of the link field = subscription URL if one is saved, else the saved link
+field_raw(){
+  if [ -f "$AU_DIR/$1.src" ]; then cat "$AU_DIR/$1.src"; else cat "$(au_current_file "$1")"; fi 2>/dev/null
+}
+# $1 field name, $2 HTML-escaped value, $3 optional raw placeholder.
+# Always a 2-line field; longer text scrolls inside it.
+link_field(){
+  _n="$1"; _v="$2"; _ph="$3"
+  _pha=
+  if [ -n "$_ph" ]; then
+    _pha=" placeholder=\"$(printf '%s' "$_ph" | esc)\""
+  fi
+  cat <<BLK
+<div class=fld><textarea name=$_n rows=2 spellcheck=false$_pha>$_v</textarea></div>
+BLK
+}
+# $1 proto socks|http — separate fields, always visible (the card itself is revealed separately)
+proxy_fields(){
+  F=$D/$1.json
+  ADDR=; PORT=; USER=; PASS=; SNI=; TLS=; INS=
+  if [ "$PF_BAD" = "$1" ]; then
+    # The save failed: keep what was typed.
+    ADDR=$(printf '%s' "$PF_ADDR" | esc); PORT=$(printf '%s' "$PF_PORT" | esc)
+    USER=$(printf '%s' "$PF_USER" | esc); PASS=$(printf '%s' "$PF_PASS" | esc)
+    SNI=$(printf '%s' "$PF_SNI" | esc)
+    [ "$PF_TLS" = true ] && TLS=checked
+    [ "$PF_INS" = true ] && INS=checked
+  elif [ -s "$F" ]; then
+    ADDR=$(jq -r '.address // empty' "$F" | esc)
+    PORT=$(jq -r '.port // empty' "$F" | esc)
+    USER=$(jq -r '.user // empty' "$F" | esc)
+    PASS=$(jq -r '.pass // empty' "$F" | esc)
+    SNI=$(jq -r '.sni // empty' "$F" | esc)
+    [ "$(jq -r '.tls // false' "$F")" = true ] && TLS=checked
+    [ "$(jq -r '.allowInsecure // false' "$F")" = true ] && INS=checked
+  fi
+  cat <<BLK
+<div class=pf>
+<label>Address <input type=text name=addr value="$ADDR" autocomplete=off spellcheck=false></label>
+<label>Port <input type=text name=port value="$PORT" inputmode=numeric autocomplete=off></label>
+<label>Login <input type=text name=user value="$USER" autocomplete=off spellcheck=false></label>
+<label>Password <input type=password name=pass value="$PASS" autocomplete=new-password></label>
+BLK
+  if [ "$1" = http ]; then
+    TLSX_H=" hidden"; [ -n "$TLS" ] && TLSX_H=
+    cat <<BLK
+<label class="chk span2"><input type=checkbox name=tls value=1 $TLS> TLS</label>
+<div class="tls-extra span2"$TLSX_H>
+<label>SNI <input type=text name=sni value="$SNI" autocomplete=off spellcheck=false></label>
+<label class=chk><input type=checkbox name=insecure value=1 $INS> do not verify the certificate</label>
+</div>
+BLK
+  fi
+  cat <<BLK
+</div>
+BLK
+}
+# Naive card: separate fields of the official Naive (klzgrad) client config (server, port,
+# username, password, scheme) and an Advanced section with the optional keys from
+# upstream USAGE.txt, the subscription URL and auto-update. The saved password is
+# never written into the page: the field stays empty and an empty field keeps it.
+naive_fields(){
+  NJ=$($V naive-show 2>/dev/null)
+  nj(){ printf '%s' "$NJ" | jq -r ".$1 // empty" 2>/dev/null; }
+  if [ -n "$NV_BAD" ]; then
+    N_H=$NV_F_HOST; N_P=$NV_F_PORT; N_U=$NV_F_USER; N_S=$NV_F_SCHEME; N_C=$NV_F_CONC
+    N_HD=$NV_F_HDR; N_T=$NV_F_TT; N_I=$NV_F_IT; N_SUB=$NV_F_SUB
+  else
+    N_H=$(nj host); N_P=$(nj port); N_U=$(nj user); N_S=$(nj scheme); N_C=$(nj concurrency)
+    N_HD=$(nj headers); N_T=$(nj tunnel_timeout); N_I=$(nj idle_timeout)
+    N_SUB=$(cat "$AU_DIR/naive.src" 2>/dev/null)
+  fi
+  N_HASP=$(nj has_pass)
+  [ -n "$N_P" ] || N_P=443
+  S1=selected; S2=; [ "$N_S" = quic ] && { S1=; S2=selected; }
+  PPH="password"; [ "$N_HASP" = true ] && PPH="•••••••• (saved, leave empty to keep)"
+  ADV_O=; { [ -n "$N_C$N_HD$N_T$N_I$N_SUB" ] || [ "$NV_BAD" = adv ]; } && ADV_O=" open"
+  cat <<BLK
+<div class=pf>
+<label>Server <input type=text name=host value="$(printf '%s' "$N_H" | esc)" placeholder="example.com" autocomplete=off spellcheck=false></label>
+<label>Port <input type=text name=port value="$(printf '%s' "$N_P" | esc)" inputmode=numeric autocomplete=off></label>
+<label>Username <input type=text name=user value="$(printf '%s' "$N_U" | esc)" autocomplete=off spellcheck=false></label>
+<label>Password <span class=pw><input type=password name=pass value="" placeholder="$PPH" autocomplete=new-password><button type=button class=pwt aria-label="Show password">show</button></span></label>
+<label>Scheme <select name=scheme><option value=https $S1>https (HTTP/2)</option><option value=quic $S2>quic (HTTP/3)</option></select></label>
+</div>
+<details class=adv$ADV_O><summary>Advanced</summary>
+<div class=pf>
+<label>insecure-concurrency <input type=text name=conc value="$(printf '%s' "$N_C" | esc)" inputmode=numeric placeholder="1 (default)" autocomplete=off></label>
+<label>tunnel-timeout, s <input type=text name=tt value="$(printf '%s' "$N_T" | esc)" inputmode=numeric placeholder="1800 (default)" autocomplete=off></label>
+<label>idle-timeout, s <input type=text name=it value="$(printf '%s' "$N_I" | esc)" inputmode=numeric placeholder="600 (default)" autocomplete=off></label>
+<label class=span2>extra-headers (one per line: Name: value)<textarea name=hdr class=hdr rows=2 spellcheck=false>$(printf '%s' "$N_HD" | esc)</textarea></label>
+<label class=span2>Subscription URL (for auto-update) <input type=text name=sub value="$(printf '%s' "$N_SUB" | esc)" placeholder="https://… (optional)" autocomplete=off spellcheck=false></label>
+</div>
+BLK
+  au_row naive
+  cat <<BLK
+<p class=hint>Auto-update re-reads the subscription URL and applies the naive+https:// link it returns. Without a subscription URL there is nothing to update.</p>
+<div class=btns><button type=submit name=action value=naiveupdate>Update now</button></div>
+</details>
+BLK
+}
+# One entry of the service row: $1 whitelist key, $2 label, $3 1 if running,
+# $4 tooltip, $5 "disabled" to grey out the restart button. Running = green,
+# not running = red bold (only for the active protocol's daemon; an idle one is grey,
+# it is meant to be stopped), then a tiny restart button.
+svc_item(){
+  if [ "$3" = 1 ]; then
+    _st="color:#1a7f37"
+  elif [ "$3" = 2 ]; then
+    _st="color:#777"
+  else
+    _st="color:#c62828;font-weight:700"
+  fi
+  _t=$(printf '%s' "$4" | esc)
+  _d=""; _bt="Restart: $2"
+  if [ "$5" = disabled ]; then _d=" disabled"; _bt="$4"; fi
+  _bt=$(printf '%s' "$_bt" | esc)
+  printf '<span class=svc><span style="%s" title="%s">%s</span><form method=post class=svcb><input type=hidden name=action value=restartsvc><input type=hidden name=svc value=%s><button type=submit class=rb%s title="%s" aria-label="Restart %s"><span class=rg>&#8635;</span></button></form></span>' "$_st" "$_t" "$2" "$1" "$_d" "$_bt" "$2"
+}
+# GET ?ip: the page asks for the egress IP after it has loaded, so a dead tunnel
+# never delays the page itself (one probe, 3 s limit, cached for 60 s).
+if [ "$REQUEST_METHOD" != POST ] && [ "$QUERY_STRING" = ip ]; then
+  echo "Content-Type: text/plain; charset=utf-8"
+  echo "Cache-Control: no-store"
+  echo
+  $V egress 2>/dev/null | tr -d '\r\n\t ' | head -c 80
+  exit 0
+fi
+# GET ?install-status: JSON with installed, version and progress of the four client installs.
+# POST ?install (client=xray|hy2|naive|wg): start one install in the background (button-driven).
+if [ "$REQUEST_METHOD" != POST ] && [ "$QUERY_STRING" = install-status ]; then
+  echo "Content-Type: application/json; charset=utf-8"
+  echo "Cache-Control: no-store"
+  echo
+  $V install-status 2>/dev/null
+  exit 0
+fi
+if [ "$REQUEST_METHOD" = POST ] && [ "$QUERY_STRING" = install ]; then
+  POST=$(head -c "${CONTENT_LENGTH:-0}")
+  echo "Content-Type: text/plain; charset=utf-8"
+  echo "Cache-Control: no-store"
+  echo
+  case "$(fld client)" in
+    xray) $V install xray 2>&1;;
+    hy2) $V install hy2 2>&1;;
+    naive) $V install naive 2>&1;;
+    wg) $V install wg 2>&1;;
+    *) echo "ERROR: unknown client";;
+  esac
+  exit 0
+fi
+MSG=""
+A=""
+PF_BAD=""
+NV_BAD=""
+if [ "$REQUEST_METHOD" = POST ]; then
+  POST=$(head -c "${CONTENT_LENGTH:-0}")
+  A=$(fld action)
+  case "$A" in
+    on|off) MSG=$($V $A 2>&1);;
+    restartsvc)
+      # Fixed whitelist: the value is never passed to the shell as typed.
+      case "$(fld svc)" in
+        xray) MSG=$($V restart-svc xray 2>&1);;
+        naive) MSG=$($V restart-svc naive 2>&1);;
+        hysteria) MSG=$($V restart-svc hysteria 2>&1);;
+        wireguard) MSG=$($V restart-svc wireguard 2>&1);;
+        *) MSG="ERROR: UNKNOWN SERVICE
+HINT: USE THE BUTTON NEXT TO A SERVICE NAME";;
+      esac;;
+    mode) MSG=$($V mode "$(fld mode)" 2>&1);;
+    test) T=$($V probe 204 2>/dev/null)
+      Y=$($V probe youtube 2>/dev/null)
+      IPX=$($V probe ip 2>/dev/null)
+      set -- $T
+      if [ "$1" = 204 ]; then MSG="Test: connected ✅
+Latency: $(awk "BEGIN{printf \"%d\", $2*1000}") ms
+Egress IP: ${IPX:-?}
+YouTube: $([ "$Y" = 200 ] && echo opens || echo "code $Y")"
+      else MSG="Test: no connection ❌ (code ${1:-no response})"; fi;;
+    speed) PNX=VLESS; grep -q hy2 $D/proto 2>/dev/null && PNX=Hysteria2; grep -q naive $D/proto 2>/dev/null && PNX=Naive; grep -q wg $D/proto 2>/dev/null && PNX=WireGuard; grep -q socks $D/proto 2>/dev/null && PNX=SOCKS5; grep -q http $D/proto 2>/dev/null && PNX=HTTP; R=$($V probe speed 2>/dev/null)
+      set -- $R
+      if [ "${2%.*}" -gt 100000 ] 2>/dev/null; then MSG="Speed ($PNX): $(awk "BEGIN{printf \"%.1f\", $1*8/1000000}") Mbit/s (downloaded $(awk "BEGIN{printf \"%.1f\", $2/1048576}") MB)"
+      else MSG="Speed: could not measure ❌"; fi;;
+    proto) MSG=$($V proto "$(fld proto)" 2>&1);;
+    naivesave|naiveupdate)
+      # Naive card: fields -> key=value file (0600, never on a command line) -> vpn.sh naivesave.
+      umask 077
+      one(){ ud "$(fld "$1")" | tr -d '\r\n'; }
+      NV_F_HOST=$(one host); NV_F_PORT=$(one port); NV_F_USER=$(one user); NV_F_PASSV=$(one pass)
+      NV_F_SCHEME=$(one scheme); case "$NV_F_SCHEME" in https|quic) ;; *) NV_F_SCHEME=https;; esac
+      NV_F_CONC=$(one conc); NV_F_TT=$(one tt); NV_F_IT=$(one it)
+      NV_F_HDR=$(ud "$(fld hdr)" | tr -d '\r'); NV_F_SUB=$(one sub | tr -d ' \t')
+      EN=0; [ "$(fld en)" = 1 ] && EN=1
+      INT=$(fld int); case "$INT" in 1h|6h|24h) ;; *) INT=24h;; esac
+      IN=/tmp/cgi-naive.in; OUT=/tmp/cgi-naive.out; SUBF=/tmp/cgi-naive.sub
+      printf '%s\n' "$NV_F_SUB" > $SUBF
+      case "$NV_F_SUB" in ''|http://*|https://*) MSG=$($V autoset naive "$EN" "$INT" 2>&1);;
+        *) MSG="ERROR: The subscription URL must start with http:// or https://"; NV_BAD=adv;; esac
+      case "$MSG" in *ERROR*) ;; *)
+        if [ "$A" = naiveupdate ]; then
+          # "Update now": save the subscription URL as the source, then fetch and apply it.
+          MSG=$($V src naive $SUBF $OUT 0 2>&1)
+          case "$MSG" in *ERROR*) ;; *) MSG=$($V update naive 2>&1);; esac
+        elif [ -z "$NV_F_HOST" ] && [ -n "$NV_F_SUB" ]; then
+          # Only a subscription URL: take the server from it.
+          MSG=$($V src naive $SUBF $OUT 1 2>&1)
+          case "$MSG" in *ERROR*) ;; *) MSG=$($V naivesave $OUT 2>&1);; esac
+        else
+          {
+            printf 'host=%s\nport=%s\nuser=%s\npass=%s\nscheme=%s\n' "$NV_F_HOST" "$NV_F_PORT" "$NV_F_USER" "$NV_F_PASSV" "$NV_F_SCHEME"
+            printf 'concurrency=%s\ntunnel_timeout=%s\nidle_timeout=%s\n' "$NV_F_CONC" "$NV_F_TT" "$NV_F_IT"
+            printf '%s\n' "$NV_F_HDR" | sed 's/^/header=/'
+          } > $IN
+          MSG=$($V naivesave $IN 2>&1)
+          # the subscription URL is remembered for auto-update (an empty field forgets it)
+          case "$MSG" in *ERROR*) ;; *) $V src naive $SUBF $OUT 0 >/dev/null 2>&1;; esac
+        fi;;
+      esac
+      rm -f $IN $OUT $SUBF; NV_F_PASSV=
+      case "$MSG" in *ERROR*) [ -n "$NV_BAD" ] || NV_BAD=1;; esac;;
+    save|hy2save|wgsave|update)
+      # One form per protocol card: link field + auto-update row + two buttons.
+      AP=$(fld proto)
+      case "$AP" in vless) FN=link; CMD=save;; hy2) FN=hy2; CMD=hy2save;; wg) FN=wg; CMD=wgsave;; *) AP=""; MSG="ERROR: unknown protocol";; esac
+      if [ -n "$AP" ]; then
+        EN=0; [ "$(fld en)" = 1 ] && EN=1
+        INT=$(fld int); case "$INT" in 1h|6h|24h) ;; *) INT=24h;; esac
+        MSG=$($V autoset "$AP" "$EN" "$INT" 2>&1)
+        case "$MSG" in *ERROR*) ;; *)
+          IN=/tmp/cgi-$AP.in; OUT=/tmp/cgi-$AP.out
+          ud "$(fld $FN)" > $IN
+          NEW=$(tr -d '\r\n\t ' < $IN)
+          OLD=$(field_raw "$AP" | tr -d '\r\n\t ')
+          if [ "$A" = update ] && { [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; }; then
+            # Nothing new in the field: just re-fetch from the saved link.
+            MSG=$($V update "$AP" 2>&1)
+          elif [ "$A" = update ] && case "$NEW" in http://*|https://*) true;; *) false;; esac; then
+            # New subscription URL: save it as the source, then update from it.
+            MSG=$($V src "$AP" $IN $OUT 0 2>&1)
+            case "$MSG" in *ERROR*) ;; *) MSG=$($V update "$AP" 2>&1);; esac
+          else
+            # Connect, or "update now" with a new direct link: save it and apply.
+            MSG=$($V src "$AP" $IN $OUT 1 2>&1)
+            case "$MSG" in *ERROR*) ;; *) MSG=$($V $CMD $OUT 2>&1);; esac
+          fi
+          rm -f $IN $OUT;;
+        esac
+      fi;;
+    sockssave|httpsave)
+      AP=socks; [ "$A" = httpsave ] && AP=http
+      IN=/tmp/cgi-$AP.in
+      umask 077
+      ADDR=$(ud "$(fld addr)")
+      PORT=$(ud "$(fld port)")
+      USER=$(ud "$(fld user)")
+      PASS=$(ud "$(fld pass)")
+      TLS=false; INS=false; SNI=
+      if [ "$AP" = http ]; then
+        [ "$(fld tls)" = 1 ] && TLS=true
+        [ "$(fld insecure)" = 1 ] && INS=true
+        SNI=$(ud "$(fld sni)")
+        jq -n --arg a "$ADDR" --arg p "$PORT" --arg u "$USER" --arg w "$PASS" --argjson tls "$TLS" --arg s "$SNI" --argjson ins "$INS"           '{address:$a,port:$p,user:$u,pass:$w,tls:$tls,sni:$s,allowInsecure:$ins}' > $IN || MSG="ERROR: could not build the settings"
+      else
+        jq -n --arg a "$ADDR" --arg p "$PORT" --arg u "$USER" --arg w "$PASS"           '{address:$a,port:$p,user:$u,pass:$w}' > $IN || MSG="ERROR: could not build the settings"
+      fi
+      chmod 600 $IN
+      if [ -z "$MSG" ]; then
+        MSG=$($V $A $IN 2>&1)
+      fi
+      rm -f $IN
+      case "$MSG" in *ERROR*)
+        PF_BAD=$AP; PF_ADDR=$ADDR; PF_PORT=$PORT; PF_USER=$USER; PF_PASS=$PASS
+        PF_SNI=$SNI; PF_TLS=$TLS; PF_INS=$INS;;
+      esac;;
+  esac
+  case "$A" in test|speed|update|naiveupdate) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Done";; esac;; esac
+fi
+WHY=""; HOW=""
+if [ "$A" = restartsvc ]; then
+  case "$MSG" in
+    *ERROR*)
+      WHY=$(printf '%s\n' "$MSG" | sed -n 's/^ERROR: //p' | head -1)
+      HOW=$(printf '%s\n' "$MSG" | sed -n 's/^HINT: //p' | head -1)
+      [ -n "$HOW" ] || HOW="CHECK LOGREAD -E XRAY AND RESTART AGAIN"
+      MSG=""
+      ;;
+  esac
+fi
+eval "$($V status | sed 's/^/S_/')"
+HEALTH=$($V health 2>/dev/null)
+HY2=$(field_raw hy2 | esc)
+WG=$(field_raw wg | esc)
+# Protocol of the connection the Connect buttons last applied (the proto file), not a fixed VLESS.
+case "$S_proto" in
+  hy2) PN=Hysteria2;;
+  naive) PN=Naive;;
+  wg) PN=WireGuard;;
+  socks) PN=SOCKS5;;
+  http) PN=HTTP;;
+  vless) PN=VLESS;;
+  *) PN=$(printf '%s' "${S_proto:-—}" | esc);;
+esac
+LINK=$(field_raw vless | esc)
+case "$S_proto" in
+  hy2) F=$D/hy2.txt;;
+  naive|wg|socks|http) F=;;
+  *) F=$D/link.txt;;
+esac
+# Status card: "Server:" is the active protocol's configured server host only (a bare IP
+# when it is configured by IP, never the port); its port goes after the egress IP.
+hp_split(){ # host:port, [v6]:port or host -> SRVH / SRVP
+  _x=$1
+  case "$_x" in
+    \[*\]:*) SRVH=${_x%%]*}; SRVH=${SRVH#[}; SRVP=${_x##*]:};;
+    \[*\]) SRVH=${_x#[}; SRVH=${SRVH%]}; SRVP=;;
+    *:*:*) SRVH=$_x; SRVP=;;
+    *:*) SRVH=${_x%:*}; SRVP=${_x##*:};;
+    *) SRVH=$_x; SRVP=;;
+  esac
+}
+SRVH=; SRVP=
+if [ -n "$F" ]; then
+  hp_split "$(sed -nE 's#^[a-z0-9+]+://([^@/?\#]*@)?([^/?\#]+).*#\2#p' $F 2>/dev/null | head -1)"
+  [ -n "$SRVP" ] || SRVP=443
+elif [ "$S_proto" = naive ]; then
+  NSJ=$($V naive-show 2>/dev/null)
+  SRVH=$(printf '%s' "$NSJ" | jq -r '.host // empty' 2>/dev/null); SRVP=$(printf '%s' "$NSJ" | jq -r '.port // empty' 2>/dev/null)
+elif [ "$S_proto" = socks ] || [ "$S_proto" = http ]; then
+  SRVH=$(jq -r '.address // empty' $D/$S_proto.json 2>/dev/null); SRVP=$(jq -r '.port // empty | tostring' $D/$S_proto.json 2>/dev/null)
+else
+  hp_split "$(jq -r '.settings.peers[0].endpoint // empty' $D/wg.json 2>/dev/null)"
+fi
+HOST=$(printf '%s' "$SRVH" | esc); [ -n "$HOST" ] || HOST="—"
+# digits (a Hysteria port range keeps its commas and dashes) only: it goes into JS-visible HTML
+SRVP=$(printf '%s' "$SRVP" | tr -cd '0-9,-' | head -c 40)
+# All services behind the VPN cards, always listed. Xray = xray-client, Naive =
+# naive-client, Hysteria = hysteria-client, WireGuard = wireguard-client (kernel
+# interface wg-aurora; running means the interface is up).
+if [ "${S_inst_xray:-0}" != 1 ]; then T_X="not installed"
+elif [ "$S_running" = 1 ]; then T_X="running"
+else T_X="not running"; fi
+if [ "${S_inst_naive:-0}" != 1 ]; then T_N="not installed"; N_UP=0
+elif [ "${S_naive:-0}" = 1 ]; then T_N="running"; N_UP=1; else T_N="not running"; N_UP=0; fi
+if [ "${S_inst_hysteria:-0}" != 1 ]; then T_H="not installed"; H_UP=0
+elif [ "${S_hysteria:-0}" = 1 ]; then T_H="running"; H_UP=1; else T_H="not running"; H_UP=0; fi
+W_UP=0; W_DIS=disabled
+if [ "${S_inst_wireguard:-0}" != 1 ]; then T_W="not installed (press Install WireGuard)"
+elif [ "${S_wg_conf:-0}" != 1 ]; then T_W="config not saved"
+elif [ "${S_wireguard:-0}" = 1 ]; then T_W="running"; W_UP=1; W_DIS=
+else T_W="not running"; W_DIS=; fi
+# A daemon that is not running and is not the active protocol's is idle on purpose: grey, not red.
+case "$S_proto" in vless|socks|http) A_X=1;; *) A_X=0;; esac
+[ "$S_proto" = naive ] && A_N=1 || A_N=0
+[ "$S_proto" = hy2 ] && A_H=1 || A_H=0
+[ "$S_proto" = wg ] && A_W=1 || A_W=0
+idle_state(){ # $1 up(0|1) $2 tooltip $3 active(0|1) $4 installed-and-configured(0|1) -> 1 | 0 | 2 ; tooltip via T_IDLE
+  [ "$1" = 1 ] && { echo 1; return; }
+  [ "$4" = 1 ] && [ "$3" = 0 ] && { echo 2; return; }
+  echo 0
+}
+X_UP=0; [ "$S_running" = 1 ] && [ "${S_inst_xray:-0}" = 1 ] && X_UP=1
+X_OK=0; [ "${S_inst_xray:-0}" = 1 ] && X_OK=1
+N_OK=0; [ "${S_inst_naive:-0}" = 1 ] && N_OK=1
+H_OK=0; [ "${S_inst_hysteria:-0}" = 1 ] && H_OK=1
+W_OK=0; [ "${S_inst_wireguard:-0}" = 1 ] && [ "${S_wg_conf:-0}" = 1 ] && W_OK=1
+[ "$(idle_state "$X_UP" x "$A_X" "$X_OK")" = 2 ] && { X_UP=2; T_X="stopped: not the active protocol"; }
+[ "$(idle_state "$N_UP" x "$A_N" "$N_OK")" = 2 ] && { N_UP=2; T_N="stopped: not the active protocol"; }
+[ "$(idle_state "$H_UP" x "$A_H" "$H_OK")" = 2 ] && { H_UP=2; T_H="stopped: not the active protocol"; }
+[ "$(idle_state "$W_UP" x "$A_W" "$W_OK")" = 2 ] && { W_UP=2; T_W="stopped: not the active protocol"; }
+SVC="$(svc_item xray Xray "$X_UP" "$T_X") / $(svc_item naive Naive "$N_UP" "$T_N") / $(svc_item hysteria Hysteria "$H_UP" "$T_H") / $(svc_item wireguard WireGuard "$W_UP" "$T_W" "$W_DIS")"
+# Transparent mode is green only when the active protocol really passes traffic (the same check
+# the Test button uses). Steering on but not passing traffic is a red ERROR with a banner.
+case "$S_proto" in socks|http) PNH=XRAY;; *) PNH=$(printf '%s' "$PN" | tr a-z A-Z);; esac
+case "$HEALTH" in
+  ok) ST="ENABLED"; SC="#1a7f37";;
+  down)
+    ST="ERROR"; SC="#c62828"
+    if [ -z "$WHY" ]; then
+      WHY="TRANSPARENT MODE IS ON BUT $PNH IS NOT RUNNING, SO THE NETWORK HAS NO INTERNET"
+      HOW="PRESS THE RESTART BUTTON NEXT TO THE SERVICE, OR APPLY THE CONNECTION AGAIN. IF IT STOPS AGAIN, CHECK THE LINK AND THE LOG (LOGREAD)"
+    fi;;
+  broken)
+    ST="ERROR"; SC="#c62828"
+    if [ -z "$WHY" ]; then
+      WHY="$PNH IS RUNNING BUT NO TRAFFIC PASSES THROUGH THE SERVER, SO THE NETWORK HAS NO INTERNET"
+      case "$S_proto" in
+        hy2) HOW="CHECK THE SERVER, THE PASSWORD AND THE PORT IN THE LINK. HYSTERIA USES UDP, SO IT STOPS WORKING WHEN A PROVIDER BLOCKS UDP. TRY ANOTHER PROTOCOL OR PORT";;
+        naive) HOW="CHECK THE SERVER, THE PORT AND THE LOGIN AND PASSWORD IN THE LINK, AND THAT THE SERVER IS UP. THEN PRESS THE RESTART BUTTON NEXT TO NAIVE";;
+        wg) HOW="CHECK THE ENDPOINT AND THE KEYS IN THE CONFIG, AND THAT THE SERVER IS UP. THEN PRESS THE RESTART BUTTON NEXT TO WIREGUARD";;
+        *) HOW="CHECK THE SERVER ADDRESS, PORT AND KEYS IN THE LINK, AND THAT THE SERVER IS UP. THEN PRESS THE RESTART BUTTON NEXT TO XRAY";;
+      esac
+    fi;;
+  *) ST="DISABLED (direct internet)"; SC="#c62828";;
+esac
+[ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
+SOCKS_CARD_H=" hidden"; SOCKS_BTN_H=
+HTTP_CARD_H=" hidden"; HTTP_BTN_H=
+if [ -s "$D/socks.json" ] || [ "$PF_BAD" = socks ]; then SOCKS_CARD_H=; SOCKS_BTN_H=hidden; fi
+if [ -s "$D/http.json" ] || [ "$PF_BAD" = http ]; then HTTP_CARD_H=; HTTP_BTN_H=hidden; fi
+echo "Content-Type: text/html; charset=utf-8"
+echo "Cache-Control: no-store"
+echo
+cat <<HTML
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>vpn.panel-gl.inet</title><style>
+body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:1040px;margin:20px auto;padding:0 14px;background:#f4f5f7;color:#222}
+.c{background:#fff;border-radius:12px;padding:16px 18px;margin:14px 0;box-shadow:0 1px 4px #0002}
+button{border:0;border-radius:10px;color:#fff;background:#1565c0;padding:10px 18px;font-size:16px;cursor:pointer}
+.big{width:100%;font-size:22px;padding:18px}
+textarea{display:block;width:100%;box-sizing:border-box;resize:none;overflow:auto;border:1px solid #ccc;border-radius:6px;font-family:monospace;font-size:12px;line-height:18px;padding:0 8px;height:38px;min-height:38px;max-height:38px;word-break:break-all;field-sizing:fixed;white-space:pre-wrap}
+select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}td{padding:3px 8px 3px 0}
+.banner{padding:12px 14px;border-radius:8px;background:#fff;border:1px solid #f3c1c1;margin:0 0 14px}
+.banner .why{color:#c62828;font-weight:700;text-transform:uppercase;white-space:pre-wrap}
+.banner .how{color:#1a7f37;font-weight:700;text-transform:uppercase;white-space:pre-wrap;margin-top:8px}
+.modef{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0}
+.modef button{padding:6px 14px;font-size:15px}
+.svcs{line-height:1.45}
+.svc{white-space:nowrap}
+.svcb{display:inline;margin:0}
+button.rb{display:inline-block;box-sizing:border-box;width:1.2em;height:1.2em;min-width:0;padding:0;margin:0 .1em 0 .3em;border-radius:3px;font-size:1em;line-height:1.2em;text-align:center;vertical-align:.04em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
+button.rb:disabled{opacity:.35;cursor:not-allowed}
+button.rb .rg{font-size:.9em;line-height:1.2em}
+.sec{margin:18px 0 8px}
+.sec>h3{margin:0 0 10px;font-size:18px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;margin:0}
+.grid .c{margin:0}
+.vpn>.c{box-sizing:border-box;display:flex;flex-direction:column;height:100%}
+.vpn>.c>form{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.vpn .btns{margin-top:auto}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.hint{color:#777;font-size:12px;margin:10px 0 0}
+.isec{margin:18px 0 8px}
+.instgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
+.instgrid .c{margin:0;text-align:center}
+.instgrid button.ib{width:100%;font-size:16px;padding:12px 8px}
+.instgrid button.ib:disabled{opacity:.5;cursor:not-allowed}
+.ibar{height:10px;border-radius:5px;background:#e3e6ea;overflow:hidden;margin-top:12px}
+.ifill{height:100%;width:0;background:#1565c0;transition:width .4s}
+.ic.ok .ifill{background:#1a7f37}
+.ic.err .ifill{background:#c62828}
+.ipct{font-size:15px;font-weight:700;margin-top:6px}
+.itxt{font-size:13px;color:#555;margin-top:4px;min-height:2.6em;word-break:break-word}
+.ic.ok .itxt{color:#1a7f37}
+.ic.err .itxt{color:#c62828}
+@media(max-width:900px){.instgrid{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.instgrid{grid-template-columns:1fr}}
+.pf{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:8px}
+.pf label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#444}
+.pf input[type=text],.pf input[type=password],.pf input[type=number]{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;font-family:inherit}
+.pf .chk{flex-direction:row;align-items:center;gap:8px}
+.pf .span2{grid-column:1/-1}
+.tls-extra{display:contents}
+.tls-extra[hidden]{display:none}
+.http-udp{color:#777;font-size:12px;margin:10px 0 0}
+.au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
+.au select{font-size:14px;padding:4px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.fld{margin-top:6px}
+.pcell{min-width:0}
+button.add{background:#fff;color:#1565c0;border:1px solid #1565c0;padding:8px 16px;font-size:15px}
+button.addproxy{margin-top:0}
+.pf select{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px}
+.pw{display:flex;gap:6px}.pw input{flex:1 1 auto;min-width:0}
+button.pwt{background:#fff;color:#1565c0;border:1px solid #ccc;border-radius:8px;padding:4px 10px;font-size:13px}
+details.adv{margin-top:10px;font-size:14px}details.adv summary{cursor:pointer;color:#1565c0}
+.pf textarea.hdr{height:56px;min-height:56px;max-height:none;font-size:13px}
+button.add:hover{background:#e3f2fd}
+</style></head><body>
+HTML
+if [ -n "$WHY" ]; then
+  echo "<div class=banner><div class=why>$(printf '%s' "$WHY" | esc)</div><div class=how>$(printf '%s' "$HOW" | esc)</div></div>"
+fi
+echo '<h2>vpn.panel-gl.inet</h2>'
+[ -n "$MSG" ] && echo "<div class=msg>$(printf '%s' "$MSG" | esc)</div>"
+cat <<HTML
+<div class=c id=status><table>
+<tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>
+<select name=mode><option value=ru $M1>Everything except Russian sites</option><option value=all $M2>Everything through the tunnel</option></select>
+<button>Apply</button></form></td></tr>
+<tr><td>Transparent mode for the network:</td><td><b style="color:$SC">$ST</b></td></tr>
+<tr><td>Service (daemon):</td><td><div class=svcs>$SVC</div></td></tr>
+<tr><td>Protocol:</td><td><b>$PN</b></td></tr>
+<tr><td>Server:</td><td>$HOST</td></tr>
+<tr><td>Egress IP:</td><td id=egress data-port="$SRVP">detecting…</td></tr>
+</table></div>
+<div class=c style="display:flex;flex-wrap:wrap;gap:8px">
+<form method=post><input type=hidden name=action value=on><button style="background:#1a7f37">Enable</button></form>
+<form method=post><input type=hidden name=action value=off><button style="background:#c62828">Disable</button></form>
+<form method=post><input type=hidden name=action value=test><button>Test connection</button></form>
+<form method=post><input type=hidden name=action value=speed><button>Speed</button></form>
+</div>
+<div class=isec id=install hidden>
+<h3 style="text-align:center">Install VPN clients</h3>
+<div class=instgrid>
+<div class="c ic" data-p=xray><button type=button class=ib data-p=xray style="background:#6a1b9a">Install VLESS</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
+<div class="c ic" data-p=hy2><button type=button class=ib data-p=hy2 style="background:#e65100">Install Hysteria 2</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
+<div class="c ic" data-p=naive><button type=button class=ib data-p=naive style="background:#00695c">Install Naive</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
+<div class="c ic" data-p=wg><button type=button class=ib data-p=wg style="background:#283593">Install WireGuard</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
+</div>
+<p class=hint style="text-align:center">Each client is the official build from its developer, installed as its own separate program. Install Naive also installs dnsproxy, its DNS helper.</p>
+</div>
+<div class=sec>
+<h3>VPN</h3>
+<div class="grid vpn">
+<div class=c><form method=post><input type=hidden name=proto value=vless><b>vless:// link</b>
+HTML
+link_field link "$LINK"
+au_row vless
+cat <<HTML
+<div class=btns><button type=submit name=action value=save style="background:#6a1b9a">Connect VLESS</button><button type=submit name=action value=update>Update now</button></div></form></div>
+<div class=c><form method=post><input type=hidden name=proto value=naive><b>Naive</b>
+HTML
+naive_fields
+cat <<HTML
+<div class=btns><button type=submit name=action value=naivesave style="background:#00695c">Connect Naive</button></div></form></div>
+<div class=c><form method=post><input type=hidden name=proto value=hy2><b>hysteria2:// link</b>
+HTML
+link_field hy2 "$HY2"
+au_row hy2
+cat <<HTML
+<div class=btns><button type=submit name=action value=hy2save style="background:#e65100">Connect Hysteria2</button><button type=submit name=action value=update>Update now</button></div></form></div>
+<div class=c><form method=post><input type=hidden name=proto value=wg><b>WireGuard config (.conf)</b>
+HTML
+link_field wg "$WG" "[Interface]
+PrivateKey = ...
+Address = ...
+
+[Peer]
+PublicKey = ...
+Endpoint = ...
+AllowedIPs = 0.0.0.0/0"
+au_row wg
+cat <<HTML
+<div class=btns><button type=submit name=action value=wgsave style="background:#283593">Connect WireGuard</button><button type=submit name=action value=update>Update now</button></div></form></div>
+</div>
+</div>
+<div class=sec>
+<h3>Proxy</h3>
+<div class="grid proxy">
+<div class=pcell>
+<button type=button class="add addproxy" data-card=card-socks $SOCKS_BTN_H>Add SOCKS5</button>
+<div class=c id=card-socks$SOCKS_CARD_H><form method=post><input type=hidden name=proto value=socks><b>SOCKS5</b>
+HTML
+proxy_fields socks
+cat <<HTML
+<div class=btns><button type=submit name=action value=sockssave style="background:#546e7a">Connect SOCKS5</button></div></form></div>
+</div>
+<div class=pcell>
+<button type=button class="add addproxy" data-card=card-http $HTTP_BTN_H>Add HTTP</button>
+<div class=c id=card-http$HTTP_CARD_H><form method=post><input type=hidden name=proto value=http><b>HTTP</b>
+HTML
+proxy_fields http
+cat <<HTML
+<p class=http-udp>UDP over an HTTP proxy is not supported: QUIC is blocked, other UDP goes direct.</p>
+<div class=btns><button type=submit name=action value=httpsave style="background:#0277bd">Connect HTTP</button></div></form></div>
+</div>
+</div>
+</div>
+<script>
+function syncTls(c){var e=c.form&&c.form.querySelector('.tls-extra');if(!e)return;e.hidden=!c.checked}
+function eqCards(){
+  var cards=[].slice.call(document.querySelectorAll('.vpn>.c'));
+  if(!cards.length)return;
+  cards.forEach(function(c){c.style.height='auto'});
+  var h=0;
+  cards.forEach(function(c){if(c.offsetHeight>h)h=c.offsetHeight});
+  cards.forEach(function(c){c.style.height=h+'px'});
+}
+document.querySelectorAll('button.addproxy').forEach(function(b){
+  b.addEventListener('click',function(){
+    var card=document.getElementById(b.getAttribute('data-card'));
+    if(card)card.hidden=false;
+    b.hidden=true;
+    eqCards();
+  });
+});
+document.querySelectorAll('button.pwt').forEach(function(b){
+  b.addEventListener('click',function(){
+    var i=b.parentNode.querySelector('input');if(!i)return;
+    var show=i.type==='password';i.type=show?'text':'password';b.textContent=show?'hide':'show';
+    b.setAttribute('aria-label',show?'Hide password':'Show password');
+  });
+});
+document.querySelectorAll('details.adv').forEach(function(d){d.addEventListener('toggle',eqCards)});
+document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventListener('change',function(){syncTls(c)});syncTls(c)});
+(function(){
+  var el=document.getElementById('egress');if(!el)return;
+  function fail(){el.textContent='could not determine'}
+  var ctl=window.AbortController?new AbortController():null;
+  var t=setTimeout(function(){if(ctl)ctl.abort()},8000);
+  fetch('?ip',{cache:'no-store',signal:ctl?ctl.signal:undefined}).then(function(r){return r.text()}).then(function(x){
+    clearTimeout(t);x=x.trim();
+    var pt=el.getAttribute('data-port')||'';
+    if(/^(\d{1,3}\.){3}\d{1,3}\$/.test(x))el.textContent=x+(pt?':'+pt:'');else if(/^[0-9A-Fa-f:]+:[0-9A-Fa-f:]+\$/.test(x))el.textContent=pt?'['+x+']:'+pt:x;else fail();
+  }).catch(function(){clearTimeout(t);fail()});
+})();
+(function(){
+  var cards=[].slice.call(document.querySelectorAll('.ic'));
+  if(!cards.length)return;
+  var STG={queued:'starting',checking:'checking the router',resolving:'looking up the latest release',downloading:'downloading',verifying:'verifying the download',unpacking:'unpacking',installing:'installing',restarting:'restarting the running service','pkg-update':'updating package lists','pkg-kernel':'installing the kernel module','pkg-tools':'installing the tools','pkg-ip':'installing ip-full',done:'done'};
+  var timer=null;
+  function setBtns(off){cards.forEach(function(c){c.querySelector('button.ib').disabled=off})}
+  function show(c,o){
+    var f=c.querySelector('.ifill'),pc=c.querySelector('.ipct'),tx=c.querySelector('.itxt');
+    var st=o&&o.state||'idle',n=o&&o.percent||0;
+    c.className='c ic';
+    if(st==='running'){f.style.width=n+'%';pc.textContent=n+'%';tx.textContent=(STG[o.stage]||o.stage||'working')}
+    else if(o&&o.installed&&(st==='done'||st==='idle')){
+      c.className='c ic ok';f.style.width='100%';pc.textContent='100%';
+      tx.textContent='Installed'+(o.dnsproxy_version?' \u00b7 naive '+(o.version||'?')+' \u00b7 dnsproxy '+o.dnsproxy_version:(o.version?' \u00b7 version '+o.version:''))}
+    else if(o&&o.missing&&st!=='error'){c.className='c ic err';f.style.width='0';pc.textContent='0%';tx.textContent='Not fully installed: '+o.missing+' is missing. Press Install Naive.'}
+    else if(st==='error'){c.className='c ic err';f.style.width=n+'%';pc.textContent=n+'%';tx.textContent='Error: '+(o.error||'installation failed')}
+    else{f.style.width='0';pc.textContent='0%';tx.textContent='Not installed'}
+  }
+  // The section lists only the clients that are not installed yet. A card stays while its install runs
+  // or failed, shows "done" for a moment at 100%, then goes away; with nothing left the section is removed.
+  var sec=document.getElementById('install'),gone=0,seen={};
+  function drop(c){
+    if(c.getAttribute('data-gone'))return;
+    c.setAttribute('data-gone','1');c.style.display='none';gone++;
+    if(gone>=cards.length&&sec&&sec.parentNode){clearTimeout(timer);sec.parentNode.removeChild(sec)}
+  }
+  function poll(){
+    fetch('?install-status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+      var run=false;
+      cards.forEach(function(c){
+        if(c.getAttribute('data-gone'))return;
+        var p=c.getAttribute('data-p'),o=j[p],st=o&&o.state||'idle';
+        if(st==='running')run=true;
+        if(o&&o.installed&&st!=='running'&&st!=='error'){
+          if(seen[p]){show(c,o);if(!c.getAttribute('data-fade')){c.setAttribute('data-fade','1');setTimeout(function(){drop(c)},2500)}}
+          else drop(c);
+        }else{seen[p]=1;show(c,o)}
+      });
+      if(sec&&sec.parentNode&&gone<cards.length)sec.hidden=false;
+      setBtns(run);
+      clearTimeout(timer);
+      if(run||cards.some(function(c){return c.getAttribute('data-fade')&&!c.getAttribute('data-gone')}))timer=setTimeout(poll,run?1500:3000);
+    }).catch(function(){clearTimeout(timer);timer=setTimeout(poll,4000)});
+  }
+  cards.forEach(function(c){
+    c.querySelector('button.ib').addEventListener('click',function(){
+      var p=c.getAttribute('data-p');
+      seen[p]=1;setBtns(true);
+      show(c,{state:'running',percent:0,stage:'queued'});
+      fetch('?install',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'client='+p}).then(function(r){return r.text()}).then(function(t){
+        if(t.indexOf('ERROR')===0){show(c,{state:'error',percent:0,error:t.replace(/^ERROR:?\s*/,'')});setBtns(false);return}
+        poll();
+      }).catch(function(){show(c,{state:'error',percent:0,error:'the panel did not answer'});setBtns(false)});
+    });
+  });
+  poll();
+})();
+eqCards();
+window.addEventListener('resize',eqCards);
+</script>
+</body></html>
+HTML

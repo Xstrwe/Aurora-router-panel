@@ -1,4 +1,4 @@
-# Shared autoupdate helpers for vless.sh and autoupdate-run.sh.
+# Shared autoupdate helpers for vpn.sh and autoupdate-run.sh.
 # Safe to source: no work at load time, no eval of user files.
 # Override paths with VLESS_PANEL_DIR, VLESS_HYSTERIA_DIR, VLESS_NAIVE_DIR,
 # VLESS_AU_CRON, VLESS_SH.
@@ -8,10 +8,11 @@
 [ -n "${NAD:-}" ] || NAD=${VLESS_NAIVE_DIR:-/etc/naive}
 AU_DIR=$D/autoupdate
 AU_CRON=${VLESS_AU_CRON:-/etc/crontabs/root}
-AU_CRON_MARK='aurora-router-panel-autoupdate'
+AU_CRON_MARK='vpn-panel-gl-inet-autoupdate'
 AU_CRON_OLD_MARK='vless-router-panel-autoupdate'
-AU_RUN=${VLESS_AU_RUN:-/usr/libexec/aurora-panel/autoupdate-run.sh}
-AU_SH=${VLESS_SH:-/etc/xray/vless.sh}
+AU_CRON_OLD_MARK2='aurora-router-panel-autoupdate'
+AU_RUN=${VLESS_AU_RUN:-/usr/libexec/vpn-panel/autoupdate-run.sh}
+AU_SH=${VLESS_SH:-/etc/panel/vpn.sh}
 
 au_ok_proto() { case "$1" in vless|hy2|naive|wg) return 0;; *) return 1;; esac; }
 
@@ -96,6 +97,9 @@ au_current_file() {
 au_norm() {
 	if [ "$1" = wg ]; then
 		tr -d '\r' < "$2" | sed 's/[[:space:]]*$//'
+	elif [ "$1" = naive ]; then
+		# a Naive link: the server and credentials only (a #name does not change the config)
+		tr -d '\r\n\t ' < "$2" | sed 's/#.*//'
 	else
 		tr -d '\r\n\t ' < "$2"
 	fi
@@ -142,7 +146,7 @@ au_first() {
 			printf '%s\n' "$text" | tr '\r' '\n' | sed -n -e 's/.*\(hysteria2:\/\/[^[:space:]]*\).*/\1/p' -e 's/.*\(hy2:\/\/[^[:space:]]*\).*/\1/p' | head -1
 			;;
 		naive)
-			printf '%s\n' "$text" | tr '\r' '\n' | sed -n 's/.*\(naive+https:\/\/[^[:space:]]*\).*/\1/p' | head -1
+			printf '%s\n' "$text" | tr '\r' '\n' | sed -n -e 's/.*\(naive+https:\/\/[^[:space:]]*\).*/\1/p' -e 's/.*\(naive+quic:\/\/[^[:space:]]*\).*/\1/p' | head -1
 			;;
 		wg)
 			printf '%s\n' "$text" | tr -d '\r' | grep -qi '\[Interface\]' || return 1
@@ -208,23 +212,27 @@ au_stamp() {
 	printf '%s\n' "${2:-$(date +%s)}" > "$(au_stamp_file "$1")"
 }
 
-# Backup / restore user + generated files. Naive config.json is renamed
-# so it does not collide with xray's config.json.
+# Backup / restore the files of ONE protocol (au_backup DIR PROTO), so that rolling back
+# an update of one protocol can never touch another one. Without PROTO every protocol's
+# files are saved (kept for the CLI). Naive config.json is renamed in the backup so it
+# does not collide with xray's config.json.
+au_files() {
+	case "$1" in
+		vless) echo "$D/config.json $D/config.prev.json $D/link.txt $D/server_ip $D/mode";;
+		hy2) echo "$D/hy2.txt $HYD/client.yaml $HYD/client.yaml.prev $HYD/server_ip";;
+		naive) echo "$D/naive.txt $NAD/config.json:naive-config.json $NAD/config.json.prev:naive-config.json.prev $NAD/server_ip:naive-server_ip";;
+		wg) echo "$D/wg.conf $D/wg.json $D/wg.resolved $D/wg.server_ip";;
+		*) for p in vless hy2 naive wg; do au_files "$p"; done; echo "$D/socks.json $D/http.json $D/proto";;
+	esac
+}
+
 au_backup() {
 	B=$1
 	mkdir -p "$B"
-	for f in \
-		"$D/config.json" "$D/config.prev.json" \
-		"$D/link.txt" "$D/hy2.txt" "$D/naive.txt" \
-		"$D/wg.conf" "$D/wg.json" \
-		"$D/socks.json" "$D/http.json" \
-		"$D/proto" "$D/server_ip" "$D/mode" \
-		"$HYD/client.yaml" "$HYD/client.yaml.prev"
-	do
-		[ -e "$f" ] && cp -a "$f" "$B/"
+	for e in $(au_files "${2:-}"); do
+		f=${e%%:*}; n=${e#*:}; [ "$n" = "$e" ] && n=$(basename "$f")
+		[ -e "$f" ] && cp -a "$f" "$B/$n"
 	done
-	[ -e "$NAD/config.json" ] && cp -a "$NAD/config.json" "$B/naive-config.json"
-	[ -e "$NAD/config.json.prev" ] && cp -a "$NAD/config.json.prev" "$B/naive-config.json.prev"
 	return 0
 }
 
@@ -239,22 +247,11 @@ au_restore_file() {
 au_restore() {
 	B=$1
 	[ -d "$B" ] || return 1
-	au_restore_file "$B" "$D/config.json"
-	au_restore_file "$B" "$D/config.prev.json"
-	au_restore_file "$B" "$D/link.txt"
-	au_restore_file "$B" "$D/hy2.txt"
-	au_restore_file "$B" "$D/naive.txt"
-	au_restore_file "$B" "$D/wg.conf"
-	au_restore_file "$B" "$D/wg.json"
-	au_restore_file "$B" "$D/socks.json"
-	au_restore_file "$B" "$D/http.json"
-	au_restore_file "$B" "$D/proto"
-	au_restore_file "$B" "$D/server_ip"
-	au_restore_file "$B" "$D/mode"
-	au_restore_file "$B" "$HYD/client.yaml"
-	au_restore_file "$B" "$HYD/client.yaml.prev"
-	au_restore_file "$B" "$NAD/config.json" naive-config.json
-	au_restore_file "$B" "$NAD/config.json.prev" naive-config.json.prev
+	for e in $(au_files "${2:-}"); do
+		f=${e%%:*}; n=${e#*:}; [ "$n" = "$e" ] && n=$(basename "$f")
+		au_restore_file "$B" "$f" "$n"
+	done
+	return 0
 }
 
 # Idempotent cron line in /etc/crontabs/root.
@@ -265,10 +262,13 @@ au_cron_line() {
 au_cron_install() {
 	mkdir -p "$(dirname "$AU_CRON")"
 	touch "$AU_CRON"
-	# Drop the line left by the old vless-router-panel package (its paths are gone).
-	if grep -q "$AU_CRON_OLD_MARK" "$AU_CRON" 2>/dev/null; then
-		sed -i "/$AU_CRON_OLD_MARK/d" "$AU_CRON"
-	fi
+	# Drop the lines left by the old vless-router-panel / aurora-router-panel packages
+	# (their paths are gone).
+	for _om in "$AU_CRON_OLD_MARK" "$AU_CRON_OLD_MARK2"; do
+		if grep -q "$_om" "$AU_CRON" 2>/dev/null; then
+			sed -i "/$_om/d" "$AU_CRON"
+		fi
+	done
 	if grep -q "$AU_CRON_MARK" "$AU_CRON" 2>/dev/null; then
 		return 0
 	fi

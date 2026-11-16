@@ -4,7 +4,7 @@ Log in to the router over SSH as `root` (on the stock GL.iNet LAN address that i
 
 ## Requirements
 
-The package itself depends on `curl`, `jq`, `ucode`, `uhttpd` and `kmod-nft-tproxy` (opkg installs these automatically).
+The package itself depends on `curl`, `jq`, `ucode`, `uhttpd` and `kmod-nft-tproxy` (opkg, or apk on OpenWrt 25.x and newer, installs these automatically).
 
 The VPN clients are not inside the `.ipk`. After the panel is installed, the **Install VPN clients** block in the middle of the page installs the ones you need, one button per client (see [Install the VPN clients](#install-the-vpn-clients)). Nothing is downloaded when the package itself is installed.
 
@@ -13,7 +13,7 @@ The VPN clients are not inside the `.ipk`. After the panel is installed, the **I
 | VLESS, and also SOCKS5/HTTP upstreams | **Install VLESS** | Xray-core from XTLS: `xray` at `/usr/bin/xray`, plus `geoip.dat` and `geosite.dat` in `/usr/share/xray/` |
 | Hysteria 2 | **Install Hysteria 2** | the official `hysteria` client at `/usr/bin/hysteria` |
 | Naive | **Install Naive** | the official `naive` client at `/usr/bin/naive` **and** `dnsproxy` from AdGuard, which Naive's service uses to send DNS through the tunnel. Both are installed by the one button (needs `xz`, which the button installs if it is missing) |
-| WireGuard | **Install WireGuard** | `kmod-wireguard`, `wireguard-tools` and `ip-full` from opkg |
+| WireGuard | **Install WireGuard** | `kmod-wireguard`, `wireguard-tools` and `ip-full` from the firmware's package manager (opkg, or apk on OpenWrt 25.x) |
 
 The “everything except Russian sites” split also reads `/usr/share/xray/geoip.dat`. Without Xray and the geo files you can still open the page, but you cannot connect VLESS, SOCKS5 or HTTP, and country-based split will not work.
 
@@ -54,6 +54,29 @@ rm -f /tmp/vrp.ipk
 
 Replace `<version>` with the version you want (for example a release listed on the Releases page). If the checksum differs, download again. `tar tzf vrp.ipk` must list `./debian-binary`, `./control.tar.gz` and `./data.tar.gz`.
 
+## OpenWrt with apk (untested on hardware)
+
+OpenWrt 25.x and current main builds (for example the community builds for the Xiaomi BE7000) use the `apk` package manager (apk-tools 3) instead of opkg, so the `.ipk` does not install there. For them the panel can be built as an apk package, `aurora-router-panel-<version>.apk` (for 1.5.0a5: `aurora-router-panel-1.5.0_alpha5-r1.apk`). It carries the same files as the `.ipk`, `noarch` (scripts only, so it fits any CPU), with the same dependencies (`curl`, `jq`, `ucode`, `uhttpd`, `kmod-nft-tproxy`).
+
+**This is experimental.** It has been checked by installing it into a test root with apk-tools 3 and running its scripts, but **not on a real router**. It is not on the opkg feed and not attached to a Release. Get it as the `aurora-router-panel-apk-experimental` artifact of a CI run on GitHub Actions, or build it yourself: `./build.sh`, then `APK=/path/to/apk tools/build-apk.sh` (needs apk-tools 3 and fakeroot, root or user namespaces; the file is written to `build/apk/`).
+
+The package is not signed (set `APK_SIGN_KEY` to a private key to sign it with your own key and put its public key into `/etc/apk/keys/`). Without a signature, install it by hand with `--allow-untrusted`:
+
+```sh
+cd /tmp
+# copy aurora-router-panel-<apk version>.apk to the router, then:
+apk update
+apk add --allow-untrusted /tmp/aurora-router-panel-<apk version>.apk
+```
+
+Then continue with [Open the panel](#open-the-panel). Differences from the opkg install:
+
+- On this build the panel listens on the router's own LAN address (`network.lan.ipaddr`, port 8088), not on a fixed `192.168.8.1`. If that address is not known it falls back to `192.168.8.1:8088`.
+- Version names follow apk rules: a pre-release `1.5.0a5` is `1.5.0_alpha5-r1`, and in apk order it is older than the final `1.5.0-r1`.
+- Upgrade: `apk add --allow-untrusted /tmp/<newer file>.apk`. Remove: `apk del aurora-router-panel` (same result as `opkg remove`: user state and the running VPN client stay).
+- The Install buttons for the VPN clients and the auto-update use `apk add` / `apk add -u` instead of `opkg`. WireGuard needs `kmod-wireguard`, `wireguard-tools` and `ip-full` to exist in the firmware's apk repositories for your kernel.
+- Not verified on those builds: that `kmod-nft-tproxy` and the nftables TPROXY rules work on their kernel (6.x), that the LAN bridge is `br-lan`, and that `ucode` and `uhttpd` behave as on 23.05.
+
 ## Open the panel
 
 Open `http://192.168.8.1:8088`. The page redirects to `/cgi-bin/vless`. The panel is a separate uhttpd instance (`uhttpd.aurora`) listening on port **8088**.
@@ -87,7 +110,7 @@ Use the hash in place of `<HASH>`, and any login you want in place of `admin`. A
 The **Install Naive** button does this for you. From the command line:
 
 ```sh
-opkg update && opkg install xz
+opkg update && opkg install xz        # on OpenWrt 25.x: apk update && apk add xz
 /usr/libexec/aurora-panel/install-naive.sh
 ```
 
@@ -108,7 +131,7 @@ What each button does:
 - **Install VLESS** downloads the latest release of [XTLS/Xray-core](https://github.com/XTLS/Xray-core) for the router’s CPU, checks it against the SHA-256 the project publishes, and installs `xray` to `/usr/bin` and the `geoip.dat` and `geosite.dat` files from the same release to `/usr/share/xray`.
 - **Install Hysteria 2** downloads the latest [apernet/hysteria](https://github.com/apernet/hysteria) release binary and checks it against the published `hashes.txt`.
 - **Install Naive** installs two programs with one progress bar: the latest [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy) OpenWrt build (0–70%) and the latest [AdguardTeam/dnsproxy](https://github.com/AdguardTeam/dnsproxy) release for the router’s CPU (70–100%; `linux-arm64` on an aarch64 router). Each download is checked against the SHA-256 that GitHub publishes for the release file (for dnsproxy, `checksums.txt` is used if the release has no digest); if a checksum is missing or wrong the install stops and nothing is replaced. `dnsproxy` goes to the place where the Naive service looks for it (`/usr/bin/dnsproxy`, or the existing one on `PATH`). The card shows **Installed** only when both are present and lists both versions; if one is missing it says which. If the Naive service is running, it is restarted once (it starts its `dnsproxy` too), and both old files are put back if it does not start. It never touches `/etc/naive/config.json`.
-- **Install WireGuard** runs `opkg update` and installs `kmod-wireguard`, `wireguard-tools` and `ip-full` (when they are already installed it upgrades the first two). The panel only sets up the client; a WireGuard server is your own.
+- **Install WireGuard** runs `opkg update` (`apk update` on firmware that uses apk) and installs `kmod-wireguard`, `wireguard-tools` and `ip-full` (when they are already installed it upgrades the first two). The panel only sets up the client; a WireGuard server is your own.
 
 Rules that apply to all four:
 
@@ -280,7 +303,7 @@ Each client is updated from its own upstream, and only that client’s service i
 
 - Xray is taken from XTLS/Xray-core, Hysteria from apernet/hysteria; both are checked against the SHA-256 published with the release. The previous binary is kept as `<binary>.bak` and put back if the new one does not start.
 - Naive is installed by `/usr/libexec/aurora-panel/install-naive.sh` (the naive part of the **Install Naive** button; the button also installs `dnsproxy`).
-- WireGuard is upgraded with `opkg upgrade kmod-wireguard wireguard-tools`. The running interface keeps the old kernel module until you reboot.
+- WireGuard is upgraded with `opkg upgrade kmod-wireguard wireguard-tools` (`apk add -u` on firmware that uses apk). The running interface keeps the old kernel module until you reboot.
 
 ## Backup and rollback
 

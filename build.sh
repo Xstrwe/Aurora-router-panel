@@ -27,7 +27,8 @@ chmod 644 "$DATA/www-aurora/index.html" \
           "$DATA/etc/xray/gen.uc" \
           "$DATA/etc/xray/hy2.uc"
 chmod 644 "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh" \
-          "$DATA/usr/libexec/aurora-panel/install-lib.sh"
+          "$DATA/usr/libexec/aurora-panel/install-lib.sh" \
+          "$DATA/usr/libexec/aurora-panel/pm-lib.sh"
 chmod 755 "$DATA/www-aurora/cgi-bin/vless" \
           "$DATA/etc/xray/vless.sh" \
           "$DATA/etc/xray/tproxy.sh" \
@@ -61,8 +62,9 @@ for s in \
   "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh" \
   "$DATA/usr/libexec/aurora-panel/install-client.sh" \
   "$DATA/usr/libexec/aurora-panel/install-lib.sh" \
+  "$DATA/usr/libexec/aurora-panel/pm-lib.sh" \
   "$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm" \
-  "$ROOT/build.sh" "$ROOT/tools/vercmp.sh" "$ROOT/tools/mkfeed.sh"
+  "$ROOT/build.sh" "$ROOT/tools/vercmp.sh" "$ROOT/tools/mkfeed.sh" "$ROOT/tools/build-apk.sh"
 do
   sh -n "$s" || { echo "ERROR: sh -n failed for $s" >&2; exit 1; }
 done
@@ -164,6 +166,7 @@ test -x "$VERIFY/data/usr/libexec/aurora-panel/install-naive.sh"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-run.sh"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/install-client.sh"
 test -f "$VERIFY/data/usr/libexec/aurora-panel/install-lib.sh"
+test -f "$VERIFY/data/usr/libexec/aurora-panel/pm-lib.sh"
 test -f "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-lib.sh"
 if [ -e "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-server" ]; then
   echo "ERROR: autoupdate-server must not be shipped (server source removed)" >&2
@@ -208,6 +211,10 @@ fi
 
 if [ -x "$ROOT/tests/install-client.sh" ]; then
   "$ROOT/tests/install-client.sh" || { echo "ERROR: install-client tests failed" >&2; exit 1; }
+fi
+
+if [ -x "$ROOT/tests/pkg-manager.sh" ]; then
+  "$ROOT/tests/pkg-manager.sh" || { echo "ERROR: package-manager tests failed" >&2; exit 1; }
 fi
 
 if [ -x "$ROOT/tests/panel-ui.sh" ]; then

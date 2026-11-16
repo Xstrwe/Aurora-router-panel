@@ -35,6 +35,32 @@ jobs:
         with:
           name: aurora-router-panel-feed
           path: feed/all/
+      - name: Build apk-tools 3 (the version OpenWrt uses, for the experimental apk package)
+        continue-on-error: true
+        run: |
+          set -eu
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends meson ninja-build libssl-dev zlib1g-dev fakeroot
+          # package/system/apk in OpenWrt main: apk-tools 3.0.5 at this commit
+          git clone --quiet https://gitlab.alpinelinux.org/alpine/apk-tools.git "$RUNNER_TEMP/apk-tools"
+          git -C "$RUNNER_TEMP/apk-tools" checkout --quiet b5a31c0d865342ad80be10d68f1bb3d3ad9b0866
+          cd "$RUNNER_TEMP/apk-tools"
+          VERSION=3.0.5 meson setup build -Dprefix="$HOME/apk-tools" -Dlua=disabled -Dpython=disabled -Ddocs=disabled -Dzstd=disabled -Dhelp=disabled -Dtests=disabled
+          ninja -C build install
+          "$HOME/apk-tools/bin/apk" --version
+      - name: Build the experimental apk package and run its tests
+        continue-on-error: true
+        run: |
+          set -eu
+          export APK="$HOME/apk-tools/bin/apk"
+          tools/build-apk.sh
+          tests/pkg-manager.sh
+      - name: Upload the experimental apk (build artifact only, not published)
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-router-panel-apk-experimental
+          path: build/apk/*.apk
+          if-no-files-found: ignore
       - name: Commit feed if it changed
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |

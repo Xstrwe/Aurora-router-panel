@@ -14,7 +14,7 @@
 #          checksums.txt). One progress bar: naive 0-70%, dnsproxy 70-100%. Both binaries are
 #          replaced together after both downloads are verified; Naive counts as installed only
 #          when both are present.
-#   wg     opkg: kmod-wireguard, wireguard-tools, ip-full
+#   wg     opkg or apk (whichever the firmware has): kmod-wireguard, wireguard-tools, ip-full
 # Progress goes to /tmp/aurora-install-<proto>.json:
 #   {"state":"running|done|error","percent":0-100,"stage":"...","error":"...","version":"..."}
 # Only one install runs at a time. A running service is touched only when its own binary is
@@ -39,6 +39,8 @@ SF=$SD/aurora-install-$P.json
 LOG=$SD/aurora-install-$P.log
 # shellcheck disable=SC1091
 . "$HERE/install-lib.sh"
+# shellcheck disable=SC1091
+. "$HERE/pm-lib.sh"
 
 usage() { echo "usage: install-client.sh start|run <xray|hy2|naive|wg> | status [xray|hy2|naive|wg]"; exit 1; }
 dnsproxy_version() {
@@ -60,7 +62,7 @@ version_of() {
 		xray) "$XRAY_BIN" version 2>/dev/null | sed -n '1s/^Xray \([^ ]*\).*/\1/p' ;;
 		hy2) "$HYSTERIA_BIN" version 2>/dev/null | sed -n 's/^Version:[[:space:]]*v\{0,1\}\([^ ]*\).*/\1/p' | head -1 ;;
 		naive) "$NAIVE_BIN" --version 2>/dev/null | head -1 | sed 's/^naive[[:space:]]*//' ;;
-		wg) _v=$(opkg list-installed wireguard-tools 2>/dev/null | awk '{print $3}')
+		wg) _v=$(pm_version wireguard-tools)
 			[ -n "$_v" ] || _v=$("$WG_BIN" --version 2>/dev/null | sed -n '1s/^wireguard-tools v\{0,1\}\([^ ]*\).*/\1/p')
 			echo "$_v" ;;
 	esac
@@ -90,11 +92,11 @@ fail() { # short reason
 STAGE=""
 
 # ---------- shared steps ----------
-need_tool() { # command opkg-package
+need_tool() { # command package
 	command -v "$1" >/dev/null 2>&1 && return 0
-	command -v opkg >/dev/null 2>&1 || fail "$1 is missing and opkg is not available"
-	opkg update >/dev/null 2>&1
-	opkg install "$2" >"$TMP/opkg-tool.log" 2>&1 || fail "$1 is missing and could not be installed: $(tail -1 "$TMP/opkg-tool.log")"
+	[ "$(pm_name)" != none ] || fail "$1 is missing and no package manager (opkg or apk) is available"
+	pm_update >/dev/null 2>&1
+	pm_install "$2" >"$TMP/pm-tool.log" 2>&1 || fail "$1 is missing and could not be installed: $(tail -1 "$TMP/pm-tool.log")"
 	command -v "$1" >/dev/null 2>&1 || fail "$1 is still missing after installing $2"
 }
 space() { # path kb
@@ -281,19 +283,20 @@ do_naive() {
 
 do_wg() {
 	STAGE=checking; progress 1 checking
-	command -v opkg >/dev/null 2>&1 || fail "opkg is not available on this system"
+	PM=$(pm_name)
+	[ "$PM" != none ] || fail "no package manager (opkg or apk) is available on this system"
 	space "$TMP" 8000; space /usr/lib 6000
 	UPG=0; is_installed wg && UPG=1
 	STAGE=pkg-update; progress 5 pkg-update
-	opkg update >"$TMP/opkg.log" 2>&1 || fail "opkg update failed: $(tail -1 "$TMP/opkg.log")"
+	pm_update >"$TMP/pm.log" 2>&1 || fail "$PM update failed: $(tail -1 "$TMP/pm.log")"
 	STAGE=pkg-kernel; progress 30 pkg-kernel
-	opkg install kmod-wireguard >"$TMP/opkg.log" 2>&1 || fail "could not install kmod-wireguard: $(tail -1 "$TMP/opkg.log")"
-	[ "$UPG" = 1 ] && { opkg upgrade kmod-wireguard >"$TMP/opkg.log" 2>&1 || fail "could not upgrade kmod-wireguard: $(tail -1 "$TMP/opkg.log")"; }
+	pm_install kmod-wireguard >"$TMP/pm.log" 2>&1 || fail "could not install kmod-wireguard: $(tail -1 "$TMP/pm.log")"
+	[ "$UPG" = 1 ] && { pm_upgrade kmod-wireguard >"$TMP/pm.log" 2>&1 || fail "could not upgrade kmod-wireguard: $(tail -1 "$TMP/pm.log")"; }
 	STAGE=pkg-tools; progress 55 pkg-tools
-	opkg install wireguard-tools >"$TMP/opkg.log" 2>&1 || fail "could not install wireguard-tools: $(tail -1 "$TMP/opkg.log")"
-	[ "$UPG" = 1 ] && { opkg upgrade wireguard-tools >"$TMP/opkg.log" 2>&1 || fail "could not upgrade wireguard-tools: $(tail -1 "$TMP/opkg.log")"; }
+	pm_install wireguard-tools >"$TMP/pm.log" 2>&1 || fail "could not install wireguard-tools: $(tail -1 "$TMP/pm.log")"
+	[ "$UPG" = 1 ] && { pm_upgrade wireguard-tools >"$TMP/pm.log" 2>&1 || fail "could not upgrade wireguard-tools: $(tail -1 "$TMP/pm.log")"; }
 	STAGE=pkg-ip; progress 75 pkg-ip
-	opkg install ip-full >"$TMP/opkg.log" 2>&1 || fail "could not install ip-full: $(tail -1 "$TMP/opkg.log")"
+	pm_install ip-full >"$TMP/pm.log" 2>&1 || fail "could not install ip-full: $(tail -1 "$TMP/pm.log")"
 	STAGE=verifying; progress 92 verifying
 	is_installed wg || fail "the packages are installed but the WireGuard kernel module is not available (a reboot may be needed)"
 }

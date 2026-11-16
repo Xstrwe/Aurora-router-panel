@@ -178,6 +178,12 @@ if "$IC" status | jq -e '.naive.installed == false' >/dev/null; then ok "status 
 # the button on a half install adds dnsproxy
 r=$(run naive)
 if [ "$(echo "$r" | jq -r .state)" = done ] && [ -x "$INS/dnsproxy" ] && [ "$("$IC" status naive | jq -r .installed)" = true ]; then ok "pressing Install Naive on a half install completes it"; else bad "naive repair: $r"; fi
+# a real router reports DISTRIB_ARCH with an FPU suffix (GL-BE6500: aarch64_cortex-a53_neon-vfpv4); the release has no such name
+reset; printf "DISTRIB_ARCH='aarch64_cortex-a53_neon-vfpv4'\n" > "$TMP/osrel-naive"
+AURORA_OPENWRT_RELEASE=$TMP/osrel-naive; export AURORA_OPENWRT_RELEASE
+r=$(run naive)
+unset AURORA_OPENWRT_RELEASE
+if [ "$(echo "$r" | jq -r .state)" = done ] && [ -x "$INS/naive" ] && [ -x "$INS/dnsproxy" ]; then ok "naive: arch with an FPU suffix (aarch64_cortex-a53_neon-vfpv4) finds the aarch64_cortex-a53 build"; else bad "naive FPU-suffix arch: $r"; fi
 # wrong naive digest: nothing is installed, dnsproxy is not installed either
 reset; naive_api "sha256:0000"
 r=$(run naive)

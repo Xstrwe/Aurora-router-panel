@@ -46,6 +46,15 @@ Install the VPN clients from the panel. Pre-release.
 - The package manager is detected (opkg, or apk when there is no opkg) by the new helper
   `pm-lib.sh`. The Install WireGuard button, the WireGuard update and the helper installs of
   `curl`, `unzip` and `xz` use `apk update` and `apk add` on apk firmware, and opkg as before elsewhere.
+- Fixed on a real GL-BE6500 (found while testing the buttons):
+  - Install Naive found no build because the router reports its CPU as
+    `aarch64_cortex-a53_neon-vfpv4`; the installer now also tries the name without the
+    FPU suffix and the generic build of the CPU family.
+  - Clients built with Go 1.24 or newer (current Xray and Hysteria 2) listen with MPTCP, and
+    such a listener could not rebind its port while old connections were still in TIME_WAIT,
+    so restarting Xray or Hysteria under traffic failed with "address already in use" for
+    about a minute. The services of Xray, Hysteria 2 and dnsproxy now start with
+    `GODEBUG=multipathtcp=0`; a restart takes about 5-10 seconds.
 
 ## 1.5.0a4
 

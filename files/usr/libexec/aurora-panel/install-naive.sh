@@ -64,9 +64,9 @@ else
 fi
 
 detect_arch() {
-	if [ -f /etc/openwrt_release ]; then
+	if [ -f "${AURORA_OPENWRT_RELEASE:-/etc/openwrt_release}" ]; then
 		# shellcheck disable=SC1091
-		. /etc/openwrt_release
+		. "${AURORA_OPENWRT_RELEASE:-/etc/openwrt_release}"
 		if [ -n "${DISTRIB_ARCH:-}" ]; then
 			echo "$DISTRIB_ARCH"
 			return 0
@@ -119,22 +119,31 @@ else
 	fi
 	echo "Release: $TAG"
 	BASE=$GHDL/$REPO/releases/download/$TAG
-	STATIC=naiveproxy-${TAG}-openwrt-${ARCH}-static.tar.xz
-	PLAIN=naiveproxy-${TAG}-openwrt-${ARCH}.tar.xz
+	# The release names its builds after the CPU family (aarch64_cortex-a53), while
+	# DISTRIB_ARCH may add an FPU suffix (aarch64_cortex-a53_neon-vfpv4). Try the exact
+	# name first, then the name without the FPU suffix, then the generic build of the family.
+	CANDS=$ARCH
+	BASEARCH=$(echo "$ARCH" | sed -E 's/_(neon-vfpv4|neon-vfpv3|neon|vfpv4|vfpv3|vfp)$//')
+	[ "$BASEARCH" = "$ARCH" ] || CANDS="$CANDS $BASEARCH"
+	case "$ARCH" in aarch64_*) CANDS="$CANDS aarch64_generic" ;; esac
 	URL=""
-	for f in "$STATIC" "$PLAIN"; do
-		if command -v jq >/dev/null 2>&1 && [ -s "$JSON" ] && jq -e --arg n "$f" '.assets // [] | map(.name) | index($n)' "$JSON" >/dev/null 2>&1; then
-			URL=$BASE/$f
-			SHA=$(jq -r --arg n "$f" '.assets[] | select(.name==$n) | .digest // empty' "$JSON" | sed -n 's/^sha256://p' | head -1)
-			break
-		fi
+	for A in $CANDS; do
+		for f in "naiveproxy-${TAG}-openwrt-${A}-static.tar.xz" "naiveproxy-${TAG}-openwrt-${A}.tar.xz"; do
+			if command -v jq >/dev/null 2>&1 && [ -s "$JSON" ] && jq -e --arg n "$f" '.assets // [] | map(.name) | index($n)' "$JSON" >/dev/null 2>&1; then
+				URL=$BASE/$f
+				SHA=$(jq -r --arg n "$f" '.assets[] | select(.name==$n) | .digest // empty' "$JSON" | sed -n 's/^sha256://p' | head -1)
+				break 2
+			fi
+		done
 	done
 	if [ -z "$URL" ]; then
-		for f in "$STATIC" "$PLAIN"; do
-			if curl -fsSIL --max-time 15 "$BASE/$f" >/dev/null 2>&1; then
-				URL=$BASE/$f
-				break
-			fi
+		for A in $CANDS; do
+			for f in "naiveproxy-${TAG}-openwrt-${A}-static.tar.xz" "naiveproxy-${TAG}-openwrt-${A}.tar.xz"; do
+				if curl -fsSIL --max-time 15 "$BASE/$f" >/dev/null 2>&1; then
+					URL=$BASE/$f
+					break 2
+				fi
+			done
 		done
 	fi
 	[ -n "$URL" ] || err "release $TAG has no build for $ARCH (neither static nor regular). See https://github.com/$REPO/releases"

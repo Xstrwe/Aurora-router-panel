@@ -17,6 +17,7 @@ start_service() {
 	if [ -n "$DNSPROXY" ]; then
 		procd_open_instance dns
 		procd_set_param command "$DNSPROXY" -l 127.0.0.1 -p 5374 -u tcp://1.1.1.1:53 --cache
+		procd_set_param env GODEBUG=multipathtcp=0
 		procd_set_param user nobody
 		procd_set_param respawn
 		procd_set_param stdout 0

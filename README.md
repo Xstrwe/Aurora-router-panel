@@ -86,19 +86,6 @@ The script picks the static build for your architecture from the klzgrad/naivepr
 ## Upgrading
 
 Install the new `.ipk` the same way as above. Files that are not part of the package are kept: `/etc/xray/{link.txt,config.json,hy2.txt,naive.txt,wg.conf,wg.json,socks.json,http.json,server_ip,mode,proto,httpd.conf}`, `/etc/xray/autoupdate/*`, `/etc/hysteria/client.yaml`, `/etc/naive/config.json` and `/usr/bin/naive`.
-
-### Upgrading from `vless-router-panel`
-
-`aurora-router-panel` declares `Replaces` and `Conflicts: vless-router-panel`, so a plain `opkg install /tmp/vrp.ipk` replaces the old package. All your settings under `/etc/xray`, `/etc/hysteria` and `/etc/naive`, and the active protocol, are preserved. What moves:
-
-| Old | New |
-| --- | --- |
-| package `vless-router-panel` | `aurora-router-panel` |
-| `/usr/libexec/vless-panel` | `/usr/libexec/aurora-panel` |
-| `/www-vless` | `/www-aurora` |
-| uhttpd section `uhttpd.vless` | `uhttpd.aurora` (same listen address and port) |
-| cron mark `vless-router-panel-autoupdate` | `aurora-router-panel-autoupdate` (line rewritten) |
-
 `/etc/xray/vless.sh` and the page address `/cgi-bin/vless` stay the same. The old GitHub URL redirects to the new repository.
 
 ## Usage

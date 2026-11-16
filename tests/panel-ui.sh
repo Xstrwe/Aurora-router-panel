@@ -174,8 +174,8 @@ run() {
 # --- version is a letter iteration after 1.4.0 ---
 ver=$(sed -n 's/^Version: //p' "$ROOT/control/control" | head -1)
 cls=$("$VC" classify "$ver")
-if [ "$ver" = 1.5.0a3 ] && [ "$cls" = pre ]; then
-	ok "package version 1.5.0a3 is a pre-release"
+if [ "$ver" = 1.5.0a4 ] && [ "$cls" = pre ]; then
+	ok "package version 1.5.0a4 is a pre-release"
 else
 	bad "version ($ver class=$cls)"
 fi
@@ -1020,6 +1020,86 @@ fi
 rm -f /tmp/xray-restart.err /tmp/vless.err
 
 rm -f /tmp/xray-restart.err /tmp/aurora-restart-hysteria-client.err /tmp/aurora-restart-naive-client.err /tmp/vless.err
+
+# --- Transparent mode status is honest: ENABLED only when traffic really passes ---
+cat > "$TMP/hooks/health-ok.sh" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat > "$TMP/hooks/health-bad.sh" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod 755 "$TMP/hooks/health-ok.sh" "$TMP/hooks/health-bad.sh"
+hrow() { # $1 up-list $2 proto $3 probe-hook $4 NFT_FAIL -> rendered page
+	echo "$2" > "$D/proto"
+	rm -f "$TMP/health.cache"
+	env PIDOF_UP="$1" NFT_FAIL="${4:-}" VLESS_AU_PROBE="$3" VLESS_HEALTH_CACHE="$TMP/health.cache" VLESS_AU_EGRESS="$TMP/hooks/egress-final.sh" \
+		VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" REQUEST_METHOD=GET "$CGI"
+}
+tm() { printf '%s\n' "$1" | sed -n 's/.*<tr><td>Transparent mode for the network:<\/td><td><b style="color:\([^"]*\)">\(.*\)<\/b><\/td><\/tr>.*/\1 \2/p' | head -1; }
+h_ok=$(hrow naive naive "$TMP/hooks/health-ok.sh")
+h_bad=$(hrow naive naive "$TMP/hooks/health-bad.sh")
+h_down=$(hrow xray naive "$TMP/hooks/health-ok.sh")
+h_off=$(hrow naive naive "$TMP/hooks/health-ok.sh" 1)
+h_hy=$(hrow hysteria hy2 "$TMP/hooks/health-bad.sh")
+h_vl=$(hrow xray vless "$TMP/hooks/health-ok.sh")
+if [ "$(tm "$h_ok")" = "#1a7f37 ENABLED" ] && [ "$(tm "$h_vl")" = "#1a7f37 ENABLED" ] \
+   && ! printf '%s' "$h_ok" | grep -q '<div class=banner>'; then
+	ok "transparent mode is green ENABLED when the active protocol passes traffic (Naive, VLESS), no banner"
+else
+	bad "transparent mode ENABLED ($(tm "$h_ok") | $(tm "$h_vl"))"
+fi
+if [ "$(tm "$h_bad")" = "#c62828 ERROR" ] && printf '%s' "$h_bad" | grep -q '<div class=banner>' \
+   && printf '%s' "$h_bad" | grep -q 'NAIVE IS RUNNING BUT NO TRAFFIC PASSES THROUGH THE SERVER' \
+   && printf '%s' "$h_bad" | grep -q 'CHECK THE SERVER, THE PORT AND THE LOGIN AND PASSWORD'; then
+	ok "running but not passing traffic: red ERROR plus a banner with the cause and the fix"
+else
+	bad "transparent mode ERROR (broken) ($(tm "$h_bad"))"
+fi
+if [ "$(tm "$h_down")" = "#c62828 ERROR" ] && printf '%s' "$h_down" | grep -q 'NAIVE IS NOT RUNNING' \
+   && printf '%s' "$h_hy" | grep -q 'HYSTERIA USES UDP'; then
+	ok "steering on but the service is not running: red ERROR with banner; Hysteria banner mentions blocked UDP"
+else
+	bad "transparent mode ERROR (down) ($(tm "$h_down"))"
+fi
+if [ "$(tm "$h_off")" = "#c62828 DISABLED (direct internet)" ] && ! printf '%s' "$h_off" | grep -q '<div class=banner>'; then
+	ok "steering off: red DISABLED, no banner"
+else
+	bad "transparent mode DISABLED ($(tm "$h_off"))"
+fi
+# health command: off / down / ok / broken, and a 20 s cache
+ch() { env PIDOF_UP="$1" NFT_FAIL="${3:-}" VLESS_AU_PROBE="$2" VLESS_HEALTH_CACHE="$TMP/health.cache" "$SH" health; }
+echo naive > "$D/proto"; rm -f "$TMP/health.cache"
+c1=$(ch naive "$TMP/hooks/health-ok.sh" 1); c2=$(ch xray "$TMP/hooks/health-ok.sh"); c3=$(ch naive "$TMP/hooks/health-bad.sh"); rm -f "$TMP/health.cache"
+c4=$(ch naive "$TMP/hooks/health-ok.sh"); c5=$(ch naive "$TMP/hooks/health-bad.sh")
+if [ "$c1" = off ] && [ "$c2" = down ] && [ "$c3" = broken ] && [ "$c4" = ok ] && [ "$c5" = ok ]; then
+	ok "vless.sh health: off, down, broken, ok, and the answer is cached"
+else
+	bad "health command ($c1 $c2 $c3 $c4 $c5)"
+fi
+# The Test button uses the ACTIVE protocol's own entry, not a fixed Xray SOCKS port.
+cat > "$TMP/bin/curl" <<EOF
+#!/bin/sh
+echo "\$*" >> "$TMP/curl.log"
+case "\$*" in *generate_204*) printf '204 0.100';; *ipify*) printf '185.167.97.143';; *youtube*) printf '200';; *speed.cloudflare*) printf '5000000 50000000';; esac
+EOF
+chmod 755 "$TMP/bin/curl"
+pe=""
+for pr in vless naive hy2; do
+	echo "$pr" > "$D/proto"; : > "$TMP/curl.log"
+	body="action=test"
+	out=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_AU_PROBE="$TMP/hooks/health-ok.sh" VLESS_HEALTH_CACHE="$TMP/health.cache" VLESS_AU_EGRESS="$TMP/hooks/egress-final.sh" \
+		VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
+	case "$pr" in vless) port=10808;; naive) port=10828;; hy2) port=10818;; esac
+	others=$(grep -o '127.0.0.1:1[0-9]*' "$TMP/curl.log" | grep -v "127.0.0.1:$port\$" || true)
+	if grep -q "127.0.0.1:$port " "$TMP/curl.log" && [ -z "$others" ] && printf '%s' "$out" | grep -q 'Test: connected'; then :; else pe="$pe $pr"; fi
+done
+rm -f "$TMP/bin/curl"
+if [ -z "$pe" ]; then ok "the Test button goes through the active protocol's own entry (10808 / 10828 / 10818)"; else bad "test entry for:$pe"; fi
+if ! grep -q 'socks5-hostname 127.0.0.1:1' "$CGI"; then ok "the CGI no longer runs curl against a fixed Xray SOCKS port"; else bad "CGI still has a hard-coded curl SOCKS entry"; fi
+echo vless > "$D/proto"
+
 
 if [ "$fail" -eq 0 ]; then
 	echo "All panel UI tests passed."

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.0a4
+
+Honest status: the panel no longer claims the network is working when it is not.
+Pre-release.
+
+- **Transparent mode** for the network is green **ENABLED** only when the active
+  protocol really passes traffic (the same check the Test button runs). When
+  transparent mode is on but the service is down or no traffic passes, it turns
+  red **ERROR** and a banner at the top of the page says what caused it and how to
+  fix it. When transparent mode is off it stays red **DISABLED**.
+- **Test** and **Speed** now measure the active protocol through its own local
+  entry (Xray, Hysteria, Naive or WireGuard). Before, they always went through the
+  Xray SOCKS port, so with Naive or Hysteria active, Test reported
+  "no connection (code 000)" even though traffic was passing.
+- New `vless.sh health` (`off`, `down`, `broken`, `ok`, cached for 20 s) and
+  `vless.sh probe 204|youtube|ip|speed`.
+
 ## 1.5.0a3
 
 Every protocol is now fully independent: its own service, its own steering rules

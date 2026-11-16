@@ -126,16 +126,16 @@ if [ "$REQUEST_METHOD" = POST ]; then
 HINT: USE THE BUTTON NEXT TO A SERVICE NAME";;
       esac;;
     mode) MSG=$($V mode "$(fld mode)" 2>&1);;
-    test) T=$(curl -s -o /dev/null -m 10 -w '%{http_code} %{time_total}' --socks5-hostname 127.0.0.1:10808 https://www.google.com/generate_204 2>/dev/null)
-      Y=$(curl -s -o /dev/null -m 10 -w '%{http_code}' --socks5-hostname 127.0.0.1:10808 https://www.youtube.com 2>/dev/null)
-      IPX=$(curl -s -m 8 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null)
+    test) T=$($V probe 204 2>/dev/null)
+      Y=$($V probe youtube 2>/dev/null)
+      IPX=$($V probe ip 2>/dev/null)
       set -- $T
       if [ "$1" = 204 ]; then MSG="Test: connected ✅
 Latency: $(awk "BEGIN{printf \"%d\", $2*1000}") ms
 Egress IP: ${IPX:-?}
 YouTube: $([ "$Y" = 200 ] && echo opens || echo "code $Y")"
       else MSG="Test: no connection ❌ (code ${1:-no response})"; fi;;
-    speed) PNX=VLESS; grep -q hy2 $D/proto 2>/dev/null && PNX=Hysteria2; grep -q naive $D/proto 2>/dev/null && PNX=Naive; grep -q wg $D/proto 2>/dev/null && PNX=WireGuard; grep -q socks $D/proto 2>/dev/null && PNX=SOCKS5; grep -q http $D/proto 2>/dev/null && PNX=HTTP; R=$(curl -s -o /dev/null -m 20 -w '%{speed_download} %{size_download}' --socks5-hostname 127.0.0.1:10808 'https://speed.cloudflare.com/__down?bytes=50000000' 2>/dev/null)
+    speed) PNX=VLESS; grep -q hy2 $D/proto 2>/dev/null && PNX=Hysteria2; grep -q naive $D/proto 2>/dev/null && PNX=Naive; grep -q wg $D/proto 2>/dev/null && PNX=WireGuard; grep -q socks $D/proto 2>/dev/null && PNX=SOCKS5; grep -q http $D/proto 2>/dev/null && PNX=HTTP; R=$($V probe speed 2>/dev/null)
       set -- $R
       if [ "${2%.*}" -gt 100000 ] 2>/dev/null; then MSG="Speed ($PNX): $(awk "BEGIN{printf \"%.1f\", $1*8/1000000}") Mbit/s (downloaded $(awk "BEGIN{printf \"%.1f\", $2/1048576}") MB)"
       else MSG="Speed: could not measure ❌"; fi;;
@@ -209,6 +209,7 @@ if [ "$A" = restartsvc ]; then
   esac
 fi
 eval "$($V status | sed 's/^/S_/')"
+HEALTH=$($V health 2>/dev/null)
 HY2=$(field_raw hy2 | esc)
 NV=$(field_raw naive | esc)
 WG=$(field_raw wg | esc)
@@ -276,8 +277,30 @@ W_OK=0; [ "${S_inst_wireguard:-0}" = 1 ] && [ "${S_wg_conf:-0}" = 1 ] && W_OK=1
 [ "$(idle_state "$H_UP" x "$A_H" "$H_OK")" = 2 ] && { H_UP=2; T_H="stopped: not the active protocol"; }
 [ "$(idle_state "$W_UP" x "$A_W" "$W_OK")" = 2 ] && { W_UP=2; T_W="stopped: not the active protocol"; }
 SVC="$(svc_item xray Xray "$X_UP" "$T_X") / $(svc_item naive Naive "$N_UP" "$T_N") / $(svc_item hysteria Hysteria "$H_UP" "$T_H") / $(svc_item wireguard WireGuard "$W_UP" "$T_W" "$W_DIS")"
-if [ "$S_tproxy" = 1 ] && [ "${S_active_up:-$S_running}" = 1 ]; then ST="ENABLED"; SC="#1a7f37"
-else ST="DISABLED (direct internet)"; SC="#c62828"; fi
+# Transparent mode is green only when the active protocol really passes traffic (the same check
+# the Test button uses). Steering on but not passing traffic is a red ERROR with a banner.
+case "$S_proto" in socks|http) PNH=XRAY;; *) PNH=$(printf '%s' "$PN" | tr a-z A-Z);; esac
+case "$HEALTH" in
+  ok) ST="ENABLED"; SC="#1a7f37";;
+  down)
+    ST="ERROR"; SC="#c62828"
+    if [ -z "$WHY" ]; then
+      WHY="TRANSPARENT MODE IS ON BUT $PNH IS NOT RUNNING, SO THE NETWORK HAS NO INTERNET"
+      HOW="PRESS THE RESTART BUTTON NEXT TO THE SERVICE, OR APPLY THE CONNECTION AGAIN. IF IT STOPS AGAIN, CHECK THE LINK AND THE LOG (LOGREAD)"
+    fi;;
+  broken)
+    ST="ERROR"; SC="#c62828"
+    if [ -z "$WHY" ]; then
+      WHY="$PNH IS RUNNING BUT NO TRAFFIC PASSES THROUGH THE SERVER, SO THE NETWORK HAS NO INTERNET"
+      case "$S_proto" in
+        hy2) HOW="CHECK THE SERVER, THE PASSWORD AND THE PORT IN THE LINK. HYSTERIA USES UDP, SO IT STOPS WORKING WHEN A PROVIDER BLOCKS UDP. TRY ANOTHER PROTOCOL OR PORT";;
+        naive) HOW="CHECK THE SERVER, THE PORT AND THE LOGIN AND PASSWORD IN THE LINK, AND THAT THE SERVER IS UP. THEN PRESS THE RESTART BUTTON NEXT TO NAIVE";;
+        wg) HOW="CHECK THE ENDPOINT AND THE KEYS IN THE CONFIG, AND THAT THE SERVER IS UP. THEN PRESS THE RESTART BUTTON NEXT TO WIREGUARD";;
+        *) HOW="CHECK THE SERVER ADDRESS, PORT AND KEYS IN THE LINK, AND THAT THE SERVER IS UP. THEN PRESS THE RESTART BUTTON NEXT TO XRAY";;
+      esac
+    fi;;
+  *) ST="DISABLED (direct internet)"; SC="#c62828";;
+esac
 [ "$S_mode" = all ] && { M1=""; M2=selected; } || { M1=selected; M2=""; }
 SOCKS_CARD_H=" hidden"; SOCKS_BTN_H=
 HTTP_CARD_H=" hidden"; HTTP_BTN_H=

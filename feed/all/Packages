@@ -1,5 +1,5 @@
 Package: aurora-router-panel
-Version: 1.5.0a3
+Version: 1.5.0a4
 Depends: curl, jq, ucode, uhttpd, kmod-nft-tproxy
 Replaces: vless-router-panel
 Conflicts: vless-router-panel
@@ -7,7 +7,7 @@ License: MIT
 Section: net
 Priority: optional
 Architecture: all
-Installed-Size: 108
+Installed-Size: 111
 Maintainer: Xstrwe <https://github.com/Xstrwe>
 Source: https://github.com/Xstrwe/Aurora-router-panel
 Description: Aurora router panel (formerly "VLESS on the router") for OpenWrt (uhttpd :8088).
@@ -17,7 +17,7 @@ Description: Aurora router panel (formerly "VLESS on the router") for OpenWrt (u
  an http(s) subscription URL). Requires a manually
  installed xray binary in /usr/bin and geoip/geosite in /usr/share/xray.
  Every protocol is its own service: VLESS = Xray, Hysteria = hysteria, Naive = naive (+ dnsproxy for DNS), WireGuard = kernel interface; only one runs at a time and none goes through another. WireGuard needs kmod-wireguard and wireguard-tools (optional). hysteria and naive binaries are optional; install naive with /usr/libexec/aurora-panel/install-naive.sh.
-Filename: aurora-router-panel_1.5.0a3_all.ipk
-Size: 38874
-SHA256sum: 56ef0b6821de54439f2a32cf7089c29b091c42c3c8eb4fd1aa33d9407d6f9929
+Filename: aurora-router-panel_1.5.0a4_all.ipk
+Size: 39933
+SHA256sum: 36d336aabc3752276fdc5f034b60242150e7d62a003e7f926c1527bf53a8fdda
 

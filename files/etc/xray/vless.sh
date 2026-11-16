@@ -3,6 +3,7 @@
 #         | sockssave <json> | httpsave <json>
 #         | store vless|hy2|naive|wg|socks|http <file> | proto vless|hy2|naive|wg|socks|http
 #         | mode ru|all | on | off | status | restart | restart-svc xray|naive|hysteria|wireguard | recover | egress
+#         | health | probe 204|youtube|ip|speed
 #         | autoset <proto> <0|1> <1h|6h|24h>
 #         | src <proto> <infile> <outfile> <0|1> | update <proto>
 #         | mergecfg socks|http <base.json> <settings.json> <out.json>
@@ -923,6 +924,52 @@ egress_fetch(){
     *) curl -fsS -m 3 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org 2>/dev/null;;
   esac
 }
+# curl through the ACTIVE protocol's own local entry (never through another protocol).
+# $1 = proto, the remaining arguments go to curl. Used by the panel Test/Speed buttons and by health.
+entry_curl(){
+  _ep=$1; shift
+  case "$_ep" in
+    hy2) curl --socks5-hostname 127.0.0.1:10818 "$@";;
+    naive) curl --socks5-hostname 127.0.0.1:10828 "$@";;
+    wg) curl -4 --interface "$WGIF" "$@";;
+    *) curl --socks5-hostname 127.0.0.1:10808 "$@";;
+  esac
+}
+# vless.sh probe 204|youtube|ip|speed: what the panel's Test and Speed buttons measure, for the active protocol.
+do_probe(){
+  case "$1" in
+    204) entry_curl "$PROTO" -s -o /dev/null -m 10 -w '%{http_code} %{time_total}' https://www.google.com/generate_204 2>/dev/null;;
+    youtube) entry_curl "$PROTO" -s -o /dev/null -m 10 -w '%{http_code}' https://www.youtube.com 2>/dev/null;;
+    ip) entry_curl "$PROTO" -s -m 8 https://api.ipify.org 2>/dev/null;;
+    speed) entry_curl "$PROTO" -s -o /dev/null -m 20 -w '%{speed_download} %{size_download}' 'https://speed.cloudflare.com/__down?bytes=50000000' 2>/dev/null;;
+    *) err "probe 204|youtube|ip|speed";;
+  esac
+}
+# vless.sh health: does the transparent mode really pass traffic for the active protocol?
+#   off     steering is not installed (direct internet)
+#   down    steering is on but the active protocol's service is not running
+#   broken  service runs but a connection through its own entry fails
+#   ok      traffic passes
+# A good or bad answer is cached for 20 s per (protocol, config mtime) so page loads stay fast.
+do_health(){
+  steer_present || { echo off; return 0; }
+  nat_running "$PROTO" || { echo down; return 0; }
+  _hk="$PROTO|$(stat -c %Y "$D/proto" 2>/dev/null)"
+  _hc=${VLESS_HEALTH_CACHE:-/tmp/aurora-health}
+  if [ -f "$_hc" ]; then
+    _now=$(date +%s); _mt=$(stat -c %Y "$_hc" 2>/dev/null || echo 0)
+    if [ $((_now - _mt)) -lt 20 ] && [ "$(sed -n 1p "$_hc")" = "$_hk" ]; then sed -n 2p "$_hc"; return 0; fi
+  fi
+  _r=broken
+  if [ -n "${VLESS_AU_PROBE:-}" ]; then
+    sh "$VLESS_AU_PROBE" && _r=ok
+  else
+    _c=$(entry_curl "$PROTO" -s -o /dev/null -m 4 -w '%{http_code}' https://www.google.com/generate_204 2>/dev/null)
+    [ "$_c" = 204 ] && _r=ok
+  fi
+  printf '%s\n%s\n' "$_hk" "$_r" > "$_hc" 2>/dev/null
+  echo "$_r"
+}
 egress_ip(){
   if [ -n "${VLESS_AU_EGRESS:-}" ]; then
     ip=$(sh "$VLESS_AU_EGRESS" 2>/dev/null | tr -d '\r\n\t ') || true
@@ -998,6 +1045,8 @@ recover)
     n=$((n+1))
   done;;
 egress) egress_ip || exit 1;;
+probe) do_probe "$2";;
+health) do_health;;
 status)
   echo "running=$(pidof xray >/dev/null && echo 1 || echo 0)"
   echo "hysteria=$(pidof hysteria >/dev/null && echo 1 || echo 0)"

@@ -7,7 +7,7 @@ License: MIT
 Section: net
 Priority: optional
 Architecture: all
-Installed-Size: 141
+Installed-Size: 142
 Maintainer: Xstrwe <https://github.com/Xstrwe>
 Source: https://github.com/Xstrwe/Aurora-router-panel
 Description: Aurora router panel (formerly "VLESS on the router") for OpenWrt (uhttpd :8088).
@@ -20,6 +20,6 @@ Description: Aurora router panel (formerly "VLESS on the router") for OpenWrt (u
  downloaded when the package is installed).
  Every protocol is its own service: VLESS = Xray, Hysteria = hysteria, Naive = naive (+ dnsproxy for DNS), WireGuard = kernel interface; only one runs at a time and none goes through another. WireGuard needs kmod-wireguard and wireguard-tools (optional). Every client is optional.
 Filename: aurora-router-panel_1.5.0a5_all.ipk
-Size: 48680
-SHA256sum: 1d68969d34362b6489439fbee99e7a65aabc628256f91548df576bffe544ab2b
+Size: 49011
+SHA256sum: bd732aebd7fd2a9ce03513e67ad31e1873bb309270525ffa60d275ee4bb07986
 

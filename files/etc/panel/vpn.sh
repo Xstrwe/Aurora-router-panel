@@ -576,6 +576,8 @@ resolve_host_ip(){
 store_proxy(){
   # proto infile — JSON with address, port, optional user/pass;
   # for http also tls (bool), sni, allowInsecure (bool). Written 0600.
+  # An empty pass keeps the saved password; if the other fields are unchanged
+  # the existing file is left byte-identical.
   P=$1
   case "$P" in socks|http) ;; *) err "store socks|http";; esac
   [ -s "$2" ] || err "enter an address and a port"
@@ -590,13 +592,36 @@ store_proxy(){
   USER=$(jq -r '.user // empty' "$2")
   PASS=$(jq -r '.pass // empty' "$2")
   [ "${#USER}" -le 256 ] && [ "${#PASS}" -le 256 ] || err "login or password is too long"
-  OUT=/tmp/proxy-$P.json
-  umask 077
+  TLS=false; INS=false; SNI=
   if [ "$P" = http ]; then
     TLS=$(jq -r 'if .tls==true or .tls=="1" or .tls==1 then "true" else "false" end' "$2")
     INS=$(jq -r 'if .allowInsecure==true or .allowInsecure=="1" or .allowInsecure==1 then "true" else "false" end' "$2")
     SNI=$(jq -r '.sni // empty' "$2")
     [ "${#SNI}" -le 253 ] || err "invalid SNI"
+  fi
+  SAVED=$D/$P.json
+  if [ -z "$PASS" ] && [ -s "$SAVED" ]; then
+    _keep=0
+    if [ "$ADDR" = "$(jq -r '.address // empty' "$SAVED")" ] \
+       && [ "$PORT" = "$(jq -r '.port // empty' "$SAVED")" ] \
+       && [ "$USER" = "$(jq -r '.user // empty' "$SAVED")" ]; then
+      if [ "$P" != http ]; then
+        _keep=1
+      elif [ "$TLS" = "$(jq -r 'if .tls==true or .tls=="1" or .tls==1 then "true" else "false" end' "$SAVED")" ] \
+           && [ "$INS" = "$(jq -r 'if .allowInsecure==true or .allowInsecure=="1" or .allowInsecure==1 then "true" else "false" end' "$SAVED")" ] \
+           && [ "$SNI" = "$(jq -r '.sni // empty' "$SAVED")" ]; then
+        _keep=1
+      fi
+    fi
+    if [ "$_keep" = 1 ]; then
+      return 0
+    fi
+    PASS=$(jq -r '.pass // empty' "$SAVED")
+    [ "${#PASS}" -le 256 ] || err "login or password is too long"
+  fi
+  OUT=/tmp/proxy-$P.json
+  umask 077
+  if [ "$P" = http ]; then
     jq -n --arg a "$ADDR" --argjson p "$PORT" --arg u "$USER" --arg w "$PASS" --argjson tls "$TLS" --arg s "$SNI" --argjson ins "$INS" \
       '{address:$a,port:$p,user:$u,pass:$w,tls:$tls,sni:$s,allowInsecure:$ins}' > "$OUT" || err "jq"
   else
@@ -608,8 +633,6 @@ store_proxy(){
   chmod 600 "$D/$P.json"
 }
 
-# proto base.json settings.json out.json — replace the "proxy" outbound (and,
-# for http, send DNS over TCP, block QUIC, and send other UDP direct).
 merge_proxy_cfg(){
   P=$1
   case "$P" in socks|http) ;; *) err "mergecfg socks|http";; esac

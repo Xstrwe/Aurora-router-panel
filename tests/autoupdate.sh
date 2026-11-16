@@ -508,6 +508,38 @@ if "$SH" store http "$TMP/http.in" >/dev/null 2>&1 \
 else
 	bad "store http"
 fi
+# empty password keeps the saved one; unchanged other fields leave the file byte-identical
+cp "$D/socks.json" "$TMP/socks.keep"
+printf '%s\n' '{"address":"192.0.2.80","port":1080,"user":"alice","pass":""}' > "$TMP/socks.blank"
+if "$SH" store socks "$TMP/socks.blank" >/dev/null 2>&1 \
+   && cmp -s "$TMP/socks.keep" "$D/socks.json"; then
+	ok "empty socks password keeps the saved file byte-identical"
+else
+	bad "empty socks password keep"
+fi
+printf '%s\n' '{"address":"192.0.2.90","port":1080,"user":"alice","pass":""}' > "$TMP/socks.move"
+if "$SH" store socks "$TMP/socks.move" >/dev/null 2>&1 \
+   && [ "$(jq -r .address "$D/socks.json")" = 192.0.2.90 ] \
+   && [ "$(jq -r .pass "$D/socks.json")" = s3cret ]; then
+	ok "empty socks password is kept when the address changes"
+else
+	bad "empty socks password on address change"
+fi
+# restore the original socks fixture for mergecfg
+"$SH" store socks "$TMP/socks.in" >/dev/null 2>&1
+printf '%s\n' '{"address":"192.0.2.81","port":443,"user":"u","pass":"s3cret","tls":true,"sni":"proxy.example","allowInsecure":true}' > "$TMP/http.pw"
+"$SH" store http "$TMP/http.pw" >/dev/null 2>&1
+cp "$D/http.json" "$TMP/http.keep"
+printf '%s\n' '{"address":"192.0.2.81","port":443,"user":"u","pass":"","tls":true,"sni":"proxy.example","allowInsecure":true}' > "$TMP/http.blank"
+if "$SH" store http "$TMP/http.blank" >/dev/null 2>&1 \
+   && cmp -s "$TMP/http.keep" "$D/http.json" \
+   && [ "$(jq -r .pass "$D/http.json")" = s3cret ]; then
+	ok "empty http password keeps the saved file byte-identical"
+else
+	bad "empty http password keep"
+fi
+# restore the original http fixture (no password) for later tests
+"$SH" store http "$TMP/http.in" >/dev/null 2>&1
 
 # mergecfg: fixture inbounds/routing, no real credentials in the result checks
 cat > "$TMP/base.json" <<'JSON'

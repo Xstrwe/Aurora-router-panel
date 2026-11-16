@@ -45,11 +45,11 @@ BLK
 # $1 proto socks|http — separate fields, always visible (the card itself is revealed separately)
 proxy_fields(){
   F=$D/$1.json
-  ADDR=; PORT=; USER=; PASS=; SNI=; TLS=; INS=
+  ADDR=; PORT=; USER=; SNI=; TLS=; INS=
   if [ "$PF_BAD" = "$1" ]; then
-    # The save failed: keep what was typed.
+    # The save failed: keep what was typed, but never put the password in the page.
     ADDR=$(printf '%s' "$PF_ADDR" | esc); PORT=$(printf '%s' "$PF_PORT" | esc)
-    USER=$(printf '%s' "$PF_USER" | esc); PASS=$(printf '%s' "$PF_PASS" | esc)
+    USER=$(printf '%s' "$PF_USER" | esc)
     SNI=$(printf '%s' "$PF_SNI" | esc)
     [ "$PF_TLS" = true ] && TLS=checked
     [ "$PF_INS" = true ] && INS=checked
@@ -57,17 +57,21 @@ proxy_fields(){
     ADDR=$(jq -r '.address // empty' "$F" | esc)
     PORT=$(jq -r '.port // empty' "$F" | esc)
     USER=$(jq -r '.user // empty' "$F" | esc)
-    PASS=$(jq -r '.pass // empty' "$F" | esc)
     SNI=$(jq -r '.sni // empty' "$F" | esc)
     [ "$(jq -r '.tls // false' "$F")" = true ] && TLS=checked
     [ "$(jq -r '.allowInsecure // false' "$F")" = true ] && INS=checked
+  fi
+  # Saved password: never written into the HTML. An empty field keeps it.
+  PPH="password"
+  if [ -s "$F" ] && [ "$(jq -r 'if ((.pass // "") != "") then "1" else "0" end' "$F")" = 1 ]; then
+    PPH="•••••••• (saved, leave empty to keep)"
   fi
   cat <<BLK
 <div class=pf>
 <label>Address <input type=text name=addr value="$ADDR" autocomplete=off spellcheck=false></label>
 <label>Port <input type=text name=port value="$PORT" inputmode=numeric autocomplete=off></label>
 <label>Login <input type=text name=user value="$USER" autocomplete=off spellcheck=false></label>
-<label>Password <input type=password name=pass value="$PASS" autocomplete=new-password></label>
+<label>Password <span class=pw><input type=password name=pass value="" placeholder="$PPH" autocomplete=new-password><button type=button class=pwt aria-label="Show password">show</button></span></label>
 BLK
   if [ "$1" = http ]; then
     TLSX_H=" hidden"; [ -n "$TLS" ] && TLSX_H=
@@ -297,8 +301,9 @@ YouTube: $([ "$Y" = 200 ] && echo opens || echo "code $Y")"
         MSG=$($V $A $IN 2>&1)
       fi
       rm -f $IN
+      PASS=
       case "$MSG" in *ERROR*)
-        PF_BAD=$AP; PF_ADDR=$ADDR; PF_PORT=$PORT; PF_USER=$USER; PF_PASS=$PASS
+        PF_BAD=$AP; PF_ADDR=$ADDR; PF_PORT=$PORT; PF_USER=$USER
         PF_SNI=$SNI; PF_TLS=$TLS; PF_INS=$INS;;
       esac;;
   esac

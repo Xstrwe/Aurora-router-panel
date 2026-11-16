@@ -1,9 +1,9 @@
 #!/bin/sh
-# Local tests for autoupdate helpers and vless.sh update (mocked tree, no router).
+# Local tests for autoupdate helpers and vpn.sh update (mocked tree, no router).
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 LIB=$ROOT/files/usr/libexec/vpn-panel/autoupdate-lib.sh
-SH=$ROOT/files/etc/xray/vless.sh
+SH=$ROOT/files/etc/panel/vpn.sh
 fail=0
 ok() { echo "ok - $1"; }
 bad() { echo "FAIL - $1"; fail=$((fail+1)); }
@@ -267,7 +267,7 @@ else
 fi
 IPKG_INSTROOT=/tmp au_cron_remove
 
-# --- vless.sh update: fetch + store inactive proto (no switch) ---
+# --- vpn.sh update: fetch + store inactive proto (no switch) ---
 cat > "$TMP/curl-stub.sh" <<'ST'
 #!/bin/sh
 # $1 url $2 outfile  (VLESS_AU_CURL protocol)
@@ -421,7 +421,7 @@ else
 	bad "successful apply (rc=$rc msg=$msg link=$(cat "$D/link.txt") cfg=$(cat "$D/config.json"))"
 fi
 
-# --- vless.sh src: subscription URL in a card field ---
+# --- vpn.sh src: subscription URL in a card field ---
 printf 'https://example.com/hy2\n' > "$TMP/field.in"
 rm -f "$(au_src_file hy2)"
 if "$SH" src hy2 "$TMP/field.in" "$TMP/field.out" 1 >/dev/null 2>&1 \

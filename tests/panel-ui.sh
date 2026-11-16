@@ -2,7 +2,7 @@
 # Status card, restart failures, egress IP and the VPN/proxy page.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-SH=$ROOT/files/etc/xray/vless.sh
+SH=$ROOT/files/etc/panel/vpn.sh
 CGI=$ROOT/files/www-vpn-panel/cgi-bin/vpn
 LIB=$ROOT/files/usr/libexec/vpn-panel/autoupdate-lib.sh
 VC=$ROOT/tools/vercmp.sh
@@ -108,7 +108,7 @@ cat > "$TMP/hooks/egress-junk.sh" <<'EOF'
 printf '%s\n' 'not-an-ip'
 EOF
 chmod 755 "$TMP/hooks/"*.sh
-cat > "$TMP/hooks/vless-fail.sh" <<'EOF'
+cat > "$TMP/hooks/vpn-fail.sh" <<'EOF'
 #!/bin/sh
 case "$1" in status) printf 'running=1\nhysteria=0\nnaive=0\ntproxy=1\nmode=ru\nproto=vless\nserver_ip=\n';; *) echo "ERROR: boom";; esac
 EOF
@@ -117,7 +117,7 @@ cat > "$TMP/bin/curl" <<EOF
 echo x >> "$TMP/curl.count"
 printf '%s\n' '203.0.113.9'
 EOF
-chmod 755 "$TMP/bin/curl" "$TMP/hooks/vless-fail.sh"
+chmod 755 "$TMP/bin/curl" "$TMP/hooks/vpn-fail.sh"
 # Fake init dir: a daemon that starts, and one that starts and dies after a second.
 mkdir -p "$TMP/initd"
 cat > "$TMP/initd/good-client" <<EOF
@@ -516,7 +516,7 @@ fi
 # A failed SOCKS5 save keeps the card open with what was typed.
 body='action=sockssave&proto=socks&addr=10.9.9.9&port=1080&user=bob&pass=s3'
 rm -f "$D/socks.json"
-htmlf=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vless-fail.sh" \
+htmlf=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vpn-fail.sh" \
 	REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
 if printf '%s\n' "$htmlf" | grep -q 'id=card-socks>' \
    && printf '%s\n' "$htmlf" | grep -q 'value="10.9.9.9"' \
@@ -583,8 +583,8 @@ else
 fi
 # The mode action still works.
 body='action=mode&mode=all'
-htmlm=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vless-fail.sh" REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
-if printf '%s\n' "$htmlm" | grep -q 'class=msg>ERROR: boom'; then ok "mode POST is still passed to vless.sh mode"; else bad "mode post"; fi
+htmlm=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vpn-fail.sh" REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
+if printf '%s\n' "$htmlm" | grep -q 'class=msg>ERROR: boom'; then ok "mode POST is still passed to vpn.sh mode"; else bad "mode post"; fi
 # Whitelist: an unknown or injected service name is refused and nothing runs.
 body='action=restartsvc&svc=xray%3Btouch%20/tmp/aurora-pwned'
 rm -f /tmp/aurora-pwned
@@ -927,7 +927,7 @@ else
 	bad "xray-client tproxy guard ($(xi naive)/$(xi vless))"
 fi
 # Static checks: nothing native goes through Xray any more.
-if ! grep -q 'freedom' "$SH" && ! grep -q 'hyup' "$SH" && ! grep -qi 'naiveproxy' "$CGI" "$SH"; then ok "no Xray freedom outbound, no Xray-side helper for the native protocols"; else bad "xray leftovers in vless.sh"; fi
+if ! grep -q 'freedom' "$SH" && ! grep -q 'hyup' "$SH" && ! grep -qi 'naiveproxy' "$CGI" "$SH"; then ok "no Xray freedom outbound, no Xray-side helper for the native protocols"; else bad "xray leftovers in vpn.sh"; fi
 
 # Service row: not installed / config not saved / running / not running, each with its button state.
 wgrow() { # args: extra env... -> the WireGuard span and its button
@@ -1074,7 +1074,7 @@ echo naive > "$D/proto"; rm -f "$TMP/health.cache"
 c1=$(ch naive "$TMP/hooks/health-ok.sh" 1); c2=$(ch xray "$TMP/hooks/health-ok.sh"); c3=$(ch naive "$TMP/hooks/health-bad.sh"); rm -f "$TMP/health.cache"
 c4=$(ch naive "$TMP/hooks/health-ok.sh"); c5=$(ch naive "$TMP/hooks/health-bad.sh")
 if [ "$c1" = off ] && [ "$c2" = down ] && [ "$c3" = broken ] && [ "$c4" = ok ] && [ "$c5" = ok ]; then
-	ok "vless.sh health: off, down, broken, ok, and the answer is cached"
+	ok "vpn.sh health: off, down, broken, ok, and the answer is cached"
 else
 	bad "health command ($c1 $c2 $c3 $c4 $c5)"
 fi

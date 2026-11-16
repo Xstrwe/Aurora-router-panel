@@ -1,5 +1,5 @@
 #!/bin/sh
-# vless.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
+# vpn.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
 #         | sockssave <json> | httpsave <json>
 #         | store vless|hy2|naive|wg|socks|http <file> | proto vless|hy2|naive|wg|socks|http
 #         | mode ru|all | on | off | status | restart | restart-svc xray|naive|hysteria|wireguard | recover | egress
@@ -936,7 +936,7 @@ entry_curl(){
     *) curl --socks5-hostname 127.0.0.1:10808 "$@";;
   esac
 }
-# vless.sh probe 204|youtube|ip|speed: what the panel's Test and Speed buttons measure, for the active protocol.
+# vpn.sh probe 204|youtube|ip|speed: what the panel's Test and Speed buttons measure, for the active protocol.
 do_probe(){
   case "$1" in
     204) entry_curl "$PROTO" -s -o /dev/null -m 10 -w '%{http_code} %{time_total}' https://www.google.com/generate_204 2>/dev/null;;
@@ -946,7 +946,7 @@ do_probe(){
     *) err "probe 204|youtube|ip|speed";;
   esac
 }
-# vless.sh health: does the transparent mode really pass traffic for the active protocol?
+# vpn.sh health: does the transparent mode really pass traffic for the active protocol?
 #   off     steering is not installed (direct internet)
 #   down    steering is on but the active protocol's service is not running
 #   broken  service runs but a connection through its own entry fails

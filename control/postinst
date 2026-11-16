@@ -3,7 +3,7 @@
 [ -n "$IPKG_INSTROOT" ] && exit 0
 
 # When this package replaces vless-router-panel or aurora-router-panel, opkg drops files that both
-# packages ship (e.g. /etc/xray/vless.sh) from our file list while removing the
+# packages ship (e.g. /usr/libexec/vpn-panel/*.sh) from our file list while removing the
 # old one. Re-add them so that later upgrades and removals work.
 OWN=/usr/lib/opkg/info/vpn-panel-gl-inet.list
 if [ -f "$OWN" ]; then
@@ -13,6 +13,14 @@ if [ -f "$OWN" ]; then
 fi
 
 mkdir -p /etc/xray
+
+# The backend script moved from /etc/xray/vless.sh to /etc/panel/vpn.sh. The old file belongs
+# to the package (it is not user state and not a conffile) and opkg normally removes it
+# when it replaces the old version; remove a leftover copy. Nothing else calls it, so no
+# compatibility link is left. User state under /etc/xray is not touched.
+if [ -f /etc/panel/vpn.sh ]; then
+	rm -f /etc/xray/vless.sh
+fi
 
 if [ ! -f /etc/xray/httpd.conf ]; then
 	cat > /etc/xray/httpd.conf <<'CONF'
@@ -72,7 +80,7 @@ rm -rf /www-aurora /usr/libexec/aurora-panel
 /etc/init.d/aurora-steer enable >/dev/null 2>&1 || true
 case "$(cat /etc/xray/proto 2>/dev/null)" in
 	hy2|naive|wg)
-		/etc/xray/vless.sh reactivate >/dev/null 2>&1 || echo "WARNING: could not bring the active protocol up as its own service; press Connect on the panel page." ;;
+		/etc/panel/vpn.sh reactivate >/dev/null 2>&1 || echo "WARNING: could not bring the active protocol up as its own service; press Connect on the panel page." ;;
 esac
 
 mkdir -p /etc/xray/autoupdate

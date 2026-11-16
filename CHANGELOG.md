@@ -44,11 +44,18 @@ Install the VPN clients from the panel. Pre-release.
   keeps `/etc/xray/*` (links, `httpd.conf` login), `/etc/hysteria` and `/etc/naive`.
   The uhttpd section is `vpn_panel` (page files in `/www-vpn-panel`, helper scripts in
   `/usr/libexec/vpn-panel`); the old section, directories and autoupdate cron line are
-  removed on install. `/etc/xray/vless.sh` keeps its name. The repository is
+  removed on install. The repository is
   `Xstrwe/vpn.panel-gl.inet` and the feed is now
   `https://xstrwe.github.io/vpn.panel-gl.inet/all` (the signing key is unchanged; the
   key file is `keys/vpn-panel-gl-inet.pub`). The old feed address no longer works: change
   the line in `/etc/opkg/customfeeds.conf` once (see `INSTALL.md`).
+- The backend script is renamed from `/etc/xray/vless.sh` to `/etc/panel/vpn.sh`, and
+  the CGI, init script, autoupdate and install helpers, tests and docs call the new path.
+  Only the script moved: links, saved configs, `httpd.conf`, `proto`, `mode`, the
+  `/etc/xray` helpers (`tproxy.sh`, `gen.uc`, `hy2.uc`) and all other user state stay
+  where they were. The install removes the old `/etc/xray/vless.sh` and leaves no link
+  under that name, so any own script that calls it must use `/etc/panel/vpn.sh` (same
+  commands).
 - Fixed on a real GL-BE6500 (found while testing the buttons):
   - Install Naive found no build because the router reports its CPU as
     `aarch64_cortex-a53_neon-vfpv4`; the installer now also tries the name without the

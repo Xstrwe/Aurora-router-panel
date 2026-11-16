@@ -4,7 +4,7 @@
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 IC=$ROOT/files/usr/libexec/vpn-panel/install-client.sh
-VS=$ROOT/files/etc/xray/vless.sh
+VS=$ROOT/files/etc/panel/vpn.sh
 fail=0
 ok() { echo "ok - $1"; }
 bad() { echo "FAIL - $1"; fail=$((fail+1)); }
@@ -24,7 +24,7 @@ cat > "$BIN/pidof" <<'EOF2'
 for p in ${PIDOF_UP:-}; do [ "$p" = "$1" ] && { echo 4242; exit 0; }; done
 exit 1
 EOF2
-cat > "$BIN/vless-sh" <<EOF2
+cat > "$BIN/vpn-sh" <<EOF2
 #!/bin/sh
 echo "\$*" >> "$TMP/vsh.log"
 [ "\${VSH_FAIL:-0}" = 1 ] && [ ! -e "$TMP/vsh.failed" ] && { : > "$TMP/vsh.failed"; exit 1; }
@@ -41,7 +41,7 @@ chmod 755 "$BIN"/*
 PATH=$BIN:$PATH
 
 sha() { sha256sum "$1" | cut -d' ' -f1; }
-export VLESS_PANEL_DIR=$TMP/etc VLESS_AU_VLESS_SH=$BIN/vless-sh
+export VLESS_PANEL_DIR=$TMP/etc VLESS_AU_VLESS_SH=$BIN/vpn-sh
 export VLESS_XRAY_BIN=$INS/xray VLESS_HYSTERIA_BIN=$INS/hysteria VLESS_NAIVE_BIN=$INS/naive VLESS_XRAY_ASSET=$ASSET
 export VLESS_DNSPROXY_BIN=$INS/dnsproxy VLESS_WG_BIN=$INS/wg VLESS_WG_SYSMOD=$TMP/sysmod
 export AURORA_POLL=0.2 AURORA_GH_API=file://$GH/api AURORA_GH_DL=file://$GH/dl AURORA_INSTALL_DIR=$SD
@@ -396,11 +396,11 @@ chmod 755 "$BIN/curl"
 r=$(run xray); rm -f "$BIN/curl"
 if [ "$(echo "$r" | jq -r .state)" = error ] && echo "$r" | jq -r .error | grep -q 'could not download'; then ok "when GitHub is unreachable the error says so"; else bad "unreachable: $r"; fi
 
-# 13. vless.sh front end
+# 13. vpn.sh front end
 reset
 out=$(VLESS_INSTALL_CLIENT=$IC sh "$VS" install hy2)
 i=0; while [ $i -lt 40 ] && [ ! -x "$INS/hysteria" ]; do sleep 0.5; i=$((i+1)); done; sleep 1
-if echo "$out" | grep -q '^OK' && [ -x "$INS/hysteria" ] && VLESS_INSTALL_CLIENT=$IC sh "$VS" install-status hy2 | jq -e '.state=="done"' >/dev/null; then ok "vless.sh install <p> and install-status work"; else bad "vless.sh install: $out"; fi
+if echo "$out" | grep -q '^OK' && [ -x "$INS/hysteria" ] && VLESS_INSTALL_CLIENT=$IC sh "$VS" install-status hy2 | jq -e '.state=="done"' >/dev/null; then ok "vpn.sh install <p> and install-status work"; else bad "vpn.sh install: $out"; fi
 
 # 14. nothing runs at package install time
 if ! grep -q 'install-client\|install-naive' "$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm"; then ok "the package scripts never run the installer (button-driven only)"; else bad "package scripts call the installer"; fi

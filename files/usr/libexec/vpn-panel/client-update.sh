@@ -9,7 +9,7 @@
 # The previous binary is kept as <binary>.bak and put back if the new one does not start.
 set -u
 WHO=${1:-}; ACT=${2:-check}
-VSH=${VLESS_AU_VLESS_SH:-/etc/xray/vless.sh}
+VSH=${VLESS_AU_VLESS_SH:-/etc/panel/vpn.sh}
 XRAY_BIN=${VLESS_XRAY_BIN:-/usr/bin/xray}
 HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
 GH=${AURORA_GH_API:-https://api.github.com}

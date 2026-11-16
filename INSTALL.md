@@ -1,6 +1,6 @@
 # Install and set up vpn.panel-gl.inet
 
-Log in to the router over SSH as `root` (on the stock GL.iNet LAN address that is `ssh root@192.168.8.1`). The backend the page calls is `/etc/xray/vless.sh`; it is not on `PATH`, so the commands below use that full path.
+Log in to the router over SSH as `root` (on the stock GL.iNet LAN address that is `ssh root@192.168.8.1`). The backend the page calls is `/etc/panel/vpn.sh`; it is not on `PATH`, so the commands below use that full path.
 
 ## Requirements
 
@@ -121,8 +121,8 @@ Rules that apply to all four:
 From the command line:
 
 ```sh
-/etc/xray/vless.sh install xray|hy2|naive|wg      # start in the background
-/etc/xray/vless.sh install-status [xray|hy2|naive|wg]   # JSON: installed, version, state, percent, stage, error
+/etc/panel/vpn.sh install xray|hy2|naive|wg      # start in the background
+/etc/panel/vpn.sh install-status [xray|hy2|naive|wg]   # JSON: installed, version, state, percent, stage, error
 ```
 
 The progress of each install is also written to `/tmp/aurora-install-<xray|hy2|naive|wg>.json`.
@@ -153,11 +153,11 @@ A small note under VPN says **IPv6 is not proxied.** Under Proxy, local proxies 
 From the command line (write the link or config to a file first; never put real credentials in a ticket or a commit):
 
 ```sh
-/etc/xray/vless.sh save <file>         # save a vless:// link and connect VLESS
-/etc/xray/vless.sh hy2save <file>      # save a hysteria2:// link and connect Hysteria 2
-/etc/xray/vless.sh naivesave <file>    # save a naive+https:// link and connect Naive
-/etc/xray/vless.sh wgsave <file>       # save a WireGuard .conf and connect WireGuard
-/etc/xray/vless.sh store vless|hy2|naive|wg|socks|http <file>   # save only, do not switch
+/etc/panel/vpn.sh save <file>         # save a vless:// link and connect VLESS
+/etc/panel/vpn.sh hy2save <file>      # save a hysteria2:// link and connect Hysteria 2
+/etc/panel/vpn.sh naivesave <file>    # save a naive+https:// link and connect Naive
+/etc/panel/vpn.sh wgsave <file>       # save a WireGuard .conf and connect WireGuard
+/etc/panel/vpn.sh store vless|hy2|naive|wg|socks|http <file>   # save only, do not switch
 ```
 
 ### Transparent mode
@@ -168,8 +168,8 @@ From the command line (write the link or config to a file first; never put real 
 - **Disable** creates `/etc/xray/tproxy.disabled` and removes the steering rules. The LAN then uses the internet directly. A later **Connect …** will not turn steering back on until you press **Enable**.
 
 ```sh
-/etc/xray/vless.sh on
-/etc/xray/vless.sh off
+/etc/panel/vpn.sh on
+/etc/panel/vpn.sh off
 ```
 
 ### Split mode (Russian sites direct)
@@ -180,8 +180,8 @@ The first row of the status card is **Mode:** with **Apply**.
 - **Everything through the tunnel** (`all`) — all steered traffic goes through the tunnel. Private ranges and the proxy server itself always bypass the tunnel.
 
 ```sh
-/etc/xray/vless.sh mode ru
-/etc/xray/vless.sh mode all
+/etc/panel/vpn.sh mode ru
+/etc/panel/vpn.sh mode all
 ```
 
 The setting is applied only to the active protocol (VLESS/SOCKS5/HTTP store it in Xray routing; Hysteria 2, Naive and WireGuard each have their own split file).
@@ -206,8 +206,8 @@ The status card also shows:
 From the command line:
 
 ```sh
-/etc/xray/vless.sh status
-/etc/xray/vless.sh health
+/etc/panel/vpn.sh status
+/etc/panel/vpn.sh health
 ```
 
 `status` prints `running=` (Xray), `hysteria=`, `naive=`, `wireguard=`, `inst_*`, `wg_conf=`, `tproxy=` (steering present), `active_up=` (the active protocol’s own service is up), `mode=`, `proto=` and `server_ip=`. `health` is the honest check used by the page: `ok` (passes traffic), `down` (steering on but the service is not running), `broken` (the service runs but the probe fails), or `off` (direct internet). After a change you want `health` to print `ok`, and `status` to show `tproxy=1` and `active_up=1`.
@@ -220,10 +220,10 @@ From the command line:
 - **Speed** downloads a test file through the same entry and reports Mbit/s for the active protocol, or **Speed: could not measure**.
 
 ```sh
-/etc/xray/vless.sh probe 204
-/etc/xray/vless.sh probe youtube
-/etc/xray/vless.sh probe ip
-/etc/xray/vless.sh probe speed
+/etc/panel/vpn.sh probe 204
+/etc/panel/vpn.sh probe youtube
+/etc/panel/vpn.sh probe ip
+/etc/panel/vpn.sh probe speed
 ```
 
 ### Switch protocols
@@ -233,22 +233,22 @@ Press **Connect …** on the protocol you want (the saved link or config can sta
 To switch to an already saved protocol without pasting the link again:
 
 ```sh
-/etc/xray/vless.sh proto vless
-/etc/xray/vless.sh proto hy2
-/etc/xray/vless.sh proto naive
-/etc/xray/vless.sh proto wg
-/etc/xray/vless.sh proto socks
-/etc/xray/vless.sh proto http
+/etc/panel/vpn.sh proto vless
+/etc/panel/vpn.sh proto hy2
+/etc/panel/vpn.sh proto naive
+/etc/panel/vpn.sh proto wg
+/etc/panel/vpn.sh proto socks
+/etc/panel/vpn.sh proto http
 ```
 
 A per-service restart (the small button, or the command below) does not change the active protocol:
 
 ```sh
-/etc/xray/vless.sh restart-svc xray
-/etc/xray/vless.sh restart-svc hysteria
-/etc/xray/vless.sh restart-svc naive
-/etc/xray/vless.sh restart-svc wireguard
-/etc/xray/vless.sh restart          # full restart of the active protocol
+/etc/panel/vpn.sh restart-svc xray
+/etc/panel/vpn.sh restart-svc hysteria
+/etc/panel/vpn.sh restart-svc naive
+/etc/panel/vpn.sh restart-svc wireguard
+/etc/panel/vpn.sh restart          # full restart of the active protocol
 ```
 
 ### Auto-update
@@ -262,8 +262,8 @@ The fresh config always comes from that card’s field. If the field holds an `h
 If the active protocol’s new config breaks the connection, the previous files of *that* protocol only are restored. Other protocols are not touched.
 
 ```sh
-/etc/xray/vless.sh autoset vless|hy2|naive|wg <0|1> <1h|6h|24h>
-/etc/xray/vless.sh update vless|hy2|naive|wg
+/etc/panel/vpn.sh autoset vless|hy2|naive|wg <0|1> <1h|6h|24h>
+/etc/panel/vpn.sh update vless|hy2|naive|wg
 ```
 
 ### Update clients
@@ -271,11 +271,11 @@ If the active protocol’s new config breaks the connection, the previous files 
 Each client is updated from its own upstream, and only that client’s service is restarted (and only if it is already running):
 
 ```sh
-/etc/xray/vless.sh client-update xray check
-/etc/xray/vless.sh client-update xray install
-/etc/xray/vless.sh client-update hysteria check|install
-/etc/xray/vless.sh client-update naive check|install
-/etc/xray/vless.sh client-update wireguard check|install
+/etc/panel/vpn.sh client-update xray check
+/etc/panel/vpn.sh client-update xray install
+/etc/panel/vpn.sh client-update hysteria check|install
+/etc/panel/vpn.sh client-update naive check|install
+/etc/panel/vpn.sh client-update wireguard check|install
 ```
 
 - Xray is taken from XTLS/Xray-core, Hysteria from apernet/hysteria; both are checked against the SHA-256 published with the release. The previous binary is kept as `<binary>.bak` and put back if the new one does not start.
@@ -298,7 +298,7 @@ To copy the saved state off the router before a change, copy those files (they c
 
 Install a newer `.ipk` the same way as above, or `opkg update && opkg upgrade` if you use the feed.
 
-`vpn-panel-gl-inet` replaces the earlier packages `aurora-router-panel` and `vless-router-panel`, so installing it upgrades in place. Settings under `/etc/xray` (links, saved configs, `httpd.conf` login), `/etc/hysteria` and `/etc/naive`, and the active protocol, are preserved. `/etc/xray/vless.sh` stays where it was. The page address is now `/cgi-bin/vpn` (the old `/cgi-bin/vless` is gone), the uhttpd section is `uhttpd.vpn_panel` and the page files are in `/www-vpn-panel`.
+`vpn-panel-gl-inet` replaces the earlier packages `aurora-router-panel` and `vless-router-panel`, so installing it upgrades in place. Settings under `/etc/xray` (links, saved configs, `httpd.conf` login), `/etc/hysteria` and `/etc/naive`, and the active protocol, are preserved. The backend script moved from `/etc/xray/vless.sh` to `/etc/panel/vpn.sh` (the old file is removed on install; settings stay in `/etc/xray`). The page address is now `/cgi-bin/vpn` (the old `/cgi-bin/vless` is gone), the uhttpd section is `uhttpd.vpn_panel` and the page files are in `/www-vpn-panel`.
 
 If you installed `aurora-router-panel` from the feed, point the feed line at the new address once; the signing key is unchanged:
 
@@ -316,25 +316,25 @@ This removes the panel, its uhttpd section and the autoupdate cron line. It does
 
 ## Command reference
 
-`/etc/xray/vless.sh` also accepts:
+`/etc/panel/vpn.sh` also accepts:
 
 ```sh
-/etc/xray/vless.sh status
-/etc/xray/vless.sh health
-/etc/xray/vless.sh egress
-/etc/xray/vless.sh on | off
-/etc/xray/vless.sh mode ru|all
-/etc/xray/vless.sh proto vless|hy2|naive|wg|socks|http
-/etc/xray/vless.sh save|hy2save|naivesave|wgsave <file>
-/etc/xray/vless.sh store vless|hy2|naive|wg|socks|http <file>
-/etc/xray/vless.sh restart
-/etc/xray/vless.sh restart-svc xray|naive|hysteria|wireguard
-/etc/xray/vless.sh client-update xray|hysteria|naive|wireguard check|install
-/etc/xray/vless.sh install xray|hy2|naive|wg
-/etc/xray/vless.sh install-status [xray|hy2|naive|wg]
-/etc/xray/vless.sh autoset <proto> <0|1> <1h|6h|24h>
-/etc/xray/vless.sh update <proto>
-/etc/xray/vless.sh probe 204|youtube|ip|speed
+/etc/panel/vpn.sh status
+/etc/panel/vpn.sh health
+/etc/panel/vpn.sh egress
+/etc/panel/vpn.sh on | off
+/etc/panel/vpn.sh mode ru|all
+/etc/panel/vpn.sh proto vless|hy2|naive|wg|socks|http
+/etc/panel/vpn.sh save|hy2save|naivesave|wgsave <file>
+/etc/panel/vpn.sh store vless|hy2|naive|wg|socks|http <file>
+/etc/panel/vpn.sh restart
+/etc/panel/vpn.sh restart-svc xray|naive|hysteria|wireguard
+/etc/panel/vpn.sh client-update xray|hysteria|naive|wireguard check|install
+/etc/panel/vpn.sh install xray|hy2|naive|wg
+/etc/panel/vpn.sh install-status [xray|hy2|naive|wg]
+/etc/panel/vpn.sh autoset <proto> <0|1> <1h|6h|24h>
+/etc/panel/vpn.sh update <proto>
+/etc/panel/vpn.sh probe 204|youtube|ip|speed
 ```
 
 Useful logs: `logread -e xray`, `logread -e hysteria`, `logread -e naive`, `logread -e vless-autoupdate`, `logread -e aurora` (the internal tag of the steering scripts).

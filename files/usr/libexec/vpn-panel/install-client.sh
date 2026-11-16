@@ -23,7 +23,7 @@
 set -u
 CMD=${1:-}; P=${2:-}
 HERE=$(dirname "$0")
-VSH=${VLESS_AU_VLESS_SH:-/etc/xray/vless.sh}
+VSH=${VLESS_AU_VLESS_SH:-/etc/panel/vpn.sh}
 XRAY_BIN=${VLESS_XRAY_BIN:-/usr/bin/xray}
 HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
 NAIVE_BIN=${VLESS_NAIVE_BIN:-/usr/bin/naive}
@@ -159,7 +159,7 @@ put() { # src dest : copy next to dest, then atomic rename (same filesystem)
 	chmod "$3" "$_n"
 	mv "$_n" "$2" || { rm -f "$_n"; fail "could not replace $2"; }
 }
-# $1 service name for vless.sh restart-svc, $2 process name(s) of that service (any one running
+# $1 service name for vpn.sh restart-svc, $2 process name(s) of that service (any one running
 # means the service is running), then dest files to restore on failure
 restart_or_rollback() {
 	svc=$1; procs=$2; shift 2

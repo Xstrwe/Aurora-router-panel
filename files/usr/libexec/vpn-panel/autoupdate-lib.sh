@@ -1,4 +1,4 @@
-# Shared autoupdate helpers for vless.sh and autoupdate-run.sh.
+# Shared autoupdate helpers for vpn.sh and autoupdate-run.sh.
 # Safe to source: no work at load time, no eval of user files.
 # Override paths with VLESS_PANEL_DIR, VLESS_HYSTERIA_DIR, VLESS_NAIVE_DIR,
 # VLESS_AU_CRON, VLESS_SH.
@@ -12,7 +12,7 @@ AU_CRON_MARK='vpn-panel-gl-inet-autoupdate'
 AU_CRON_OLD_MARK='vless-router-panel-autoupdate'
 AU_CRON_OLD_MARK2='aurora-router-panel-autoupdate'
 AU_RUN=${VLESS_AU_RUN:-/usr/libexec/vpn-panel/autoupdate-run.sh}
-AU_SH=${VLESS_SH:-/etc/xray/vless.sh}
+AU_SH=${VLESS_SH:-/etc/panel/vpn.sh}
 
 au_ok_proto() { case "$1" in vless|hy2|naive|wg) return 0;; *) return 1;; esac; }
 

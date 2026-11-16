@@ -29,7 +29,7 @@ chmod 644 "$DATA/www-vpn-panel/index.html" \
 chmod 644 "$DATA/usr/libexec/vpn-panel/autoupdate-lib.sh" \
           "$DATA/usr/libexec/vpn-panel/install-lib.sh"
 chmod 755 "$DATA/www-vpn-panel/cgi-bin/vpn" \
-          "$DATA/etc/xray/vless.sh" \
+          "$DATA/etc/panel/vpn.sh" \
           "$DATA/etc/xray/tproxy.sh" \
           "$DATA/etc/init.d/xray-client" \
           "$DATA/etc/init.d/hysteria-client" \
@@ -46,7 +46,7 @@ chmod 755 "$DATA/www-vpn-panel/cgi-bin/vpn" \
 # Syntax-check shipped shell scripts (POSIX sh).
 for s in \
   "$DATA/www-vpn-panel/cgi-bin/vpn" \
-  "$DATA/etc/xray/vless.sh" \
+  "$DATA/etc/panel/vpn.sh" \
   "$DATA/etc/xray/tproxy.sh" \
   "$DATA/etc/init.d/xray-client" \
   "$DATA/etc/init.d/hysteria-client" \
@@ -150,7 +150,8 @@ gzip -dc "$VERIFY/outer/data.tar.gz" | tar -C "$VERIFY/data" -xf -
 # Syntax-check every shipped shell script before packing is enough
 # on the host; also verify modes after extract.
 test -x "$VERIFY/data/www-vpn-panel/cgi-bin/vpn"
-test -x "$VERIFY/data/etc/xray/vless.sh"
+test -x "$VERIFY/data/etc/panel/vpn.sh"
+if [ -e "$VERIFY/data/etc/xray/vless.sh" ]; then echo "ERROR: package still ships etc/xray/vless.sh" >&2; exit 1; fi
 test -x "$VERIFY/data/etc/xray/tproxy.sh"
 test -x "$VERIFY/data/etc/init.d/xray-client"
 test -x "$VERIFY/data/etc/init.d/hysteria-client"

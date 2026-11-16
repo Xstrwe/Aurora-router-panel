@@ -135,11 +135,11 @@ case "\$url" in
   *) f=$TMP/srv/\$(basename "\$url"); [ -f "\$f" ] || exit 22; cp "\$f" "\$out";;
 esac
 CURL
-	printf '#!/bin/sh\necho "$@" >> "%s/vsh.log"\nexit 0\n' "$TMP" > "$TMP/cb/vless.sh"
+	printf '#!/bin/sh\necho "$@" >> "%s/vsh.log"\nexit 0\n' "$TMP" > "$TMP/cb/vpn.sh"
 	printf '#!/bin/sh\n[ "$1" = "$PIDOF_ONLY" ] && echo 1 && exit 0\nexit 1\n' > "$TMP/cb/pidof"
 	chmod 755 "$TMP/cb/"* "$TMP/srv/hysteria-linux-$HA"
 	printf '#!/bin/sh\necho old\n' > "$TMP/cb/xray-old"; chmod 755 "$TMP/cb/xray-old"; cp "$TMP/cb/xray-old" "$TMP/xray.bin"; cp "$TMP/cb/xray-old" "$TMP/hy.bin"
-	cuenv() { env PATH="$TMP/cb:$PATH" AURORA_GH_API=https://api.github.test AURORA_GH_DL=https://dl.github.test VLESS_AU_VLESS_SH="$TMP/cb/vless.sh" VLESS_XRAY_BIN="$TMP/xray.bin" VLESS_HYSTERIA_BIN="$TMP/hy.bin" "$@"; }
+	cuenv() { env PATH="$TMP/cb:$PATH" AURORA_GH_API=https://api.github.test AURORA_GH_DL=https://dl.github.test VLESS_AU_VLESS_SH="$TMP/cb/vpn.sh" VLESS_XRAY_BIN="$TMP/xray.bin" VLESS_HYSTERIA_BIN="$TMP/hy.bin" "$@"; }
 	chk=$(cuenv sh "$CU" hysteria check)
 	case "$chk" in *"latest=9.9.9"*"source=apernet/hysteria"*) ok "client-update check reports the installed and upstream version and the source";; *) bad "check output ($chk)";; esac
 	rm -f "$TMP/vsh.log"

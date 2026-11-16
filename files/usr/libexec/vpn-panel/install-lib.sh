@@ -35,7 +35,7 @@ ai_need_space() {
 	return 0
 }
 
-# Local SOCKS entries of the active protocol only (ports as in vless.sh nat_probe_once).
+# Local SOCKS entries of the active protocol only (ports as in vpn.sh nat_probe_once).
 ai_socks_entries() {
 	case "$(cat "$AI_PDIR/proto" 2>/dev/null)" in
 		hy2) _port=10818 ;;

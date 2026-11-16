@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.5.0a5
+
+Install the VPN clients from the panel. Pre-release.
+
+- New **Install VPN clients** block in the middle of the page with four buttons:
+  **Install VLESS**, **Install Hysteria 2**, **Install Naive** and
+  **Install WireGuard**. Under each button a progress bar shows 0-100% and the current
+  step. When it ends the card shows the installed version, or a short error reason.
+  A client that is already installed shows its version, and its button reinstalls or
+  updates it.
+- Every client is the official build from its developer and stays a separate program with
+  its own service:
+  - VLESS: the XTLS/Xray-core release for the router's CPU, checked against the published
+    SHA-256, installed to `/usr/bin/xray` with the `geoip.dat` and `geosite.dat` from the
+    same release in `/usr/share/xray`.
+  - Hysteria 2: the apernet/hysteria release binary, checked against the published
+    `hashes.txt`.
+  - Naive: the klzgrad/naiveproxy OpenWrt build via `install-naive.sh`, now checked against
+    the SHA-256 digest GitHub publishes for the release file.
+  - WireGuard: `kmod-wireguard`, `wireguard-tools` and `ip-full` from opkg.
+- Free space is checked before anything is downloaded. If GitHub is not reachable
+  directly, the download is retried through the local SOCKS entry of the active protocol.
+  Only the service whose own binary is replaced is restarted, and only if it was running;
+  the old files are put back if it does not start. Nothing is downloaded when the
+  package is installed.
+- New `vless.sh install xray|hy2|naive|wg` (runs in the background) and
+  `vless.sh install-status`. Progress is written to `/tmp/aurora-install-<client>.json`.
+- New helper scripts `install-client.sh` and `install-lib.sh` in
+  `/usr/libexec/aurora-panel`. `install-naive.sh` can report progress.
+- `INSTALL.md` and `README.md` describe the Install buttons.
+
 ## 1.5.0a4
 
 Honest status: the panel no longer claims the network is working when it is not.

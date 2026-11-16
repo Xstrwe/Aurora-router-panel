@@ -6,14 +6,14 @@ Log in to the router over SSH as `root` (on the stock GL.iNet LAN address that i
 
 The package itself depends on `curl`, `jq`, `ucode`, `uhttpd` and `kmod-nft-tproxy` (opkg installs these automatically).
 
-Install the clients you will use; they are not inside the `.ipk`:
+The VPN clients are not inside the `.ipk`. After the panel is installed, the **Install VPN clients** block in the middle of the page installs the ones you need, one button per client (see [Install the VPN clients](#install-the-vpn-clients)). Nothing is downloaded when the package itself is installed.
 
-| Protocol | What to install |
-| --- | --- |
-| VLESS, and also SOCKS5/HTTP upstreams | `xray` at `/usr/bin/xray`, plus `geoip.dat` and `geosite.dat` in `/usr/share/xray/` |
-| Hysteria 2 | `hysteria` at `/usr/bin/hysteria` |
-| Naive | `naive` at `/usr/bin/naive` (see [Naive binary](#optional-naive-binary)); `xz` is needed to unpack it; `dnsproxy` sends DNS through the tunnel (`opkg install dnsproxy`; GL.iNet firmware already ships it). Without `dnsproxy`, Naive still works but DNS is not sent through the tunnel |
-| WireGuard | `opkg update && opkg install kmod-wireguard wireguard-tools ip-full` |
+| Protocol | Button | What it installs |
+| --- | --- | --- |
+| VLESS, and also SOCKS5/HTTP upstreams | **Install VLESS** | Xray-core from XTLS: `xray` at `/usr/bin/xray`, plus `geoip.dat` and `geosite.dat` in `/usr/share/xray/` |
+| Hysteria 2 | **Install Hysteria 2** | the official `hysteria` client at `/usr/bin/hysteria` |
+| Naive | **Install Naive** | the official `naive` client at `/usr/bin/naive` (needs `xz`, which the button installs if it is missing). `dnsproxy` sends DNS through the tunnel (`opkg install dnsproxy`; GL.iNet firmware already ships it). Without `dnsproxy`, Naive still works but DNS is not sent through the tunnel |
+| WireGuard | **Install WireGuard** | `kmod-wireguard`, `wireguard-tools` and `ip-full` from opkg |
 
 The “everything except Russian sites” split also reads `/usr/share/xray/geoip.dat`. Without Xray and the geo files you can still open the page, but you cannot connect VLESS, SOCKS5 or HTTP, and country-based split will not work.
 
@@ -82,7 +82,9 @@ echo '/:admin:<HASH>' >> /etc/xray/httpd.conf
 
 Use the hash in place of `<HASH>`, and any login you want in place of `admin`. A request without credentials to `http://192.168.8.1:8088/cgi-bin/vless` should then return `401`.
 
-### Optional: Naive binary
+### Optional: Naive binary by hand
+
+The **Install Naive** button does this for you. From the command line:
 
 ```sh
 opkg update && opkg install xz
@@ -91,9 +93,43 @@ opkg update && opkg install xz
 
 The script installs the klzgrad/naiveproxy static build for this router’s architecture to `/usr/bin/naive`. It never touches an existing `/etc/naive/config.json`. Use `--force` to replace the binary, or pass a release tag or a direct archive URL. If the router cannot reach GitHub, copy the binary yourself (`scp` it to `/usr/bin/naive` and `chmod 755`).
 
+## Install the VPN clients
+
+Open the panel. In the middle of the page, under **Enable** / **Disable**, the **Install VPN clients** block has four buttons: **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard**. Press the one you need.
+
+Under each button the panel shows a progress bar with a percent from 0 to 100 and the current step (checking the router, looking up the latest release, downloading, verifying, unpacking, installing). At the end the card shows:
+
+- **Installed · version …** (green, 100%) when it worked;
+- **Error: …** (red) with a short reason when it did not, for example not enough free space, GitHub not reachable, or a checksum mismatch;
+- **Installed · version …** also appears on its own when the client is already on the router. Press the button again to reinstall or update it.
+
+What each button does:
+
+- **Install VLESS** downloads the latest release of [XTLS/Xray-core](https://github.com/XTLS/Xray-core) for the router’s CPU, checks it against the SHA-256 the project publishes, and installs `xray` to `/usr/bin` and the `geoip.dat` and `geosite.dat` files from the same release to `/usr/share/xray`.
+- **Install Hysteria 2** downloads the latest [apernet/hysteria](https://github.com/apernet/hysteria) release binary and checks it against the published `hashes.txt`.
+- **Install Naive** downloads the latest [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy) OpenWrt build for the router and checks it against the SHA-256 digest GitHub publishes for the release file. It never touches `/etc/naive/config.json`.
+- **Install WireGuard** runs `opkg update` and installs `kmod-wireguard`, `wireguard-tools` and `ip-full` (when they are already installed it upgrades the first two). The panel only sets up the client; a WireGuard server is your own.
+
+Rules that apply to all four:
+
+- Each client stays its own program with its own service. An install never changes a protocol setting or config and never starts, stops or switches a protocol.
+- If the client you reinstall is running now, only that one service is restarted so it uses the new file. If it does not start, the old file is put back.
+- The router needs free space first: about 70 MB in `/tmp` and 50 MB for the files for Xray, about 30 MB each for Hysteria 2 and Naive, a few MB for WireGuard. If there is not enough, the install stops before it downloads anything.
+- If GitHub cannot be reached directly, the download is retried through the local SOCKS entry of the protocol that is active now (when it is running). WireGuard uses opkg and its own mirrors only.
+- Only one install runs at a time. You can leave the page; the install keeps going and the progress shows again when you come back.
+
+From the command line:
+
+```sh
+/etc/xray/vless.sh install xray|hy2|naive|wg      # start in the background
+/etc/xray/vless.sh install-status [xray|hy2|naive|wg]   # JSON: installed, version, state, percent, stage, error
+```
+
+The progress of each install is also written to `/tmp/aurora-install-<xray|hy2|naive|wg>.json`.
+
 ## Set up the panel
 
-The page title is **Aurora router panel**. A status card sits at the top, then **Enable** / **Disable**, **Test connection** and **Speed**, then a **VPN** section and a **Proxy** section.
+The page title is **Aurora router panel**. A status card sits at the top, then **Enable** / **Disable**, **Test connection** and **Speed**, then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
 
 ### Add a protocol and connect
 
@@ -243,7 +279,7 @@ Each client is updated from its own upstream, and only that client’s service i
 ```
 
 - Xray is taken from XTLS/Xray-core, Hysteria from apernet/hysteria; both are checked against the SHA-256 published with the release. The previous binary is kept as `<binary>.bak` and put back if the new one does not start.
-- Naive is installed by `/usr/libexec/aurora-panel/install-naive.sh`.
+- Naive is installed by `/usr/libexec/aurora-panel/install-naive.sh`, the same script the **Install Naive** button runs.
 - WireGuard is upgraded with `opkg upgrade kmod-wireguard wireguard-tools`. The running interface keeps the old kernel module until you reboot.
 
 ## Backup and rollback
@@ -286,6 +322,8 @@ This removes the panel, its uhttpd section and the autoupdate cron line. It does
 /etc/xray/vless.sh restart
 /etc/xray/vless.sh restart-svc xray|naive|hysteria|wireguard
 /etc/xray/vless.sh client-update xray|hysteria|naive|wireguard check|install
+/etc/xray/vless.sh install xray|hy2|naive|wg
+/etc/xray/vless.sh install-status [xray|hy2|naive|wg]
 /etc/xray/vless.sh autoset <proto> <0|1> <1h|6h|24h>
 /etc/xray/vless.sh update <proto>
 /etc/xray/vless.sh probe 204|youtube|ip|speed

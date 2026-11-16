@@ -174,8 +174,8 @@ run() {
 # --- version is a letter iteration after 1.4.0 ---
 ver=$(sed -n 's/^Version: //p' "$ROOT/control/control" | head -1)
 cls=$("$VC" classify "$ver")
-if [ "$ver" = 1.5.0a4 ] && [ "$cls" = pre ]; then
-	ok "package version 1.5.0a4 is a pre-release"
+if [ "$ver" = 1.5.0a5 ] && [ "$cls" = pre ]; then
+	ok "package version 1.5.0a5 is a pre-release"
 else
 	bad "version ($ver class=$cls)"
 fi
@@ -1099,6 +1099,67 @@ rm -f "$TMP/bin/curl"
 if [ -z "$pe" ]; then ok "the Test button goes through the active protocol's own entry (10808 / 10828 / 10818)"; else bad "test entry for:$pe"; fi
 if ! grep -q 'socks5-hostname 127.0.0.1:1' "$CGI"; then ok "the CGI no longer runs curl against a fixed Xray SOCKS port"; else bad "CGI still has a hard-coded curl SOCKS entry"; fi
 echo vless > "$D/proto"
+
+
+# --- Install buttons (one per VPN client), in the middle of the page ---
+ihtml=$(render xray 0 "$TMP/hooks/egress-final.sh")
+nb=$(printf '%s' "$ihtml" | grep -o 'class=ib data-p=[a-z0-9]*[^>]*>Install [A-Za-z0-9 ]*<' | sed 's/.*>\(Install [^<]*\)</\1/')
+if [ "$nb" = "Install VLESS
+Install Hysteria 2
+Install Naive
+Install WireGuard" ] && ! printf '%s' "$ihtml" | grep -q 'Install VLESS (Xray)'; then
+	ok "four install buttons: Install VLESS, Install Hysteria 2, Install Naive, Install WireGuard"
+else
+	bad "install button labels: $nb"
+fi
+pos_act=$(printf '%s' "$ihtml" | grep -n 'name=action value=speed' | head -1 | cut -d: -f1)
+pos_ins=$(printf '%s' "$ihtml" | grep -n 'id=install' | head -1 | cut -d: -f1)
+pos_vpn=$(printf '%s' "$ihtml" | grep -n '<h3>VPN</h3>' | head -1 | cut -d: -f1)
+if [ -n "$pos_act" ] && [ -n "$pos_ins" ] && [ -n "$pos_vpn" ] && [ "$pos_act" -lt "$pos_ins" ] && [ "$pos_ins" -lt "$pos_vpn" ]; then
+	ok "the install block sits between the action buttons and the VPN cards (middle of the page)"
+else
+	bad "install block position act=$pos_act ins=$pos_ins vpn=$pos_vpn"
+fi
+if [ "$(printf '%s' "$ihtml" | grep -c 'class=ibar')" = 4 ] && [ "$(printf '%s' "$ihtml" | grep -c 'class=ipct')" = 4 ] \
+   && printf '%s' "$ihtml" | grep -q "?install-status" && printf '%s' "$ihtml" | grep -q "fetch('?install'"; then
+	ok "each button has a progress bar and a percent line, polled from ?install-status"
+else
+	bad "install progress elements"
+fi
+if ! printf '%s' "$ihtml" | grep -qi 'translat'; then ok "the page does not mention a translation"; else bad "page mentions translation"; fi
+
+cat > "$TMP/hooks/ic-stub.sh" <<STUBEND
+#!/bin/sh
+echo "\$*" >> "$TMP/ic.log"
+case "\$1" in
+  status) printf '{"xray":{"proto":"xray","installed":true,"version":"9.9.9","state":"idle","percent":0,"stage":"","error":""}}';;
+  start) echo "OK: installation of \$2 started";;
+esac
+STUBEND
+chmod 755 "$TMP/hooks/ic-stub.sh"
+rm -f "$TMP/ic.log"
+st=$(env VLESS_INSTALL_CLIENT="$TMP/hooks/ic-stub.sh" VLESS_PANEL_DIR="$D" REQUEST_METHOD=GET QUERY_STRING=install-status "$CGI")
+if printf '%s' "$st" | grep -q 'application/json' && printf '%s' "$st" | grep -q '"version":"9.9.9"' && grep -q '^status' "$TMP/ic.log"; then
+	ok "GET ?install-status returns the installer's JSON"
+else
+	bad "install-status endpoint: $st"
+fi
+rm -f "$TMP/ic.log"
+for c in xray hy2 naive wg; do
+	body="client=$c"
+	printf '%s' "$body" | env VLESS_INSTALL_CLIENT="$TMP/hooks/ic-stub.sh" VLESS_PANEL_DIR="$D" REQUEST_METHOD=POST QUERY_STRING=install CONTENT_LENGTH=${#body} "$CGI" >/dev/null
+done
+body='client=xray;touch /tmp/pwned'
+bo=$(printf '%s' "$body" | env VLESS_INSTALL_CLIENT="$TMP/hooks/ic-stub.sh" VLESS_PANEL_DIR="$D" REQUEST_METHOD=POST QUERY_STRING=install CONTENT_LENGTH=${#body} "$CGI")
+if [ "$(cat "$TMP/ic.log")" = "start xray
+start hy2
+start naive
+start wg" ] && printf '%s' "$bo" | grep -q 'ERROR: unknown client'; then
+	ok "POST ?install starts only the four known clients; anything else is refused"
+else
+	bad "install POST: $(cat "$TMP/ic.log") / $bo"
+fi
+rm -f "$TMP/hooks/ic-stub.sh"
 
 
 if [ "$fail" -eq 0 ]; then

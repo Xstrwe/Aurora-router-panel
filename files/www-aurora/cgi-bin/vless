@@ -107,6 +107,29 @@ if [ "$REQUEST_METHOD" != POST ] && [ "$QUERY_STRING" = ip ]; then
   $V egress 2>/dev/null | tr -d '\r\n\t ' | head -c 80
   exit 0
 fi
+# GET ?install-status: JSON with installed, version and progress of the four client installs.
+# POST ?install (client=xray|hy2|naive|wg): start one install in the background (button-driven).
+if [ "$REQUEST_METHOD" != POST ] && [ "$QUERY_STRING" = install-status ]; then
+  echo "Content-Type: application/json; charset=utf-8"
+  echo "Cache-Control: no-store"
+  echo
+  $V install-status 2>/dev/null
+  exit 0
+fi
+if [ "$REQUEST_METHOD" = POST ] && [ "$QUERY_STRING" = install ]; then
+  POST=$(head -c "${CONTENT_LENGTH:-0}")
+  echo "Content-Type: text/plain; charset=utf-8"
+  echo "Cache-Control: no-store"
+  echo
+  case "$(fld client)" in
+    xray) $V install xray 2>&1;;
+    hy2) $V install hy2 2>&1;;
+    naive) $V install naive 2>&1;;
+    wg) $V install wg 2>&1;;
+    *) echo "ERROR: unknown client";;
+  esac
+  exit 0
+fi
 MSG=""
 A=""
 PF_BAD=""
@@ -253,7 +276,7 @@ elif [ "${S_naive:-0}" = 1 ]; then T_N="running"; N_UP=1; else T_N="not running"
 if [ "${S_inst_hysteria:-0}" != 1 ]; then T_H="not installed"; H_UP=0
 elif [ "${S_hysteria:-0}" = 1 ]; then T_H="running"; H_UP=1; else T_H="not running"; H_UP=0; fi
 W_UP=0; W_DIS=disabled
-if [ "${S_inst_wireguard:-0}" != 1 ]; then T_W="not installed (opkg install kmod-wireguard wireguard-tools)"
+if [ "${S_inst_wireguard:-0}" != 1 ]; then T_W="not installed (press Install WireGuard)"
 elif [ "${S_wg_conf:-0}" != 1 ]; then T_W="config not saved"
 elif [ "${S_wireguard:-0}" = 1 ]; then T_W="running"; W_UP=1; W_DIS=
 else T_W="not running"; W_DIS=; fi
@@ -338,6 +361,21 @@ button.rb .rg{font-size:.9em;line-height:1.2em}
 .vpn .btns{margin-top:auto}
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
 .hint{color:#777;font-size:12px;margin:10px 0 0}
+.isec{margin:18px 0 8px}
+.instgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
+.instgrid .c{margin:0;text-align:center}
+.instgrid button.ib{width:100%;font-size:16px;padding:12px 8px}
+.instgrid button.ib:disabled{opacity:.5;cursor:not-allowed}
+.ibar{height:10px;border-radius:5px;background:#e3e6ea;overflow:hidden;margin-top:12px}
+.ifill{height:100%;width:0;background:#1565c0;transition:width .4s}
+.ic.ok .ifill{background:#1a7f37}
+.ic.err .ifill{background:#c62828}
+.ipct{font-size:15px;font-weight:700;margin-top:6px}
+.itxt{font-size:13px;color:#555;margin-top:4px;min-height:2.6em;word-break:break-word}
+.ic.ok .itxt{color:#1a7f37}
+.ic.err .itxt{color:#c62828}
+@media(max-width:900px){.instgrid{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.instgrid{grid-template-columns:1fr}}
 .pf{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:8px}
 .pf label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#444}
 .pf input[type=text],.pf input[type=password],.pf input[type=number]{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;font-family:inherit}
@@ -377,6 +415,16 @@ cat <<HTML
 <form method=post><input type=hidden name=action value=off><button style="background:#c62828">Disable</button></form>
 <form method=post><input type=hidden name=action value=test><button>Test connection</button></form>
 <form method=post><input type=hidden name=action value=speed><button>Speed</button></form>
+</div>
+<div class=isec id=install>
+<h3 style="text-align:center">Install VPN clients</h3>
+<div class=instgrid>
+<div class="c ic" data-p=xray><button type=button class=ib data-p=xray style="background:#6a1b9a">Install VLESS</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
+<div class="c ic" data-p=hy2><button type=button class=ib data-p=hy2 style="background:#e65100">Install Hysteria 2</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
+<div class="c ic" data-p=naive><button type=button class=ib data-p=naive style="background:#00695c">Install Naive</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
+<div class="c ic" data-p=wg><button type=button class=ib data-p=wg style="background:#283593">Install WireGuard</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
+</div>
+<p class=hint style="text-align:center">Each client is the official build from its developer, installed as its own separate program. Press a button again to reinstall or update.</p>
 </div>
 <div class=sec>
 <h3>VPN</h3>
@@ -466,6 +514,45 @@ document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventL
     clearTimeout(t);x=x.trim();
     if(/^(\d{1,3}\.){3}\d{1,3}\$/.test(x)||/^[0-9A-Fa-f:]+:[0-9A-Fa-f:]+\$/.test(x))el.textContent=x;else fail();
   }).catch(function(){clearTimeout(t);fail()});
+})();
+(function(){
+  var cards=[].slice.call(document.querySelectorAll('.ic'));
+  if(!cards.length)return;
+  var STG={queued:'starting',checking:'checking the router',resolving:'looking up the latest release',downloading:'downloading',verifying:'verifying the download',unpacking:'unpacking',installing:'installing',restarting:'restarting the running service','pkg-update':'updating package lists','pkg-kernel':'installing the kernel module','pkg-tools':'installing the tools','pkg-ip':'installing ip-full',done:'done'};
+  var timer=null;
+  function setBtns(off){cards.forEach(function(c){c.querySelector('button.ib').disabled=off})}
+  function show(c,o){
+    var f=c.querySelector('.ifill'),pc=c.querySelector('.ipct'),tx=c.querySelector('.itxt');
+    var st=o&&o.state||'idle',n=o&&o.percent||0;
+    c.className='c ic';
+    if(st==='running'){f.style.width=n+'%';pc.textContent=n+'%';tx.textContent=(STG[o.stage]||o.stage||'working')}
+    else if(st==='done'||(st==='idle'&&o&&o.installed)){
+      c.className='c ic ok';f.style.width='100%';pc.textContent='100%';
+      tx.textContent='Installed'+(o.version?' \u00b7 version '+o.version:'')}
+    else if(st==='error'){c.className='c ic err';f.style.width=n+'%';pc.textContent=n+'%';tx.textContent='Error: '+(o.error||'installation failed')}
+    else{f.style.width='0';pc.textContent='0%';tx.textContent='Not installed'}
+  }
+  function poll(){
+    fetch('?install-status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+      var run=false;
+      cards.forEach(function(c){var o=j[c.getAttribute('data-p')];show(c,o);if(o&&o.state==='running')run=true});
+      setBtns(run);
+      clearTimeout(timer);
+      if(run)timer=setTimeout(poll,1500);
+    }).catch(function(){clearTimeout(timer);timer=setTimeout(poll,4000)});
+  }
+  cards.forEach(function(c){
+    c.querySelector('button.ib').addEventListener('click',function(){
+      var p=c.getAttribute('data-p');
+      setBtns(true);
+      show(c,{state:'running',percent:0,stage:'queued'});
+      fetch('?install',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'client='+p}).then(function(r){return r.text()}).then(function(t){
+        if(t.indexOf('ERROR')===0){show(c,{state:'error',percent:0,error:t.replace(/^ERROR:?\s*/,'')});setBtns(false);return}
+        poll();
+      }).catch(function(){show(c,{state:'error',percent:0,error:'the panel did not answer'});setBtns(false)});
+    });
+  });
+  poll();
 })();
 eqCards();
 window.addEventListener('resize',eqCards);

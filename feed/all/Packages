@@ -1,5 +1,5 @@
 Package: aurora-router-panel
-Version: 1.5.0a4
+Version: 1.5.0a5
 Depends: curl, jq, ucode, uhttpd, kmod-nft-tproxy
 Replaces: vless-router-panel
 Conflicts: vless-router-panel
@@ -7,17 +7,19 @@ License: MIT
 Section: net
 Priority: optional
 Architecture: all
-Installed-Size: 111
+Installed-Size: 134
 Maintainer: Xstrwe <https://github.com/Xstrwe>
 Source: https://github.com/Xstrwe/Aurora-router-panel
 Description: Aurora router panel (formerly "VLESS on the router") for OpenWrt (uhttpd :8088).
  Toggle transparent proxy, test connection and speed, save vless://,
  hysteria2://, naive+https:// links and a WireGuard .conf, and
  autoupdate each protocol from its own saved connection link (when it is
- an http(s) subscription URL). Requires a manually
- installed xray binary in /usr/bin and geoip/geosite in /usr/share/xray.
- Every protocol is its own service: VLESS = Xray, Hysteria = hysteria, Naive = naive (+ dnsproxy for DNS), WireGuard = kernel interface; only one runs at a time and none goes through another. WireGuard needs kmod-wireguard and wireguard-tools (optional). hysteria and naive binaries are optional; install naive with /usr/libexec/aurora-panel/install-naive.sh.
-Filename: aurora-router-panel_1.5.0a4_all.ipk
-Size: 39933
-SHA256sum: 36d336aabc3752276fdc5f034b60242150e7d62a003e7f926c1527bf53a8fdda
+ an http(s) subscription URL). The clients are not in the package:
+ the Install VLESS, Install Hysteria 2, Install Naive and Install WireGuard
+ buttons on the page install the official build of each one (nothing is
+ downloaded when the package is installed).
+ Every protocol is its own service: VLESS = Xray, Hysteria = hysteria, Naive = naive (+ dnsproxy for DNS), WireGuard = kernel interface; only one runs at a time and none goes through another. WireGuard needs kmod-wireguard and wireguard-tools (optional). Every client is optional.
+Filename: aurora-router-panel_1.5.0a5_all.ipk
+Size: 46435
+SHA256sum: 2080714a708611a132ce7c83bc99d36ab222be663c585dd41adbdca56647ac41
 

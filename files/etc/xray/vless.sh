@@ -4,6 +4,7 @@
 #         | store vless|hy2|naive|wg|socks|http <file> | proto vless|hy2|naive|wg|socks|http
 #         | mode ru|all | on | off | status | restart | restart-svc xray|naive|hysteria|wireguard | recover | egress
 #         | health | probe 204|youtube|ip|speed
+#         | install xray|hy2|naive|wg | install-status [xray|hy2|naive|wg]
 #         | autoset <proto> <0|1> <1h|6h|24h>
 #         | src <proto> <infile> <outfile> <0|1> | update <proto>
 #         | mergecfg socks|http <base.json> <settings.json> <out.json>
@@ -1030,6 +1031,8 @@ reactivate) # after an upgrade: rebuild the active native protocol's own config 
     wg) native_switch wg "$D/wg.conf";;
     *) exit 0;;
   esac;;
+install) exec ${VLESS_INSTALL_CLIENT:-/usr/libexec/aurora-panel/install-client.sh} start "$2";;
+install-status) exec ${VLESS_INSTALL_CLIENT:-/usr/libexec/aurora-panel/install-client.sh} status "$2";;
 client-update) exec /usr/libexec/aurora-panel/client-update.sh "$2" "${3:-check}";;
 restart) do_restart;;
 restart-svc) do_restart_svc "$2";;

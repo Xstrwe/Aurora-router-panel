@@ -26,7 +26,8 @@ cp -a "$ROOT/files/." "$DATA/"
 chmod 644 "$DATA/www-aurora/index.html" \
           "$DATA/etc/xray/gen.uc" \
           "$DATA/etc/xray/hy2.uc"
-chmod 644 "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh"
+chmod 644 "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh" \
+          "$DATA/usr/libexec/aurora-panel/install-lib.sh"
 chmod 755 "$DATA/www-aurora/cgi-bin/vless" \
           "$DATA/etc/xray/vless.sh" \
           "$DATA/etc/xray/tproxy.sh" \
@@ -39,6 +40,7 @@ chmod 755 "$DATA/www-aurora/cgi-bin/vless" \
           "$DATA/usr/libexec/aurora-panel/aurora-geoip.sh" \
           "$DATA/usr/libexec/aurora-panel/client-update.sh" \
           "$DATA/usr/libexec/aurora-panel/install-naive.sh" \
+          "$DATA/usr/libexec/aurora-panel/install-client.sh" \
           "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh"
 
 # Syntax-check shipped shell scripts (POSIX sh).
@@ -57,6 +59,8 @@ for s in \
   "$DATA/usr/libexec/aurora-panel/install-naive.sh" \
   "$DATA/usr/libexec/aurora-panel/autoupdate-run.sh" \
   "$DATA/usr/libexec/aurora-panel/autoupdate-lib.sh" \
+  "$DATA/usr/libexec/aurora-panel/install-client.sh" \
+  "$DATA/usr/libexec/aurora-panel/install-lib.sh" \
   "$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm" \
   "$ROOT/build.sh" "$ROOT/tools/vercmp.sh" "$ROOT/tools/mkfeed.sh"
 do
@@ -158,6 +162,8 @@ test -x "$VERIFY/data/usr/libexec/aurora-panel/aurora-geoip.sh"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/client-update.sh"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/install-naive.sh"
 test -x "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-run.sh"
+test -x "$VERIFY/data/usr/libexec/aurora-panel/install-client.sh"
+test -f "$VERIFY/data/usr/libexec/aurora-panel/install-lib.sh"
 test -f "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-lib.sh"
 if [ -e "$VERIFY/data/usr/libexec/aurora-panel/autoupdate-server" ]; then
   echo "ERROR: autoupdate-server must not be shipped (server source removed)" >&2
@@ -198,6 +204,10 @@ fi
 
 if [ -x "$ROOT/tests/split.sh" ]; then
   "$ROOT/tests/split.sh" || { echo "ERROR: split tests failed" >&2; exit 1; }
+fi
+
+if [ -x "$ROOT/tests/install-client.sh" ]; then
+  "$ROOT/tests/install-client.sh" || { echo "ERROR: install-client tests failed" >&2; exit 1; }
 fi
 
 if [ -x "$ROOT/tests/panel-ui.sh" ]; then

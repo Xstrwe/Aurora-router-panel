@@ -56,14 +56,22 @@ Install the VPN clients from the panel. Pre-release.
   where they were. The install removes the old `/etc/xray/vless.sh` and leaves no link
   under that name, so any own script that calls it must use `/etc/panel/vpn.sh` (same
   commands).
+- The four VPN cards (VLESS, Naive, Hysteria2 and WireGuard) are compact and the
+  same height. VLESS, Hysteria2 and WireGuard keep a fixed two-line address/link
+  field, as in earlier versions. On the Naive card, **Server**, **Port**,
+  **Username** and **Password** stay in a tight two-by-two grid so the card
+  matches the others. **Scheme** and the other Advanced fields open in a small
+  pop-up when the pointer hovers **Advanced**, and also on click or keyboard
+  focus so the pop-up works on touch devices and with a keyboard. It stays open
+  while the pointer is inside it, and it does not change the card height.
 - The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
   README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**,
-  **Port** (default 443), **Username**, **Password** (with a show/hide button) and
-  **Scheme** (`https` or `quic`) fields, plus a collapsible **Advanced** section with only
-  keys upstream documents: `insecure-concurrency`, `extra-headers` (one per line),
-  `tunnel-timeout` and `idle-timeout`, and an optional **Subscription URL** with the
-  auto-update row and **Update now** (auto-update re-fetches a subscription; it has
-  nothing to do without one). `vpn.sh naivesave <file>` takes these fields as key=value
+  **Port** (default 443), **Username** and **Password** (with a show/hide button) stay
+  on the card. **Scheme** (`https` or `quic`) and the optional keys upstream documents
+  (`insecure-concurrency`, `extra-headers` (one per line), `tunnel-timeout` and
+  `idle-timeout`), plus an optional **Subscription URL**, the auto-update row and
+  **Update now**, are in the **Advanced** pop-up (auto-update re-fetches a subscription;
+  it has nothing to do without one). `vpn.sh naivesave <file>` takes these fields as key=value
   lines (or, as before, a `naive+https://` / `naive+quic://` link), validates them (host
   name or IPv4, port 1-65535, one-line username and password) and writes
   `/etc/naive/config.json` with `"listen"` (unchanged: SOCKS `127.0.0.1:10828` and redir

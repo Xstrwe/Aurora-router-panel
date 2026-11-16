@@ -499,6 +499,55 @@ else
 	bad "textarea height"
 fi
 
+# Naive: Server/Port/Username/Password stay on the card; Scheme and Advanced
+# keys live in a hover/focus/click pop-up that does not use <details>.
+if printf '%s\n' "$html" | grep -q 'class="pf nv"' \
+   && printf '%s\n' "$html" | grep -q 'class=advbtn' \
+   && printf '%s\n' "$html" | grep -q 'class=advbox id=naive-adv' \
+   && printf '%s\n' "$html" | grep -q 'class=nvtitle' \
+   && ! printf '%s\n' "$html" | grep -q '<details' \
+   && grep -q '.advpop:hover .advbox,.advpop:focus-within .advbox,.advpop.open .advbox{display:block}' "$CGI" \
+   && grep -q 'position:absolute' "$CGI"; then
+	ok "Naive Advanced is a hover/focus/click pop-up, not a details block"
+else
+	bad "Naive Advanced pop-up markup"
+fi
+# Scheme is inside the pop-up; the main 2x2 grid has host/port/user/pass only.
+python3 - "$html" <<'PYEND'
+import re,sys
+h=sys.argv[1]
+# strip tags to walk classes around name= attributes is brittle; use regex on slices
+m=re.search(r'<div class="pf nv">(.*?)</div>',h,re.S)
+adv=re.search(r'<div class=advbox[^>]*>(.*)<!--advbox-end-->',h,re.S)
+# fallback: from advbox to the last closing divs before Connect Naive is hard;
+# take from class=advbox to the line with naiveupdate's following container.
+if not m:
+    sys.exit(2)
+main=m.group(1)
+a=re.search(r'<div class=advbox[^>]*>(.*)',h,re.S)
+if not a:
+    sys.exit(3)
+box=a.group(1)
+# cut the box at Connect Naive button (outside the pop-up)
+cut=box.split("Connect Naive")[0] if "Connect Naive" in box else box
+ok=True
+for n in ("host","port","user"):
+    if f"name={n}" not in main or f"name={n}" in cut.split("<div class=pf>",1)[0] if False else False:
+        ok=False
+if "name=host" not in main or "name=port" not in main or "name=user" not in main or "name=pass" not in main:
+    sys.exit(4)
+if "name=scheme" in main or "name=conc" in main or "name=sub" in main:
+    sys.exit(5)
+if "name=scheme" not in cut or "name=conc" not in cut or "name=sub" not in cut:
+    sys.exit(6)
+sys.exit(0)
+PYEND
+if [ $? -eq 0 ]; then
+	ok "Scheme and Advanced keys are in the pop-up; Server/Port/Username/Password stay on the card"
+else
+	bad "Naive field placement in the pop-up vs the card"
+fi
+
 # Saved SOCKS5/HTTP passwords never appear in the page; the field is empty with a "saved" hint.
 cp "$D/http.json" "$D/http.json.pw.bak"
 printf '%s\n' '{"address":"proxy.example","port":8080,"user":"u","pass":"s3cr3t-HttpPw","tls":true,"sni":"proxy.example","allowInsecure":false}' > "$D/http.json"
@@ -1244,6 +1293,69 @@ PYEND
 	if ! printf '%s' "$rdom" | grep -q 'id="install"'; then
 		ok "render: after the install reaches 100% its card and the empty block disappear"
 	else bad "render running->done: block still there: '$(live)'"; fi
+
+	# Equal compact VPN cards at ~1024px: measure offsetHeights, then again
+	# with the Advanced pop-up open (it must not change the card height).
+	python3 - "$TMP/rt" <<'PYEND'
+import sys
+d=sys.argv[1]
+h=open(d+"/page.html").read()
+if h.lower().startswith("content-type"):
+    h=h.split("\n\n",1)[-1].split("\r\n\r\n",1)[-1]
+meas="""<script>
+(function(){
+  function report(id,extra){
+    if(typeof eqCards==="function")eqCards();
+    var cards=[].slice.call(document.querySelectorAll(".vpn>.c"));
+    var hs=cards.map(function(c){return c.offsetHeight});
+    var el=document.getElementById(id)||document.createElement("pre");
+    el.id=id;
+    el.textContent=hs.join(",")+(extra||"");
+    document.body.appendChild(el);
+  }
+  function go(){
+    report("vpn-card-heights");
+    var p=document.querySelector(".advpop");
+    if(p)p.classList.add("open");
+    report("vpn-card-heights-open");
+    if(p)p.classList.remove("open");
+    report("vpn-card-heights-closed");
+  }
+  if(document.readyState==="complete")setTimeout(go,50);
+  else window.addEventListener("load",function(){setTimeout(go,50)});
+})();
+</script>"""
+open(d+"/cards.html","w").write(h.replace("<body>","<body>"+meas,1) if "<body>" in h else meas+h)
+PYEND
+	rdom=$("$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars 		--window-size=1024,1400 --force-device-scale-factor=1 		--virtual-time-budget=8000 --dump-dom "file://$TMP/rt/cards.html" 2>/dev/null)
+	hs=$(printf '%s' "$rdom" | sed -n 's/.*id="vpn-card-heights">\([^<]*\)<.*/\1/p' | head -1)
+	ho=$(printf '%s' "$rdom" | sed -n 's/.*id="vpn-card-heights-open">\([^<]*\)<.*/\1/p' | head -1)
+	hc=$(printf '%s' "$rdom" | sed -n 's/.*id="vpn-card-heights-closed">\([^<]*\)<.*/\1/p' | head -1)
+	# hs like "210,210,210,210"
+	eval "$(printf '%s' "$hs" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=[p for p in s.replace(";",",").split(",") if p.strip().isdigit()]
+print("nheights=%d"%len(parts))
+if parts:
+    vals=list(map(int,parts))
+    print("hmin=%d"%min(vals))
+    print("hmax=%d"%max(vals))
+    print("h1=%d"%vals[0])
+    print("hequal=%s"%("1" if len(set(vals))==1 else "0"))
+else:
+    print("nheights=0"); print("hmin=0"); print("hmax=0"); print("h1=0"); print("hequal=0")
+')"
+	if [ "$nheights" = 4 ] && [ "$hequal" = 1 ] && [ "$hmin" -ge 120 ] && [ "$hmax" -le 280 ]; then
+		ok "render: four VPN cards have equal compact height (${h1}px at 1024px)"
+	else
+		bad "render card heights: '$hs' (n=$nheights equal=$hequal min=$hmin max=$hmax)"
+	fi
+	if [ -n "$hs" ] && [ "$hs" = "$ho" ] && [ "$hs" = "$hc" ]; then
+		ok "render: opening the Advanced pop-up does not change VPN card heights"
+	else
+		bad "render card heights with pop-up open: closed='$hs' open='$ho' again='$hc'"
+	fi
 fi
 
 

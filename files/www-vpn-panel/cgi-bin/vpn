@@ -87,10 +87,11 @@ BLK
 </div>
 BLK
 }
-# Naive card: separate fields of the official Naive (klzgrad) client config (server, port,
-# username, password, scheme) and an Advanced section with the optional keys from
-# upstream USAGE.txt, the subscription URL and auto-update. The saved password is
-# never written into the page: the field stays empty and an empty field keeps it.
+# Naive card: Server, Port, Username and Password stay on the card (compact 2x2 grid
+# so the four VPN cards can share one height). Scheme and the optional upstream keys,
+# subscription URL and auto-update live in a hover/focus/click Advanced pop-up that
+# does not stretch the card. The saved password is never written into the page: the
+# field stays empty and an empty field keeps it.
 naive_fields(){
   NJ=$($V naive-show 2>/dev/null)
   nj(){ printf '%s' "$NJ" | jq -r ".$1 // empty" 2>/dev/null; }
@@ -106,17 +107,19 @@ naive_fields(){
   [ -n "$N_P" ] || N_P=443
   S1=selected; S2=; [ "$N_S" = quic ] && { S1=; S2=selected; }
   PPH="password"; [ "$N_HASP" = true ] && PPH="•••••••• (saved, leave empty to keep)"
-  ADV_O=; { [ -n "$N_C$N_HD$N_T$N_I$N_SUB" ] || [ "$NV_BAD" = adv ]; } && ADV_O=" open"
+  ADV_O=; ADV_AX=false; [ "$NV_BAD" = adv ] && { ADV_O=" open"; ADV_AX=true; }
   cat <<BLK
-<div class=pf>
+<div class="pf nv">
 <label>Server <input type=text name=host value="$(printf '%s' "$N_H" | esc)" placeholder="example.com" autocomplete=off spellcheck=false></label>
 <label>Port <input type=text name=port value="$(printf '%s' "$N_P" | esc)" inputmode=numeric autocomplete=off></label>
 <label>Username <input type=text name=user value="$(printf '%s' "$N_U" | esc)" autocomplete=off spellcheck=false></label>
 <label>Password <span class=pw><input type=password name=pass value="" placeholder="$PPH" autocomplete=new-password><button type=button class=pwt aria-label="Show password">show</button></span></label>
-<label>Scheme <select name=scheme><option value=https $S1>https (HTTP/2)</option><option value=quic $S2>quic (HTTP/3)</option></select></label>
 </div>
-<details class=adv$ADV_O><summary>Advanced</summary>
+<div class="advpop$ADV_O">
+<button type=button class=advbtn aria-expanded="$ADV_AX" aria-haspopup=true aria-controls=naive-adv>Advanced</button>
+<div class=advbox id=naive-adv role=group aria-label="Naive advanced settings">
 <div class=pf>
+<label>Scheme <select name=scheme><option value=https $S1>https (HTTP/2)</option><option value=quic $S2>quic (HTTP/3)</option></select></label>
 <label>insecure-concurrency <input type=text name=conc value="$(printf '%s' "$N_C" | esc)" inputmode=numeric placeholder="1 (default)" autocomplete=off></label>
 <label>tunnel-timeout, s <input type=text name=tt value="$(printf '%s' "$N_T" | esc)" inputmode=numeric placeholder="1800 (default)" autocomplete=off></label>
 <label>idle-timeout, s <input type=text name=it value="$(printf '%s' "$N_I" | esc)" inputmode=numeric placeholder="600 (default)" autocomplete=off></label>
@@ -128,7 +131,8 @@ BLK
   cat <<BLK
 <p class=hint>Auto-update re-reads the subscription URL and applies the naive+https:// link it returns. Without a subscription URL there is nothing to update.</p>
 <div class=btns><button type=submit name=action value=naiveupdate>Update now</button></div>
-</details>
+</div>
+</div>
 BLK
 }
 # One entry of the service row: $1 whitelist key, $2 label, $3 1 if running,
@@ -458,9 +462,19 @@ button.rb .rg{font-size:.9em;line-height:1.2em}
 .sec>h3{margin:0 0 10px;font-size:18px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;margin:0}
 .grid .c{margin:0}
-.vpn>.c{box-sizing:border-box;display:flex;flex-direction:column;height:100%}
-.vpn>.c>form{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.vpn>.c{box-sizing:border-box;display:flex;flex-direction:column;height:100%;position:relative;overflow:visible}
+.vpn>.c>form{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;position:relative;overflow:visible}
 .vpn .btns{margin-top:auto}
+.vpn .nvtitle{padding-right:7em}
+.vpn .pf.nv{margin-top:8px;gap:6px 10px}
+.vpn .pf.nv label{gap:2px;font-size:12px}
+.vpn .pf.nv input[type=text],.vpn .pf.nv input[type=password]{font-size:14px;padding:5px 8px}
+.advpop{position:absolute;top:0;right:0;z-index:8}
+button.advbtn{background:none;color:#1565c0;border:0;padding:0;margin:0;font-size:14px;font-family:inherit;line-height:1.2;cursor:pointer}
+button.advbtn:hover,button.advbtn:focus{text-decoration:underline}
+.advbox{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:30;width:min(420px,calc(100vw - 32px));box-sizing:border-box;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px #0003;padding:12px 14px}
+.advbox:before{content:"";position:absolute;left:0;right:0;top:-8px;height:8px}
+.advpop:hover .advbox,.advpop:focus-within .advbox,.advpop.open .advbox{display:block}
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
 .hint{color:#777;font-size:12px;margin:10px 0 0}
 .isec{margin:18px 0 8px}
@@ -496,7 +510,6 @@ button.addproxy{margin-top:0}
 .pf select{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px}
 .pw{display:flex;gap:6px}.pw input{flex:1 1 auto;min-width:0}
 button.pwt{background:#fff;color:#1565c0;border:1px solid #ccc;border-radius:8px;padding:4px 10px;font-size:13px}
-details.adv{margin-top:10px;font-size:14px}details.adv summary{cursor:pointer;color:#1565c0}
 .pf textarea.hdr{height:56px;min-height:56px;max-height:none;font-size:13px}
 button.add:hover{background:#e3f2fd}
 </style></head><body>
@@ -542,7 +555,7 @@ link_field link "$LINK"
 au_row vless
 cat <<HTML
 <div class=btns><button type=submit name=action value=save style="background:#6a1b9a">Connect VLESS</button><button type=submit name=action value=update>Update now</button></div></form></div>
-<div class=c><form method=post><input type=hidden name=proto value=naive><b>Naive</b>
+<div class=c><form method=post><input type=hidden name=proto value=naive><b class=nvtitle>Naive</b>
 HTML
 naive_fields
 cat <<HTML
@@ -615,7 +628,24 @@ document.querySelectorAll('button.pwt').forEach(function(b){
     b.setAttribute('aria-label',show?'Hide password':'Show password');
   });
 });
-document.querySelectorAll('details.adv').forEach(function(d){d.addEventListener('toggle',eqCards)});
+document.querySelectorAll('.advpop').forEach(function(p){
+  var btn=p.querySelector('.advbtn');if(!btn)return;
+  function setOpen(on){
+    p.classList.toggle('open',!!on);
+    btn.setAttribute('aria-expanded',on?'true':'false');
+  }
+  btn.addEventListener('click',function(e){
+    e.preventDefault();e.stopPropagation();
+    var next=!p.classList.contains('open');
+    setOpen(next);
+    if(!next)btn.blur();
+  });
+  p.addEventListener('focusout',function(e){if(!p.contains(e.relatedTarget))setOpen(false)});
+  document.addEventListener('pointerdown',function(e){if(!p.contains(e.target))setOpen(false)});
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&(p.classList.contains('open')||p.contains(document.activeElement))){setOpen(false);btn.blur()}
+  });
+});
 document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventListener('change',function(){syncTls(c)});syncTls(c)});
 (function(){
   var el=document.getElementById('egress');if(!el)return;

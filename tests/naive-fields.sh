@@ -77,7 +77,9 @@ page=$(env REQUEST_METHOD=GET "$CGI" 2>/dev/null)
 if printf '%s' "$page" | grep -q 'name=host value="nv.example"' && printf '%s' "$page" | grep -q 'name=port value="8445"' \
    && printf '%s' "$page" | grep -q 'name=user value="user"' && printf '%s' "$page" | grep -q 'type=password name=pass value=""' \
    && printf '%s' "$page" | grep -q 'saved, leave empty to keep' && ! printf '%s' "$page" | grep -q "$PW" \
-   && ! printf '%s' "$page" | grep -q 'naive+https://user' && printf '%s' "$page" | grep -q 'class=pwt'; then
+   && ! printf '%s' "$page" | grep -q 'naive+https://user' && printf '%s' "$page" | grep -q 'class=pwt' \
+   && printf '%s' "$page" | grep -q 'class=advbox' && printf '%s' "$page" | grep -q 'name=scheme' \
+   && ! printf '%s' "$page" | grep -q '<details'; then
 	ok "an old saved link fills Server/Port/Username, the password stays masked and out of the page"
 else bad "naive page fields"; fi
 row() { printf '%s\n' "$page" | sed -n "s/.*<tr><td>$1<\\/td><td>\\(.*\\)<\\/td><\\/tr>.*/\\1/p" | head -1; }

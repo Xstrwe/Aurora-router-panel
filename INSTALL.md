@@ -12,7 +12,7 @@ The VPN clients are not inside the `.ipk`. After the panel is installed, the **I
 | --- | --- | --- |
 | VLESS, and also SOCKS5/HTTP upstreams | **Install VLESS** | Xray-core from XTLS: `xray` at `/usr/bin/xray`, plus `geoip.dat` and `geosite.dat` in `/usr/share/xray/` |
 | Hysteria 2 | **Install Hysteria 2** | the official `hysteria` client at `/usr/bin/hysteria` |
-| Naive | **Install Naive** | the official `naive` client at `/usr/bin/naive` (needs `xz`, which the button installs if it is missing). `dnsproxy` sends DNS through the tunnel (`opkg install dnsproxy`; GL.iNet firmware already ships it). Without `dnsproxy`, Naive still works but DNS is not sent through the tunnel |
+| Naive | **Install Naive** | the official `naive` client at `/usr/bin/naive` **and** `dnsproxy` from AdGuard, which Naive's service uses to send DNS through the tunnel. Both are installed by the one button (needs `xz`, which the button installs if it is missing) |
 | WireGuard | **Install WireGuard** | `kmod-wireguard`, `wireguard-tools` and `ip-full` from opkg |
 
 The “everything except Russian sites” split also reads `/usr/share/xray/geoip.dat`. Without Xray and the geo files you can still open the page, but you cannot connect VLESS, SOCKS5 or HTTP, and country-based split will not work.
@@ -107,14 +107,14 @@ What each button does:
 
 - **Install VLESS** downloads the latest release of [XTLS/Xray-core](https://github.com/XTLS/Xray-core) for the router’s CPU, checks it against the SHA-256 the project publishes, and installs `xray` to `/usr/bin` and the `geoip.dat` and `geosite.dat` files from the same release to `/usr/share/xray`.
 - **Install Hysteria 2** downloads the latest [apernet/hysteria](https://github.com/apernet/hysteria) release binary and checks it against the published `hashes.txt`.
-- **Install Naive** downloads the latest [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy) OpenWrt build for the router and checks it against the SHA-256 digest GitHub publishes for the release file. It never touches `/etc/naive/config.json`.
+- **Install Naive** installs two programs with one progress bar: the latest [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy) OpenWrt build (0–70%) and the latest [AdguardTeam/dnsproxy](https://github.com/AdguardTeam/dnsproxy) release for the router’s CPU (70–100%; `linux-arm64` on an aarch64 router). Each download is checked against the SHA-256 that GitHub publishes for the release file (for dnsproxy, `checksums.txt` is used if the release has no digest); if a checksum is missing or wrong the install stops and nothing is replaced. `dnsproxy` goes to the place where the Naive service looks for it (`/usr/bin/dnsproxy`, or the existing one on `PATH`). The card shows **Installed** only when both are present and lists both versions; if one is missing it says which. If the Naive service is running, it is restarted once (it starts its `dnsproxy` too), and both old files are put back if it does not start. It never touches `/etc/naive/config.json`.
 - **Install WireGuard** runs `opkg update` and installs `kmod-wireguard`, `wireguard-tools` and `ip-full` (when they are already installed it upgrades the first two). The panel only sets up the client; a WireGuard server is your own.
 
 Rules that apply to all four:
 
 - Each client stays its own program with its own service. An install never changes a protocol setting or config and never starts, stops or switches a protocol.
 - If the client you reinstall is running now, only that one service is restarted so it uses the new file. If it does not start, the old file is put back.
-- The router needs free space first: about 70 MB in `/tmp` and 50 MB for the files for Xray, about 30 MB each for Hysteria 2 and Naive, a few MB for WireGuard. If there is not enough, the install stops before it downloads anything.
+- The router needs free space first: about 70 MB in `/tmp` and 50 MB for the files for Xray, about 30 MB for Hysteria 2, about 55 MB for Naive with dnsproxy, a few MB for WireGuard. If there is not enough, the install stops before it downloads anything.
 - If GitHub cannot be reached directly, the download is retried through the local SOCKS entry of the protocol that is active now (when it is running). WireGuard uses opkg and its own mirrors only.
 - Only one install runs at a time. You can leave the page; the install keeps going and the progress shows again when you come back.
 
@@ -279,14 +279,14 @@ Each client is updated from its own upstream, and only that client’s service i
 ```
 
 - Xray is taken from XTLS/Xray-core, Hysteria from apernet/hysteria; both are checked against the SHA-256 published with the release. The previous binary is kept as `<binary>.bak` and put back if the new one does not start.
-- Naive is installed by `/usr/libexec/aurora-panel/install-naive.sh`, the same script the **Install Naive** button runs.
+- Naive is installed by `/usr/libexec/aurora-panel/install-naive.sh` (the naive part of the **Install Naive** button; the button also installs `dnsproxy`).
 - WireGuard is upgraded with `opkg upgrade kmod-wireguard wireguard-tools`. The running interface keeps the old kernel module until you reboot.
 
 ## Backup and rollback
 
 There is no separate backup button on the page. What the package already does:
 
-- **Your links and configs are never overwritten** by an install or an upgrade. State that is kept includes `/etc/xray/{link.txt,config.json,hy2.txt,naive.txt,wg.conf,wg.json,wg.resolved,socks.json,http.json,server_ip,mode,proto,httpd.conf}`, `/etc/xray/autoupdate/*`, `/etc/hysteria/client.yaml`, `/etc/naive/config.json` and `/usr/bin/naive`.
+- **Your links and configs are never overwritten** by an install or an upgrade. State that is kept includes `/etc/xray/{link.txt,config.json,hy2.txt,naive.txt,wg.conf,wg.json,wg.resolved,socks.json,http.json,server_ip,mode,proto,httpd.conf}`, `/etc/xray/autoupdate/*`, `/etc/hysteria/client.yaml`, `/etc/naive/config.json`, `/usr/bin/naive` and `dnsproxy`.
 - **A failed Connect or protocol switch** restores that protocol’s files and keeps the previously active protocol.
 - **A failed auto-update** of the active protocol restores that protocol’s files and reapplies the previous config (`no internet after the update, config rolled back`). An update of a protocol that is not active is only saved; on failure those files are rolled back too.
 - **A failed client-binary update** puts the previous binary (`*.bak`) back.
@@ -304,7 +304,7 @@ Install a newer `.ipk` the same way as above, or `opkg update && opkg upgrade` i
 opkg remove aurora-router-panel
 ```
 
-This removes the panel, its uhttpd section and the autoupdate cron line. It does not stop Xray, Hysteria, Naive or WireGuard, so a working transparent proxy keeps running. Saved links, configs and `/usr/bin/naive` stay on the router; delete them yourself if you no longer need them.
+This removes the panel, its uhttpd section and the autoupdate cron line. It does not stop Xray, Hysteria, Naive or WireGuard, so a working transparent proxy keeps running. Saved links, configs `/usr/bin/naive` and `/usr/bin/dnsproxy` stay on the router; delete them yourself if you no longer need them.
 
 ## Command reference
 

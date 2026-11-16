@@ -9,6 +9,11 @@
 #          (the files from the same release; checked against the published .dgst, SHA2-256)
 #   hy2    apernet/hysteria release binary -> /usr/bin/hysteria (checked against hashes.txt)
 #   naive  klzgrad/naiveproxy release via install-naive.sh -> /usr/bin/naive (GitHub asset digest)
+#          AND AdguardTeam/dnsproxy release -> /usr/bin/dnsproxy (the DNS helper of the Naive service,
+#          started by naive-client; checked against the digest GitHub publishes for the asset or
+#          checksums.txt). One progress bar: naive 0-70%, dnsproxy 70-100%. Both binaries are
+#          replaced together after both downloads are verified; Naive counts as installed only
+#          when both are present.
 #   wg     opkg: kmod-wireguard, wireguard-tools, ip-full
 # Progress goes to /tmp/aurora-install-<proto>.json:
 #   {"state":"running|done|error","percent":0-100,"stage":"...","error":"...","version":"..."}
@@ -22,6 +27,8 @@ VSH=${VLESS_AU_VLESS_SH:-/etc/xray/vless.sh}
 XRAY_BIN=${VLESS_XRAY_BIN:-/usr/bin/xray}
 HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
 NAIVE_BIN=${VLESS_NAIVE_BIN:-/usr/bin/naive}
+# naive-client starts the DNS helper as `command -v dnsproxy`; keep that same binary when one exists
+DNSPROXY_BIN=${VLESS_DNSPROXY_BIN:-$(command -v dnsproxy 2>/dev/null || echo /usr/bin/dnsproxy)}
 WG_BIN=${VLESS_WG_BIN:-/usr/bin/wg}
 XRAY_ASSET=${VLESS_XRAY_ASSET:-/usr/share/xray}
 GH=${AURORA_GH_API:-https://api.github.com}
@@ -34,6 +41,9 @@ LOG=$SD/aurora-install-$P.log
 . "$HERE/install-lib.sh"
 
 usage() { echo "usage: install-client.sh start|run <xray|hy2|naive|wg> | status [xray|hy2|naive|wg]"; exit 1; }
+dnsproxy_version() {
+	"$DNSPROXY_BIN" --version 2>/dev/null | grep -o 'v\{0,1\}[0-9][0-9]*\.[0-9][0-9.]*[0-9a-z-]*' | head -1 | sed 's/^v//'
+}
 valid() { case "$1" in xray|hy2|naive|wg) return 0 ;; esac; return 1; }
 
 # ---------- what is installed ----------
@@ -41,7 +51,7 @@ is_installed() {
 	case "$1" in
 		xray) [ -x "$XRAY_BIN" ] ;;
 		hy2) [ -x "$HYSTERIA_BIN" ] ;;
-		naive) [ -x "$NAIVE_BIN" ] ;;
+		naive) [ -x "$NAIVE_BIN" ] && [ -x "$DNSPROXY_BIN" ] ;;
 		wg) [ -x "$WG_BIN" ] && { [ -d "${VLESS_WG_SYSMOD:-/sys/module/wireguard}" ] || ls "${VLESS_WG_KO:-/lib/modules/$(uname -r)}"/wireguard.ko >/dev/null 2>&1; } ;;
 	esac
 }
@@ -110,16 +120,52 @@ arch_go() {
 		*) return 1 ;;
 	esac
 }
+# dnsproxy release arch (AdguardTeam/dnsproxy assets: linux-<arch>): from the OpenWrt arch name, else uname
+arch_dp() {
+	_da=$(sed -n "s/^DISTRIB_ARCH=['\"]\{0,1\}\([^'\"]*\).*/\1/p" "${AURORA_OPENWRT_RELEASE:-/etc/openwrt_release}" 2>/dev/null | head -1)
+	case "$_da" in
+		aarch64*) echo arm64; return 0 ;;
+		x86_64) echo amd64; return 0 ;;
+		i386*|x86) echo 386; return 0 ;;
+		mips64el*) echo mips64le; return 0 ;;
+		mips64*) echo mips64; return 0 ;;
+		mipsel*) echo mipsle; return 0 ;;
+		mips*) echo mips; return 0 ;;
+		arm_cortex-a5*|arm_cortex-a7*|arm_cortex-a8*|arm_cortex-a9*|arm_cortex-a1[0-9]*|arm_neoverse*) echo arm7; return 0 ;;
+		arm_mpcore*|arm_1176*|arm_arm1176*) echo arm6; return 0 ;;
+		arm_*) echo arm5; return 0 ;;
+	esac
+	case "$(uname -m)" in
+		aarch64|arm64) echo arm64 ;;
+		x86_64|amd64) echo amd64 ;;
+		i386|i486|i586|i686) echo 386 ;;
+		armv7*) echo arm7 ;;
+		armv6*) echo arm6 ;;
+		arm*) echo arm5 ;;
+		mips64) echo mips64 ;;
+		mips) echo mips ;;
+		*) return 1 ;;
+	esac
+}
+put_try() { # like put, but returns 1 instead of stopping the install
+	_n="$2.new.$$"
+	if ! cp "$1" "$_n" 2>/dev/null; then rm -f "$_n"; return 1; fi
+	chmod "$3" "$_n"
+	mv "$_n" "$2" || { rm -f "$_n"; return 1; }
+}
 put() { # src dest : copy next to dest, then atomic rename (same filesystem)
 	_n="$2.new.$$"
 	if ! cp "$1" "$_n" 2>/dev/null; then rm -f "$_n"; fail "could not write $2 (no space left?)"; fi
 	chmod "$3" "$_n"
 	mv "$_n" "$2" || { rm -f "$_n"; fail "could not replace $2"; }
 }
-# $1 service name for vless.sh restart-svc, $2 process name, then dest files to restore on failure
+# $1 service name for vless.sh restart-svc, $2 process name(s) of that service (any one running
+# means the service is running), then dest files to restore on failure
 restart_or_rollback() {
-	svc=$1; proc=$2; shift 2
-	pidof "$proc" >/dev/null 2>&1 || return 0
+	svc=$1; procs=$2; shift 2
+	_up=0
+	for _pr in $procs; do pidof "$_pr" >/dev/null 2>&1 && _up=1; done
+	[ "$_up" = 1 ] || return 0
 	STAGE=restarting; progress 94 restarting
 	if ! "$VSH" restart-svc "$svc" >/dev/null 2>&1; then
 		for f in "$@"; do [ -e "$TMP/old/$(basename "$f")" ] && cp -p "$TMP/old/$(basename "$f")" "$f"; done
@@ -183,19 +229,54 @@ do_naive() {
 	STAGE=checking; progress 1 checking
 	need_tool curl curl
 	command -v xz >/dev/null 2>&1 || command -v unxz >/dev/null 2>&1 || need_tool xz xz
-	keep_old "$NAIVE_BIN"
+	DA=$(arch_dp) || fail "unsupported CPU architecture ($(uname -m)) for dnsproxy"
+	space "$(dirname "$NAIVE_BIN")" 30000; space "$(dirname "$DNSPROXY_BIN")" 25000
+	# Part 1 (0-70%): Naive is unpacked into the temporary directory; nothing on the router changes yet.
 	: > "$TMP/naive.out"
 	# shellcheck disable=SC2086
-	AURORA_PROGRESS=1 sh "$HERE/install-naive.sh" --force 2>&1 | while IFS= read -r l; do
+	VLESS_NAIVE_BIN=$TMP/naive.new AURORA_PROGRESS=1 sh "$HERE/install-naive.sh" --force 2>&1 | while IFS= read -r l; do
 		case "$l" in
-			"@PROGRESS "*) set -- $l; ai_on_progress "$2" "$3"; STAGE=$3 ;;
+			"@PROGRESS "*) set -- $l; [ "$2" -le 86 ] || set -- "$1" 86 "$3"; ai_on_progress $(($2 * 70 / 86)) "$3" ;;
 			"@ERROR "*) printf '%s\n' "${l#@ERROR }" > "$TMP/naive.err" ;;
 			"@DONE") : > "$TMP/naive.done" ;;
 			*) printf '%s\n' "$l" >> "$TMP/naive.out" ;;
 		esac
 	done
-	[ -e "$TMP/naive.done" ] || fail "$(cat "$TMP/naive.err" 2>/dev/null || tail -1 "$TMP/naive.out")"
-	restart_or_rollback naive naive "$NAIVE_BIN"
+	[ -e "$TMP/naive.done" ] && [ -s "$TMP/naive.new" ] || fail "$(cat "$TMP/naive.err" 2>/dev/null || tail -1 "$TMP/naive.out")"
+	# Part 2 (70-100%): dnsproxy, the DNS helper that naive-client starts next to Naive.
+	LASTPCT=70
+	space "$TMP" 30000
+	STAGE=resolving; progress 72 resolving
+	latest_tag AdguardTeam/dnsproxy; dtag=$TAG
+	df=dnsproxy-linux-$DA-$dtag.tar.gz
+	dsha=$(jq -r --arg n "$df" '.assets // [] | map(select(.name==$n)) | .[0].digest // empty' "$TMP/release.json" 2>/dev/null | sed -n 's/^sha256://p')
+	STAGE=downloading; progress 74 downloading
+	get "$DL/AdguardTeam/dnsproxy/releases/download/$dtag/$df" "$TMP/dp.tgz" 74 90 "dnsproxy"
+	STAGE=verifying; progress 91 verifying
+	if [ -z "$dsha" ]; then
+		ai_fetch "$DL/AdguardTeam/dnsproxy/releases/download/$dtag/checksums.txt" "$TMP/dp.sums" "" "" 40 || : > "$TMP/dp.sums"
+		dsha=$(awk -v f="$df" '$2==f || $2=="*" f {print $1}' "$TMP/dp.sums" | head -1)
+	fi
+	[ -n "$dsha" ] || fail "no checksum is published for the dnsproxy download"
+	sha_ok "$TMP/dp.tgz" "$dsha" || fail "checksum mismatch: the dnsproxy download is damaged or was changed"
+	STAGE=unpacking; progress 93 unpacking
+	mkdir -p "$TMP/dp"
+	tar -xzf "$TMP/dp.tgz" -C "$TMP/dp" || fail "could not unpack the dnsproxy archive"
+	DPB=$(find "$TMP/dp" -type f -name dnsproxy | head -1)
+	[ -n "$DPB" ] && [ -s "$DPB" ] || fail "the dnsproxy archive has no dnsproxy file"
+	chmod 755 "$DPB"
+	"$DPB" --version >/dev/null 2>&1 || fail "the downloaded dnsproxy does not run on this router"
+	# Both verified: replace both together, so Naive is never left half installed.
+	STAGE=installing; progress 95 installing
+	keep_old "$NAIVE_BIN" "$DNSPROXY_BIN"
+	if ! { put_try "$TMP/naive.new" "$NAIVE_BIN" 755 && put_try "$DPB" "$DNSPROXY_BIN" 755; }; then
+		for f in "$NAIVE_BIN" "$DNSPROXY_BIN"; do
+			if [ -e "$TMP/old/$(basename "$f")" ]; then cp -p "$TMP/old/$(basename "$f")" "$f"; else rm -f "$f"; fi
+		done
+		fail "could not write the Naive files (no space left?); the old ones were put back"
+	fi
+	progress 97 installing
+	restart_or_rollback naive "naive dnsproxy" "$NAIVE_BIN" "$DNSPROXY_BIN"
 }
 
 do_wg() {
@@ -238,8 +319,17 @@ status_one() { # proto
 		fi
 	fi
 	[ "$_run" = running ] || { [ "$_inst" = true ] && _ver=$(version_of "$_p"); }
-	printf '%s' "$_st" | jq -c --arg p "$_p" --argjson i "$_inst" --arg v "$_ver" \
-		'{proto:$p,installed:$i,version:(if $v!="" then $v else (.version // "") end),state:(.state // "idle"),percent:(.percent // 0),stage:(.stage // ""),error:(.error // "")}'
+	# Naive is two programs: report the dnsproxy version and what is missing
+	_dv=""; _miss=""
+	if [ "$_p" = naive ]; then
+		[ -x "$DNSPROXY_BIN" ] && _dv=$(dnsproxy_version)
+		[ -x "$NAIVE_BIN" ] || _miss="naive"
+		[ -x "$DNSPROXY_BIN" ] || _miss="${_miss:+$_miss, }dnsproxy"
+		[ "$_inst" = true ] && _miss=""
+	fi
+	printf '%s' "$_st" | jq -c --arg p "$_p" --argjson i "$_inst" --arg v "$_ver" --arg dv "$_dv" --arg m "$_miss" \
+		'{proto:$p,installed:$i,version:(if $v!="" then $v else (.version // "") end),state:(.state // "idle"),percent:(.percent // 0),stage:(.stage // ""),error:(.error // "")}
+		 + (if $p=="naive" then {dnsproxy_version:(if $dv!="" then $dv else (.dnsproxy_version // "") end),missing:$m} else {} end)'
 }
 
 case "$CMD" in

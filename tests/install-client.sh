@@ -43,12 +43,13 @@ PATH=$BIN:$PATH
 sha() { sha256sum "$1" | cut -d' ' -f1; }
 export VLESS_PANEL_DIR=$TMP/etc VLESS_AU_VLESS_SH=$BIN/vless-sh
 export VLESS_XRAY_BIN=$INS/xray VLESS_HYSTERIA_BIN=$INS/hysteria VLESS_NAIVE_BIN=$INS/naive VLESS_XRAY_ASSET=$ASSET
-export VLESS_WG_BIN=$INS/wg VLESS_WG_SYSMOD=$TMP/sysmod
+export VLESS_DNSPROXY_BIN=$INS/dnsproxy VLESS_WG_BIN=$INS/wg VLESS_WG_SYSMOD=$TMP/sysmod
 export AURORA_POLL=0.2 AURORA_GH_API=file://$GH/api AURORA_GH_DL=file://$GH/dl AURORA_INSTALL_DIR=$SD
 
 # ---- fixtures ----
 mkdir -p "$GH/api/repos/XTLS/Xray-core/releases" "$GH/dl/XTLS/Xray-core/releases/download/v9.9.9"
 mkdir -p "$GH/api/repos/apernet/hysteria/releases" "$GH/dl/apernet/hysteria/releases/download/app/v2.9.9"
+mkdir -p "$GH/api/repos/AdguardTeam/dnsproxy/releases" "$GH/dl/AdguardTeam/dnsproxy/releases/download/v0.99.0"
 mkdir -p "$GH/api/repos/klzgrad/naiveproxy/releases" "$GH/dl/klzgrad/naiveproxy/releases/download/v1.2.3-4"
 printf '{"tag_name":"v9.9.9"}' > "$GH/api/repos/XTLS/Xray-core/releases/latest"
 printf '{"tag_name":"app/v2.9.9"}' > "$GH/api/repos/apernet/hysteria/releases/latest"
@@ -81,6 +82,19 @@ naive_api() { # digest
 	printf '{"tag_name":"v1.2.3-4","assets":[{"name":"%s","digest":"%s"}]}' "$NF" "$1" > "$GH/api/repos/klzgrad/naiveproxy/releases/latest"
 }
 naive_api "sha256:$(sha "$NDL/$NF")"
+# dnsproxy (AdguardTeam): linux-arm64 tarball with a linux-arm64/ directory, digest in the release JSON
+DF=dnsproxy-linux-arm64-v0.99.0.tar.gz
+DDL=$GH/dl/AdguardTeam/dnsproxy/releases/download/v0.99.0
+mkdir -p "$TMP/dpx/linux-arm64"
+printf '#!/bin/sh\n[ "$1" = --version ] && echo "dnsproxy v0.99.0"\nexit 0\n' > "$TMP/dpx/linux-arm64/dnsproxy"
+printf 'LICENSE' > "$TMP/dpx/linux-arm64/LICENSE"
+chmod 755 "$TMP/dpx/linux-arm64/dnsproxy"
+( cd "$TMP/dpx" && tar -cz linux-arm64 ) > "$DDL/$DF"
+dns_api() { # digest-or-empty
+	if [ -n "$1" ]; then printf '{"tag_name":"v0.99.0","assets":[{"name":"%s","digest":"%s"}]}' "$DF" "$1"
+	else printf '{"tag_name":"v0.99.0","assets":[{"name":"%s"}]}' "$DF"; fi > "$GH/api/repos/AdguardTeam/dnsproxy/releases/latest"
+}
+dns_api "sha256:$(sha "$DDL/$DF")"
 
 # run: start an install, wait for it to end, print the final JSON
 run() { # proto
@@ -145,14 +159,135 @@ reset; printf '#!/bin/sh\necho old\n' > "$INS/hysteria"; chmod 755 "$INS/hysteri
 r=$(run hy2)
 if [ "$(cat "$TMP/vsh.log")" = "restart-svc hysteria" ]; then ok "hy2: only the hysteria service is restarted while others keep running"; else bad "hy2 restart: $(cat "$TMP/vsh.log")"; fi
 
-# 6. naive
+# 6. naive: Naive + dnsproxy are one install
 reset
 r=$(run naive)
-if [ "$(echo "$r" | jq -r .state)" = done ] && [ "$(echo "$r" | jq -r .version)" = 1.2.3.4-4 ] && [ -x "$INS/naive" ] && [ ! -e "$TMP/etc/naive/config.json" ]; then ok "naive: release installed through install-naive.sh, GitHub digest checked, no config written"; else bad "naive: $r"; fi
+if [ "$(echo "$r" | jq -r .state)" = done ] && [ "$(echo "$r" | jq -r .percent)" = 100 ] && [ "$(echo "$r" | jq -r .version)" = 1.2.3.4-4 ] \
+   && [ -x "$INS/naive" ] && [ -x "$INS/dnsproxy" ] && [ ! -e "$TMP/etc/naive/config.json" ] && [ ! -e "$TMP/vsh.log" ]; then
+	ok "naive: Naive and dnsproxy installed together, checksums checked, no config written, no service touched"
+else bad "naive: $r"; fi
+s=$("$IC" status naive)
+if [ "$(echo "$s" | jq -r .installed)" = true ] && [ "$(echo "$s" | jq -r .version)" = 1.2.3.4-4 ] && [ "$(echo "$s" | jq -r .dnsproxy_version)" = 0.99.0 ] && [ "$(echo "$s" | jq -r .missing)" = "" ]; then
+	ok "naive status shows both versions (naive and dnsproxy)"
+else bad "naive status: $s"; fi
+# only one of the two present: not installed, the missing one is named
+rm -f "$INS/dnsproxy"
+s=$("$IC" status naive)
+if [ "$(echo "$s" | jq -r .installed)" = false ] && [ "$(echo "$s" | jq -r .missing)" = dnsproxy ]; then ok "naive without dnsproxy is reported as not fully installed (dnsproxy missing)"; else bad "naive missing dnsproxy: $s"; fi
+if "$IC" status | jq -e '.naive.installed == false' >/dev/null; then ok "status of all clients agrees"; else bad "status all naive"; fi
+# the button on a half install adds dnsproxy
+r=$(run naive)
+if [ "$(echo "$r" | jq -r .state)" = done ] && [ -x "$INS/dnsproxy" ] && [ "$("$IC" status naive | jq -r .installed)" = true ]; then ok "pressing Install Naive on a half install completes it"; else bad "naive repair: $r"; fi
+# wrong naive digest: nothing is installed, dnsproxy is not installed either
 reset; naive_api "sha256:0000"
 r=$(run naive)
-if [ "$(echo "$r" | jq -r .state)" = error ] && echo "$r" | jq -r .error | grep -q 'checksum mismatch' && [ ! -e "$INS/naive" ]; then ok "naive: a wrong digest is refused"; else bad "naive digest: $r"; fi
+if [ "$(echo "$r" | jq -r .state)" = error ] && echo "$r" | jq -r .error | grep -q 'checksum mismatch' && [ ! -e "$INS/naive" ] && [ ! -e "$INS/dnsproxy" ]; then ok "naive: a wrong digest is refused, nothing installed"; else bad "naive digest: $r"; fi
 naive_api "sha256:$(sha "$NDL/$NF")"
+# wrong dnsproxy digest: neither binary is replaced (old Naive stays)
+reset; printf '#!/bin/sh\necho old\n' > "$INS/naive"; chmod 755 "$INS/naive"
+dns_api "sha256:0000"
+r=$(run naive)
+if [ "$(echo "$r" | jq -r .state)" = error ] && echo "$r" | jq -r .error | grep -q 'dnsproxy download is damaged' && grep -q old "$INS/naive" && [ ! -e "$INS/dnsproxy" ]; then
+	ok "dnsproxy: a wrong digest is refused and the existing Naive is left untouched"
+else bad "dnsproxy digest: $r"; fi
+# no digest in the release JSON: checksums.txt is used, and a wrong one is refused
+reset; dns_api ""
+printf '%s  %s\n' "$(sha "$DDL/$DF")" "$DF" > "$DDL/checksums.txt"
+r=$(run naive)
+if [ "$(echo "$r" | jq -r .state)" = done ] && [ -x "$INS/dnsproxy" ]; then ok "dnsproxy: checksums.txt is used when the release has no digest"; else bad "dnsproxy checksums.txt: $r"; fi
+reset; printf '%s  %s\n' 0000 "$DF" > "$DDL/checksums.txt"
+r=$(run naive)
+if [ "$(echo "$r" | jq -r .state)" = error ] && echo "$r" | jq -r .error | grep -q 'checksum mismatch' && [ ! -e "$INS/naive" ]; then ok "dnsproxy: a wrong checksums.txt entry is refused"; else bad "dnsproxy checksums.txt bad: $r"; fi
+reset; rm -f "$DDL/checksums.txt"
+r=$(run naive)
+if [ "$(echo "$r" | jq -r .state)" = error ] && echo "$r" | jq -r .error | grep -q 'no checksum is published' && [ ! -e "$INS/naive" ]; then ok "dnsproxy: no published checksum at all is refused"; else bad "dnsproxy no checksum: $r"; fi
+dns_api "sha256:$(sha "$DDL/$DF")"
+# a running Naive service (or only its dnsproxy) is restarted once, with both binaries replaced
+reset; printf '#!/bin/sh\necho old\n' > "$INS/naive"; printf '#!/bin/sh\necho old\n' > "$INS/dnsproxy"; chmod 755 "$INS/naive" "$INS/dnsproxy"
+PIDOF_UP="naive xray hysteria"; export PIDOF_UP
+r=$(run naive)
+if [ "$(echo "$r" | jq -r .state)" = done ] && [ "$(cat "$TMP/vsh.log")" = "restart-svc naive" ] && [ "$("$IC" status naive | jq -r .dnsproxy_version)" = 0.99.0 ]; then ok "naive: a running service is restarted once with both new binaries; other services untouched"; else bad "naive restart: $r / $(cat "$TMP/vsh.log" 2>/dev/null)"; fi
+reset; printf '#!/bin/sh\necho old\n' > "$INS/dnsproxy"; chmod 755 "$INS/dnsproxy"; PIDOF_UP="dnsproxy"; export PIDOF_UP
+r=$(run naive)
+if [ "$(cat "$TMP/vsh.log")" = "restart-svc naive" ]; then ok "naive: restarted when only its dnsproxy was running"; else bad "dnsproxy-only restart: $(cat "$TMP/vsh.log" 2>/dev/null)"; fi
+reset; PIDOF_UP="xray hysteria"; export PIDOF_UP
+r=$(run naive)
+if [ "$(echo "$r" | jq -r .state)" = done ] && [ ! -e "$TMP/vsh.log" ]; then ok "naive: a service that is not running is not started"; else bad "naive not started: $(cat "$TMP/vsh.log" 2>/dev/null)"; fi
+# restart failure: both old binaries are put back
+reset; printf '#!/bin/sh\necho oldnaive\n' > "$INS/naive"; printf '#!/bin/sh\necho olddns\n' > "$INS/dnsproxy"; chmod 755 "$INS/naive" "$INS/dnsproxy"
+PIDOF_UP="naive dnsproxy"; VSH_FAIL=1; export PIDOF_UP VSH_FAIL
+r=$(run naive)
+if [ "$(echo "$r" | jq -r .state)" = error ] && echo "$r" | jq -r .error | grep -q 'old one was put back' && grep -q oldnaive "$INS/naive" && grep -q olddns "$INS/dnsproxy" && [ "$(wc -l < "$TMP/vsh.log")" = 2 ]; then
+	ok "naive: a failed restart puts back both old binaries and restarts them"
+else bad "naive rollback: $r"; fi
+# one combined progress: naive part stays within 0-70, dnsproxy part within 70-100
+reset
+REALCURL=$(command -v curl)
+cat > "$BIN/curl" <<EOF2
+#!/bin/sh
+case "\$*" in
+  *naiveproxy-v1.2.3-4-openwrt*) printf '\\r######              50.0%%' >&2; sleep 3; printf '\\r################## 100.0%%' >&2;;
+  *dnsproxy-linux-arm64*) printf '\\r######              50.0%%' >&2; sleep 3; printf '\\r################## 100.0%%' >&2;;
+esac
+exec "$REALCURL" "\$@"
+EOF2
+chmod 755 "$BIN/curl"
+"$IC" start naive >/dev/null
+nseen=""; dseen=""; maxp=0; i=0
+while [ $i -lt 60 ]; do
+	st=$(cat "$SD/aurora-install-naive.json" 2>/dev/null)
+	p=$(echo "$st" | jq -r '.percent // 0' 2>/dev/null); g=$(echo "$st" | jq -r '.stage // ""' 2>/dev/null); sta=$(echo "$st" | jq -r '.state // ""' 2>/dev/null)
+	[ "$sta" = running ] && [ "${p:-0}" -lt "$maxp" ] && maxp=-1
+	[ "$maxp" -ge 0 ] && maxp=$p
+	if [ "$sta" = running ] && [ "$g" = downloading ]; then
+		if [ ! -x "$INS/naive" ] && [ -z "$dseen" ] && [ "$p" -gt 12 ] && [ "$p" -le 70 ]; then nseen=$p; fi
+		if [ -n "$nseen" ] && [ "$p" -ge 74 ] && [ "$p" -lt 90 ]; then dseen=$p; fi
+	fi
+	[ "$sta" = done ] || [ "$sta" = error ] && break
+	sleep 0.25; i=$((i+1))
+done
+rm -f "$BIN/curl"
+if [ -n "$nseen" ] && [ -n "$dseen" ] && [ "$maxp" -ge 0 ] && [ "$(jq -r .state "$SD/aurora-install-naive.json")" = done ]; then ok "naive: one progress bar, Naive download at ${nseen}% (<=70), dnsproxy at ${dseen}% (70-100), never backwards"; else bad "naive progress: n=$nseen d=$dseen max=$maxp $(cat "$SD/aurora-install-naive.json")"; fi
+# SOCKS fallback also covers dnsproxy
+reset; echo naive > "$TMP/etc/proto"
+cat > "$BIN/curl" <<EOF2
+#!/bin/sh
+echo "\$*" >> "$TMP/curl.log"
+case "\$*" in *--socks5-hostname*) ;; *) exit 7;; esac
+a=""; skip=0
+for x in "\$@"; do
+  if [ \$skip = 1 ]; then skip=0; continue; fi
+  case "\$x" in --socks5-hostname) skip=1; continue;; esac
+  a="\$a \$x"
+done
+exec "$REALCURL" \$a
+EOF2
+chmod 755 "$BIN/curl"; rm -f "$TMP/curl.log"
+AURORA_SOCKS_FORCE=127.0.0.1:10828; export AURORA_SOCKS_FORCE
+r=$(run naive)
+rm -f "$BIN/curl"; unset AURORA_SOCKS_FORCE
+if [ "$(echo "$r" | jq -r .state)" = done ] && grep -q -- '--socks5-hostname 127.0.0.1:10828.*dnsproxy-linux-arm64' "$TMP/curl.log" && grep -q "dnsproxy" "$TMP/curl.log"; then ok "dnsproxy download falls back to the active protocol's SOCKS entry like the rest"; else bad "dnsproxy socks: $r"; fi
+# dnsproxy architecture map
+eval "$(sed -n '/^arch_dp()/,/^}/p' "$IC")"
+chk() { # openwrt-arch uname expected
+	printf "DISTRIB_ARCH='%s'\n" "$1" > "$TMP/osrel"
+	[ -n "$1" ] || rm -f "$TMP/osrel"
+	got=$(AURORA_OPENWRT_RELEASE=$TMP/osrel arch_dp 2>/dev/null)
+	[ "$got" = "$3" ]
+}
+archok=1
+chk aarch64_cortex-a53 aarch64 arm64 || archok=0
+chk aarch64_generic x arm64 || archok=0
+chk x86_64 x amd64 || archok=0
+chk i386_pentium4 x 386 || archok=0
+chk arm_cortex-a7_neon-vfpv4 x arm7 || archok=0
+chk arm_cortex-a9 x arm7 || archok=0
+chk arm_arm926ej-s x arm5 || archok=0
+chk mipsel_24kc x mipsle || archok=0
+chk mips_24kc x mips || archok=0
+chk mips64_octeonplus x mips64 || archok=0
+chk "" aarch64 arm64 || archok=0
+if [ "$archok" = 1 ]; then ok "dnsproxy arch map: aarch64->arm64, x86_64->amd64, arm->arm5/6/7, mips->mips/mipsle/mips64 (linux-arm64 for aarch64)"; else bad "dnsproxy arch map"; fi
 
 # 7. wireguard through opkg, step by step, no service touched
 reset

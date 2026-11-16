@@ -17,8 +17,13 @@ Install the VPN clients from the panel. Pre-release.
     same release in `/usr/share/xray`.
   - Hysteria 2: the apernet/hysteria release binary, checked against the published
     `hashes.txt`.
-  - Naive: the klzgrad/naiveproxy OpenWrt build via `install-naive.sh`, now checked against
-    the SHA-256 digest GitHub publishes for the release file.
+  - Naive: the klzgrad/naiveproxy OpenWrt build via `install-naive.sh`, checked against
+    the SHA-256 digest GitHub publishes for the release file, **together with `dnsproxy`**
+    (AdguardTeam/dnsproxy release for the router's CPU, e.g. `linux-arm64`; checked against
+    its published SHA-256). One progress bar (Naive 0-70%, dnsproxy 70-100%); the card shows
+    both versions and counts as installed only when both are present. Both files are replaced
+    together after both downloads are verified; if the Naive service is running it is restarted
+    once, with rollback of both files.
   - WireGuard: `kmod-wireguard`, `wireguard-tools` and `ip-full` from opkg.
 - Free space is checked before anything is downloaded. If GitHub is not reachable
   directly, the download is retried through the local SOCKS entry of the active protocol.

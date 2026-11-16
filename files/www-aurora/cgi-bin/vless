@@ -424,7 +424,7 @@ cat <<HTML
 <div class="c ic" data-p=naive><button type=button class=ib data-p=naive style="background:#00695c">Install Naive</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
 <div class="c ic" data-p=wg><button type=button class=ib data-p=wg style="background:#283593">Install WireGuard</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
 </div>
-<p class=hint style="text-align:center">Each client is the official build from its developer, installed as its own separate program. Press a button again to reinstall or update.</p>
+<p class=hint style="text-align:center">Each client is the official build from its developer, installed as its own separate program. Install Naive also installs dnsproxy, its DNS helper. Press a button again to reinstall or update.</p>
 </div>
 <div class=sec>
 <h3>VPN</h3>
@@ -526,9 +526,10 @@ document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventL
     var st=o&&o.state||'idle',n=o&&o.percent||0;
     c.className='c ic';
     if(st==='running'){f.style.width=n+'%';pc.textContent=n+'%';tx.textContent=(STG[o.stage]||o.stage||'working')}
-    else if(st==='done'||(st==='idle'&&o&&o.installed)){
+    else if(o&&o.installed&&(st==='done'||st==='idle')){
       c.className='c ic ok';f.style.width='100%';pc.textContent='100%';
-      tx.textContent='Installed'+(o.version?' \u00b7 version '+o.version:'')}
+      tx.textContent='Installed'+(o.dnsproxy_version?' \u00b7 naive '+(o.version||'?')+' \u00b7 dnsproxy '+o.dnsproxy_version:(o.version?' \u00b7 version '+o.version:''))}
+    else if(o&&o.missing&&st!=='error'){c.className='c ic err';f.style.width='0';pc.textContent='0%';tx.textContent='Not fully installed: '+o.missing+' is missing. Press Install Naive.'}
     else if(st==='error'){c.className='c ic err';f.style.width=n+'%';pc.textContent=n+'%';tx.textContent='Error: '+(o.error||'installation failed')}
     else{f.style.width='0';pc.textContent='0%';tx.textContent='Not installed'}
   }

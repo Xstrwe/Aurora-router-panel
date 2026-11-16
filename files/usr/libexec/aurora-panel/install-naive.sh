@@ -89,6 +89,7 @@ echo "Architecture: $ARCH"
 progress_stage() { ai_prog "$1" "$2"; }
 progress_stage 3 checking
 TMP=$(mktemp -d)
+# shellcheck disable=SC2034 # read by ai_fetch in install-lib.sh
 AI_TMPDIR=$TMP
 trap 'rm -rf "$TMP"' EXIT
 ai_need_space "$TMP" 40000 >"$TMP/space.msg" || err "$(cat "$TMP/space.msg")"

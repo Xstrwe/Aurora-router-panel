@@ -333,18 +333,6 @@ Check that the key you downloaded is the right one: `cat /etc/opkg/keys/2fa6e8de
 
 `Packages` lists only the newest version (pre-releases included); older `.ipk` files stay in the same directory. To pin or roll back a version, install the `.ipk` of that release from the GitHub Releases page. See [Versioning](#versioning).
 
-## Versioning
-
-- **Release versions** are `X.Y.0` (for example `1.3.0`, `1.4.0`). Each one is published as a full GitHub Release.
-- **Pre-releases** are `X.Y.Z` followed by one letter and a number, for example `1.3.0a1`, `1.3.0a2`, `1.3.0b1`. Each one is published as a GitHub **pre-release** with the same assets (`.ipk` and `.sha256`).
-- Any other version string (such as a plain `1.3.1`) is built by CI but not published.
-
-opkg compares versions like dpkg: digit groups numerically, and a letter suffix sorts *after* the bare version. So `1.3.0 < 1.3.0a1 < 1.3.0a2 < 1.3.0a10 < 1.3.0b1 < 1.4.0`. This means a pre-release is *newer* than the round release with the same numbers: `1.3.0a1` is the first build after `1.3.0`, and the next round release is `1.4.0`. Use `a` for alpha and `b` for beta. `tests/version-order.sh` checks the ordering with a port of opkg's `verrevcmp` (`tools/vercmp.sh`) and, where `dpkg` is installed, cross-checks it against dpkg.
-
-The signed Pages feed holds **every published version** as an `.ipk` file. `Packages` lists only the newest one, pre-releases included, so a router on the feed gets pre-releases with `opkg upgrade`. To stay on a full release, install its `.ipk` from the GitHub Releases page instead of using the feed, or pin the feed's package with `opkg flag hold aurora-router-panel`. An older version can always be downloaded by name from `https://xstrwe.github.io/Aurora-router-panel/all/aurora-router-panel_<version>_all.ipk`.
-
-To publish: change `Version` in `control/control` (and add a `## <version>` section to `CHANGELOG.md`, which becomes the release notes), then merge to `main`; or push a matching tag `v<version>`; or run the "Release and publish opkg feed" workflow by hand from the Actions tab.
-
 ## Uninstall
 
 ```sh

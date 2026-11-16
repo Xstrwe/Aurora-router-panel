@@ -6,7 +6,7 @@ set -u
 D=${VLESS_PANEL_DIR:-/etc/xray}
 HYD=${VLESS_HYSTERIA_DIR:-/etc/hysteria}
 NAD=${VLESS_NAIVE_DIR:-/etc/naive}
-LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
+LIB=${VLESS_AU_LIB:-/usr/libexec/vpn-panel/autoupdate-lib.sh}
 # shellcheck disable=SC1090
 . "$LIB"
 

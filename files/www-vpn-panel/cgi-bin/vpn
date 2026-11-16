@@ -1,7 +1,7 @@
 #!/bin/sh
 D=${VLESS_PANEL_DIR:-/etc/xray}
 V=${VLESS_SH:-$D/vless.sh}
-AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
+AU_LIB=${VLESS_AU_LIB:-/usr/libexec/vpn-panel/autoupdate-lib.sh}
 # shellcheck disable=SC1090
 [ -f "$AU_LIB" ] && . "$AU_LIB"
 esc(){ sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
@@ -334,7 +334,7 @@ echo "Cache-Control: no-store"
 echo
 cat <<HTML
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aurora router panel</title><style>
+<title>vpn.panel-gl.inet</title><style>
 body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:1040px;margin:20px auto;padding:0 14px;background:#f4f5f7;color:#222}
 .c{background:#fff;border-radius:12px;padding:16px 18px;margin:14px 0;box-shadow:0 1px 4px #0002}
 button{border:0;border-radius:10px;color:#fff;background:#1565c0;padding:10px 18px;font-size:16px;cursor:pointer}
@@ -397,7 +397,7 @@ HTML
 if [ -n "$WHY" ]; then
   echo "<div class=banner><div class=why>$(printf '%s' "$WHY" | esc)</div><div class=how>$(printf '%s' "$HOW" | esc)</div></div>"
 fi
-echo '<h2>Aurora router panel</h2>'
+echo '<h2>vpn.panel-gl.inet</h2>'
 [ -n "$MSG" ] && echo "<div class=msg>$(printf '%s' "$MSG" | esc)</div>"
 cat <<HTML
 <div class=c id=status><table>

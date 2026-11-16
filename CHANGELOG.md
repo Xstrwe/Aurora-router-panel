@@ -37,6 +37,18 @@ Install the VPN clients from the panel. Pre-release.
 - New helper scripts `install-client.sh` and `install-lib.sh` in
   `/usr/libexec/aurora-panel`. `install-naive.sh` can report progress.
 - `INSTALL.md` and `README.md` describe the Install buttons.
+- The product is now called **vpn.panel-gl.inet** (page title and header, README,
+  INSTALL, package description). The page address is `/cgi-bin/vpn` instead of
+  `/cgi-bin/vless`. The opkg package is **`vpn-panel-gl-inet`**; it replaces
+  `aurora-router-panel` and `vless-router-panel`, so an install upgrades in place and
+  keeps `/etc/xray/*` (links, `httpd.conf` login), `/etc/hysteria` and `/etc/naive`.
+  The uhttpd section is `vpn_panel` (page files in `/www-vpn-panel`, helper scripts in
+  `/usr/libexec/vpn-panel`); the old section, directories and autoupdate cron line are
+  removed on install. `/etc/xray/vless.sh` keeps its name. The repository is
+  `Xstrwe/vpn.panel-gl.inet` and the feed is now
+  `https://xstrwe.github.io/vpn.panel-gl.inet/all` (the signing key is unchanged; the
+  key file is `keys/vpn-panel-gl-inet.pub`). The old feed address no longer works: change
+  the line in `/etc/opkg/customfeeds.conf` once (see `INSTALL.md`).
 - Fixed on a real GL-BE6500 (found while testing the buttons):
   - Install Naive found no build because the router reports its CPU as
     `aarch64_cortex-a53_neon-vfpv4`; the installer now also tries the name without the

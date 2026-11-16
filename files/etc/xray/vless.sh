@@ -16,12 +16,12 @@ HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
 NAIVE_BIN=${VLESS_NAIVE_BIN:-/usr/bin/naive}
 WG_BIN=${VLESS_WG_BIN:-/usr/bin/wg}
 WGIF=wg-aurora
-AURORA_SPLIT=${VLESS_AURORA_SPLIT:-/usr/libexec/aurora-panel/aurora-split.sh}
+AURORA_SPLIT=${VLESS_AURORA_SPLIT:-/usr/libexec/vpn-panel/aurora-split.sh}
 # per-protocol split configs and server addresses (read by aurora-split.sh)
 export AURORA_HY_SPLIT=$HYD/split.conf AURORA_HY_SERVER_IP=$HYD/server_ip
 export AURORA_NV_SPLIT=$NAD/split.conf AURORA_NV_SERVER_IP=$NAD/server_ip
 export AURORA_WG_SPLIT=$D/wg.split.conf AURORA_WG_SERVER_IP=$D/wg.server_ip
-AU_LIB=${VLESS_AU_LIB:-/usr/libexec/aurora-panel/autoupdate-lib.sh}
+AU_LIB=${VLESS_AU_LIB:-/usr/libexec/vpn-panel/autoupdate-lib.sh}
 INITD=${VLESS_INITD:-/etc/init.d}
 STABLE_SECS=${VLESS_AU_STABLE_SECS:-3}
 EGRESS_CACHE=${VLESS_AU_EGRESS_CACHE:-/tmp/aurora-egress.cache}
@@ -102,7 +102,7 @@ au_fetch(){
   if [ -n "${VLESS_AU_CURL:-}" ]; then
     sh "$VLESS_AU_CURL" "$1" "$2" || err "could not download the update"
   else
-    curl -fL --max-time 25 --max-filesize 1048576 -A 'aurora-router-panel-autoupdate/1.5.0a1' -o "$2" "$1" || err "could not download the update"
+    curl -fL --max-time 25 --max-filesize 1048576 -A 'vpn-panel-gl-inet-autoupdate/1.5.0a1' -o "$2" "$1" || err "could not download the update"
   fi
   [ -s "$2" ] || err "empty auto-update response"
   sz=$(wc -c < "$2" | tr -d ' ')
@@ -587,7 +587,7 @@ do_update(){
     # P is the active protocol: apply the new config to P's own service only.
     if [ "$P" = naive ] && [ ! -x /usr/bin/naive ] && [ -z "${VLESS_AU_APPLY:-}" ]; then
       rm -rf "$B" "$OUT"
-      err "Install naive first: /usr/libexec/aurora-panel/install-naive.sh"
+      err "Install naive first: /usr/libexec/vpn-panel/install-naive.sh"
     fi
     if [ -n "${VLESS_AU_APPLY:-}" ]; then
       if ! sh "$VLESS_AU_APPLY" "$P" "$OUT"; then
@@ -726,7 +726,7 @@ require_bin(){ # $1 path, $2 short name (XRAY|HYSTERIA|NAIVE)
   if [ ! -e "$1" ]; then
     case "$2" in
       HYSTERIA) fail_restart "FILE MISSING: $(upper "$1")" "INSTALL HYSTERIA IN /USR/BIN OR CONNECT ANOTHER PROTOCOL";;
-      NAIVE) fail_restart "FILE MISSING: $(upper "$1")" "INSTALL NAIVE WITH /USR/LIBEXEC/AURORA-PANEL/INSTALL-NAIVE.SH";;
+      NAIVE) fail_restart "FILE MISSING: $(upper "$1")" "INSTALL NAIVE WITH /USR/LIBEXEC/VPN-PANEL/INSTALL-NAIVE.SH";;
       *) fail_restart "FILE MISSING: $(upper "$1")" "INSTALL XRAY IN /USR/BIN AND THE GEOIP/GEOSITE FILES IN /USR/SHARE/XRAY";;
     esac
   fi
@@ -744,7 +744,7 @@ restart_hysteria(){
     e=$(tr '\n' ' ' < /tmp/aurora-restart-hysteria-client.err 2>/dev/null || true)
     case "$e" in
       *no\ script*)
-        fail_restart "SCRIPT MISSING: /ETC/INIT.D/HYSTERIA-CLIENT" "REINSTALL THE AURORA-ROUTER-PANEL PACKAGE: IT PROVIDES THE START SCRIPT"
+        fail_restart "SCRIPT MISSING: /ETC/INIT.D/HYSTERIA-CLIENT" "REINSTALL THE VPN-PANEL-GL-INET PACKAGE: IT PROVIDES THE START SCRIPT"
         ;;
     esac
     msg="HYSTERIA DID NOT START"
@@ -757,7 +757,7 @@ restart_naive(){
     e=$(tr '\n' ' ' < /tmp/aurora-restart-naive-client.err 2>/dev/null || true)
     case "$e" in
       *no\ script*)
-        fail_restart "SCRIPT MISSING: /ETC/INIT.D/NAIVE-CLIENT" "REINSTALL THE AURORA-ROUTER-PANEL PACKAGE: IT PROVIDES THE START SCRIPT"
+        fail_restart "SCRIPT MISSING: /ETC/INIT.D/NAIVE-CLIENT" "REINSTALL THE VPN-PANEL-GL-INET PACKAGE: IT PROVIDES THE START SCRIPT"
         ;;
     esac
     msg="NAIVE DID NOT START"
@@ -790,7 +790,7 @@ restart_wireguard(){
     e=$(wg_reason)
     case "$e" in
       *no\ script*)
-        fail_restart "SCRIPT MISSING: /ETC/INIT.D/WIREGUARD-CLIENT" "REINSTALL THE AURORA-ROUTER-PANEL PACKAGE: IT PROVIDES THE START SCRIPT"
+        fail_restart "SCRIPT MISSING: /ETC/INIT.D/WIREGUARD-CLIENT" "REINSTALL THE VPN-PANEL-GL-INET PACKAGE: IT PROVIDES THE START SCRIPT"
         ;;
     esac
     msg="WIREGUARD DID NOT START"
@@ -997,7 +997,7 @@ case "$1" in
 save) store_vless "$2"; gen $D/link.txt "$MODE" vless;;
 hy2save) native_switch hy2 "$2";;
 naivesave)
-  [ -x "$NAIVE_BIN" ] || err "Install naive first: /usr/libexec/aurora-panel/install-naive.sh"
+  [ -x "$NAIVE_BIN" ] || err "Install naive first: /usr/libexec/vpn-panel/install-naive.sh"
   native_switch naive "$2";;
 wgsave) native_switch wg "$2";;
 reload-with) store_proto "$3" "$2"; is_native "$3" && { native_reload "$3" || err "$3 did not come up with the new config"; }; echo OK;;
@@ -1031,9 +1031,9 @@ reactivate) # after an upgrade: rebuild the active native protocol's own config 
     wg) native_switch wg "$D/wg.conf";;
     *) exit 0;;
   esac;;
-install) exec ${VLESS_INSTALL_CLIENT:-/usr/libexec/aurora-panel/install-client.sh} start "$2";;
-install-status) exec ${VLESS_INSTALL_CLIENT:-/usr/libexec/aurora-panel/install-client.sh} status "$2";;
-client-update) exec /usr/libexec/aurora-panel/client-update.sh "$2" "${3:-check}";;
+install) exec ${VLESS_INSTALL_CLIENT:-/usr/libexec/vpn-panel/install-client.sh} start "$2";;
+install-status) exec ${VLESS_INSTALL_CLIENT:-/usr/libexec/vpn-panel/install-client.sh} status "$2";;
+client-update) exec /usr/libexec/vpn-panel/client-update.sh "$2" "${3:-check}";;
 restart) do_restart;;
 restart-svc) do_restart_svc "$2";;
 recover)

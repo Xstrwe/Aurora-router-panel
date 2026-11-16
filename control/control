@@ -1,15 +1,15 @@
-Package: aurora-router-panel
+Package: vpn-panel-gl-inet
 Version: 1.5.0a5
 Depends: curl, jq, ucode, uhttpd, kmod-nft-tproxy
-Replaces: vless-router-panel
-Conflicts: vless-router-panel
+Replaces: aurora-router-panel, vless-router-panel
+Conflicts: aurora-router-panel, vless-router-panel
 License: MIT
 Section: net
 Priority: optional
 Architecture: all
 Maintainer: Xstrwe <https://github.com/Xstrwe>
-Source: https://github.com/Xstrwe/Aurora-router-panel
-Description: Aurora router panel (formerly "VLESS on the router") for OpenWrt (uhttpd :8088).
+Source: https://github.com/Xstrwe/vpn.panel-gl.inet
+Description: vpn.panel-gl.inet: VPN panel for GL.iNet routers on OpenWrt (uhttpd :8088).
  Toggle transparent proxy, test connection and speed, save vless://,
  hysteria2://, naive+https:// links and a WireGuard .conf, and
  autoupdate each protocol from its own saved connection link (when it is

@@ -1,4 +1,4 @@
-# Aurora-router-panel
+# vpn.panel-gl.inet
 
 A web panel for the **GL.iNet GL-BE6500** (OpenWrt 23.05 based firmware) that runs a transparent proxy for the whole LAN. It is a scripts-only OpenWrt package (`Architecture: all`) and is developed and tested on that router. The package does not declare any other supported models. The code assumes the LAN bridge is `br-lan` and, by default, serves the panel at `http://192.168.8.1:8088`.
 

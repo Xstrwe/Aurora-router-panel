@@ -3,7 +3,7 @@
 # GitHub and opkg are replaced by local files and stubs; nothing touches the network.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-IC=$ROOT/files/usr/libexec/aurora-panel/install-client.sh
+IC=$ROOT/files/usr/libexec/vpn-panel/install-client.sh
 VS=$ROOT/files/etc/xray/vless.sh
 fail=0
 ok() { echo "ok - $1"; }
@@ -406,10 +406,10 @@ if echo "$out" | grep -q '^OK' && [ -x "$INS/hysteria" ] && VLESS_INSTALL_CLIENT
 if ! grep -q 'install-client\|install-naive' "$ROOT/control/postinst" "$ROOT/control/prerm" "$ROOT/control/postrm"; then ok "the package scripts never run the installer (button-driven only)"; else bad "package scripts call the installer"; fi
 
 # 15. no pipe-to-shell, only official hosts
-if ! grep -q 'curl.*|.*sh' "$IC" && ! grep -n 'https\?://' "$IC" "$ROOT/files/usr/libexec/aurora-panel/install-lib.sh" | grep -v 'github.com\|^.*:#' | grep -q .; then ok "the installer downloads only from the developers' GitHub releases"; else bad "unexpected URLs in install-client"; fi
+if ! grep -q 'curl.*|.*sh' "$IC" && ! grep -n 'https\?://' "$IC" "$ROOT/files/usr/libexec/vpn-panel/install-lib.sh" | grep -v 'github.com\|^.*:#' | grep -q .; then ok "the installer downloads only from the developers' GitHub releases"; else bad "unexpected URLs in install-client"; fi
 
 if command -v shellcheck >/dev/null 2>&1; then
-	if shellcheck -s sh "$IC" "$ROOT/files/usr/libexec/aurora-panel/install-lib.sh" "$ROOT/files/usr/libexec/aurora-panel/install-naive.sh" >/dev/null 2>&1; then ok "shellcheck install-client, install-lib, install-naive"; else bad "shellcheck"; shellcheck -s sh "$IC" "$ROOT/files/usr/libexec/aurora-panel/install-lib.sh" "$ROOT/files/usr/libexec/aurora-panel/install-naive.sh"; fi
+	if shellcheck -s sh "$IC" "$ROOT/files/usr/libexec/vpn-panel/install-lib.sh" "$ROOT/files/usr/libexec/vpn-panel/install-naive.sh" >/dev/null 2>&1; then ok "shellcheck install-client, install-lib, install-naive"; else bad "shellcheck"; shellcheck -s sh "$IC" "$ROOT/files/usr/libexec/vpn-panel/install-lib.sh" "$ROOT/files/usr/libexec/vpn-panel/install-naive.sh"; fi
 fi
 
 if [ "$fail" -eq 0 ]; then echo "All install-client tests passed."; else echo "$fail install-client test(s) failed." >&2; exit 1; fi

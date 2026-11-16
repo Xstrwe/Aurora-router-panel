@@ -82,25 +82,25 @@ cls 1.3.0a none
 
 # --- feed index: newest version listed, older ipks kept ---
 SRC=$(sed -n 's/^Version: //p' "$ROOT/control/control" | head -1)
-IPK=$ROOT/feed/all/aurora-router-panel_${SRC}_all.ipk
+IPK=$ROOT/feed/all/vpn-panel-gl-inet_${SRC}_all.ipk
 if [ -f "$IPK" ]; then
 	T=$(mktemp -d)
 	trap 'rm -rf "$T"' EXIT
-	mk() { # version -> $T/feed/aurora-router-panel_<version>_all.ipk with that Version
+	mk() { # version -> $T/feed/vpn-panel-gl-inet_<version>_all.ipk with that Version
 		w=$T/w.$1
 		mkdir -p "$w/o" "$w/c" "$T/feed"
 		gzip -dc "$IPK" | tar -C "$w/o" -xf -
 		gzip -dc "$w/o/control.tar.gz" | tar -C "$w/c" -xf -
 		sed -i "s/^Version: .*/Version: $1/" "$w/c/control"
 		( cd "$w/c" && tar --format=gnu --sort=name --owner=0 --group=0 --numeric-owner -cf - ./control ./postinst ./prerm ./postrm | gzip -n > "$w/o/control.tar.gz" )
-		( cd "$w/o" && tar --format=gnu --owner=0 --group=0 --numeric-owner -cf - ./debian-binary ./control.tar.gz ./data.tar.gz | gzip -n > "$T/feed/aurora-router-panel_$1_all.ipk" )
+		( cd "$w/o" && tar --format=gnu --owner=0 --group=0 --numeric-owner -cf - ./debian-binary ./control.tar.gz ./data.tar.gz | gzip -n > "$T/feed/vpn-panel-gl-inet_$1_all.ipk" )
 	}
 	for v in 1.3.0 1.3.0a2 1.3.0a10 1.3.0a1; do mk "$v"; done
 	if "$ROOT/tools/mkfeed.sh" "$T/feed" 2>/dev/null \
 	   && [ "$(grep -c '^Package: ' "$T/feed/Packages")" = 1 ] \
 	   && grep -qx 'Version: 1.3.0a10' "$T/feed/Packages" \
-	   && grep -qx 'Filename: aurora-router-panel_1.3.0a10_all.ipk' "$T/feed/Packages" \
-	   && grep -qx "SHA256sum: $(sha256sum "$T/feed/aurora-router-panel_1.3.0a10_all.ipk" | awk '{print $1}')" "$T/feed/Packages" \
+	   && grep -qx 'Filename: vpn-panel-gl-inet_1.3.0a10_all.ipk' "$T/feed/Packages" \
+	   && grep -qx "SHA256sum: $(sha256sum "$T/feed/vpn-panel-gl-inet_1.3.0a10_all.ipk" | awk '{print $1}')" "$T/feed/Packages" \
 	   && [ "$(ls "$T"/feed/*.ipk | wc -l)" = 4 ] \
 	   && gzip -dc "$T/feed/Packages.gz" | cmp -s - "$T/feed/Packages"; then
 		ok "feed index lists only 1.3.0a10, all 4 ipks are kept, Packages.gz matches"

@@ -1,4 +1,4 @@
-# Install and set up Aurora-router-panel
+# Install and set up vpn.panel-gl.inet
 
 Log in to the router over SSH as `root` (on the stock GL.iNet LAN address that is `ssh root@192.168.8.1`). The backend the page calls is `/etc/xray/vless.sh`; it is not on `PATH`, so the commands below use that full path.
 
@@ -19,34 +19,34 @@ The “everything except Russian sites” split also reads `/usr/share/xray/geoi
 
 ## Install from the signed opkg feed (recommended)
 
-The feed is `https://xstrwe.github.io/Aurora-router-panel/all`. Packages are signed with usign; the public key is [`keys/aurora-router-panel.pub`](keys/aurora-router-panel.pub) and its key ID is `2fa6e8de3e3e6f05`. Leave `option check_signature 1` in `/etc/opkg.conf` enabled. The feed needs HTTPS support in opkg (`ca-bundle` and `libustream-*`, present on stock OpenWrt and GL.iNet firmware).
+The feed is `https://xstrwe.github.io/vpn.panel-gl.inet/all`. Packages are signed with usign; the public key is [`keys/vpn-panel-gl-inet.pub`](keys/vpn-panel-gl-inet.pub) and its key ID is `2fa6e8de3e3e6f05`. Leave `option check_signature 1` in `/etc/opkg.conf` enabled. The feed needs HTTPS support in opkg (`ca-bundle` and `libustream-*`, present on stock OpenWrt and GL.iNet firmware).
 
 ```sh
-wget -O /etc/opkg/keys/2fa6e8de3e3e6f05 https://xstrwe.github.io/Aurora-router-panel/keys/2fa6e8de3e3e6f05
-echo 'src/gz aurora https://xstrwe.github.io/Aurora-router-panel/all' >> /etc/opkg/customfeeds.conf
-opkg update && opkg install aurora-router-panel
+wget -O /etc/opkg/keys/2fa6e8de3e3e6f05 https://xstrwe.github.io/vpn.panel-gl.inet/keys/2fa6e8de3e3e6f05
+echo 'src/gz vpn_panel https://xstrwe.github.io/vpn.panel-gl.inet/all' >> /etc/opkg/customfeeds.conf
+opkg update && opkg install vpn-panel-gl-inet
 ```
 
-Add the feed line only once. Check that the key file’s second line matches [`keys/aurora-router-panel.pub`](keys/aurora-router-panel.pub):
+Add the feed line only once. Check that the key file’s second line matches [`keys/vpn-panel-gl-inet.pub`](keys/vpn-panel-gl-inet.pub):
 
 ```
 RWQvpujePj5vBTDs4E+JxMS904WhmHAzCtyBztpBnRiLTeSU5iMaIdFj
 ```
 
-`Packages` lists only the newest published version, pre-releases included, so later `opkg update && opkg upgrade` may install a pre-release. To stay on a full release, install that release’s `.ipk` instead (see below) or pin the package with `opkg flag hold aurora-router-panel`.
+`Packages` lists only the newest published version, pre-releases included, so later `opkg update && opkg upgrade` may install a pre-release. To stay on a full release, install that release’s `.ipk` instead (see below) or pin the package with `opkg flag hold vpn-panel-gl-inet`.
 
-Check the install with `opkg list-installed | grep aurora`.
+Check the install with `opkg list-installed | grep vpn-panel`.
 
 ## Install a `.ipk` by hand
 
-Every [GitHub Release](https://github.com/Xstrwe/Aurora-router-panel/releases) has `aurora-router-panel_<version>_all.ipk` and a `.sha256` file. Older versions also stay at `https://xstrwe.github.io/Aurora-router-panel/all/aurora-router-panel_<version>_all.ipk`.
+Every [GitHub Release](https://github.com/Xstrwe/vpn.panel-gl.inet/releases) has `vpn-panel-gl-inet_<version>_all.ipk` and a `.sha256` file. Older versions also stay at `https://xstrwe.github.io/vpn.panel-gl.inet/all/vpn-panel-gl-inet_<version>_all.ipk`. Releases up to 1.4.0 were published under the earlier package name, as `aurora-router-panel_<version>_all.ipk`; those files are in `https://xstrwe.github.io/vpn.panel-gl.inet/legacy/` once the next release is published.
 
 **opkg on GL.iNet rejects URLs** (“Illegal file name”). Download the file first; do not pass the URL to `opkg install`:
 
 ```sh
 cd /tmp
-wget -O vrp.ipk https://github.com/Xstrwe/Aurora-router-panel/releases/download/v<version>/aurora-router-panel_<version>_all.ipk
-wget -O vrp.ipk.sha256 https://github.com/Xstrwe/Aurora-router-panel/releases/download/v<version>/aurora-router-panel_<version>_all.ipk.sha256
+wget -O vrp.ipk https://github.com/Xstrwe/vpn.panel-gl.inet/releases/download/v<version>/vpn-panel-gl-inet_<version>_all.ipk
+wget -O vrp.ipk.sha256 https://github.com/Xstrwe/vpn.panel-gl.inet/releases/download/v<version>/vpn-panel-gl-inet_<version>_all.ipk.sha256
 sha256sum vrp.ipk; cat vrp.ipk.sha256
 opkg install /tmp/vrp.ipk
 rm -f /tmp/vrp.ipk
@@ -56,13 +56,13 @@ Replace `<version>` with the version you want (for example a release listed on t
 
 ## Open the panel
 
-Open `http://192.168.8.1:8088`. The page redirects to `/cgi-bin/vless`. The panel is a separate uhttpd instance (`uhttpd.aurora`) listening on port **8088**.
+Open `http://192.168.8.1:8088`. The page redirects to `/cgi-bin/vpn`. The panel is a separate uhttpd instance (`uhttpd.vpn_panel`) listening on port **8088**.
 
 If the router’s LAN address is not `192.168.8.1`:
 
 ```sh
-uci -q delete uhttpd.aurora.listen_http
-uci add_list uhttpd.aurora.listen_http='<LAN-IP>:8088'
+uci -q delete uhttpd.vpn_panel.listen_http
+uci add_list uhttpd.vpn_panel.listen_http='<LAN-IP>:8088'
 uci commit uhttpd && /etc/init.d/uhttpd restart
 ```
 
@@ -80,7 +80,7 @@ echo '/:admin:<HASH>' >> /etc/xray/httpd.conf
 /etc/init.d/uhttpd restart
 ```
 
-Use the hash in place of `<HASH>`, and any login you want in place of `admin`. A request without credentials to `http://192.168.8.1:8088/cgi-bin/vless` should then return `401`.
+Use the hash in place of `<HASH>`, and any login you want in place of `admin`. A request without credentials to `http://192.168.8.1:8088/cgi-bin/vpn` should then return `401`.
 
 ### Optional: Naive binary by hand
 
@@ -88,7 +88,7 @@ The **Install Naive** button does this for you. From the command line:
 
 ```sh
 opkg update && opkg install xz
-/usr/libexec/aurora-panel/install-naive.sh
+/usr/libexec/vpn-panel/install-naive.sh
 ```
 
 The script installs the klzgrad/naiveproxy static build for this router’s architecture to `/usr/bin/naive`. It never touches an existing `/etc/naive/config.json`. Use `--force` to replace the binary, or pass a release tag or a direct archive URL. If the router cannot reach GitHub, copy the binary yourself (`scp` it to `/usr/bin/naive` and `chmod 755`).
@@ -129,7 +129,7 @@ The progress of each install is also written to `/tmp/aurora-install-<xray|hy2|n
 
 ## Set up the panel
 
-The page title is **Aurora router panel**. A status card sits at the top, then **Enable** / **Disable**, **Test connection** and **Speed**, then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
+The page title is **vpn.panel-gl.inet**. A status card sits at the top, then **Enable** / **Disable**, **Test connection** and **Speed**, then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
 
 ### Add a protocol and connect
 
@@ -257,7 +257,7 @@ Each VPN card has an **Auto-update** row: a checkbox labelled **on**, an **Inter
 
 The fresh config always comes from that card’s field. If the field holds an `http(s)` subscription URL, it is remembered as the source and the first matching entry is applied (plain text or base64; 1 MiB limit). A plain `vless://`, `hysteria2://`, `naive+https://` link or a WireGuard config cannot be re-fetched, so there is then nothing to update.
 
-**Connect …** saves the auto-update settings and the link, then connects. **Update now** saves the settings and the link, then runs the update (a new direct link in the field is applied like Connect). Cron runs `/usr/libexec/aurora-panel/autoupdate-run.sh` every hour. Autoupdate is off until you enable it.
+**Connect …** saves the auto-update settings and the link, then connects. **Update now** saves the settings and the link, then runs the update (a new direct link in the field is applied like Connect). Cron runs `/usr/libexec/vpn-panel/autoupdate-run.sh` every hour. Autoupdate is off until you enable it.
 
 If the active protocol’s new config breaks the connection, the previous files of *that* protocol only are restored. Other protocols are not touched.
 
@@ -279,7 +279,7 @@ Each client is updated from its own upstream, and only that client’s service i
 ```
 
 - Xray is taken from XTLS/Xray-core, Hysteria from apernet/hysteria; both are checked against the SHA-256 published with the release. The previous binary is kept as `<binary>.bak` and put back if the new one does not start.
-- Naive is installed by `/usr/libexec/aurora-panel/install-naive.sh` (the naive part of the **Install Naive** button; the button also installs `dnsproxy`).
+- Naive is installed by `/usr/libexec/vpn-panel/install-naive.sh` (the naive part of the **Install Naive** button; the button also installs `dnsproxy`).
 - WireGuard is upgraded with `opkg upgrade kmod-wireguard wireguard-tools`. The running interface keeps the old kernel module until you reboot.
 
 ## Backup and rollback
@@ -290,7 +290,7 @@ There is no separate backup button on the page. What the package already does:
 - **A failed Connect or protocol switch** restores that protocol’s files and keeps the previously active protocol.
 - **A failed auto-update** of the active protocol restores that protocol’s files and reapplies the previous config (`no internet after the update, config rolled back`). An update of a protocol that is not active is only saved; on failure those files are rolled back too.
 - **A failed client-binary update** puts the previous binary (`*.bak`) back.
-- **To roll the package itself back**, install the `.ipk` of the earlier version from the Releases page or from `https://xstrwe.github.io/Aurora-router-panel/all/aurora-router-panel_<version>_all.ipk` (same “download, then `opkg install /tmp/vrp.ipk`” steps as above). Your saved links stay in place.
+- **To roll the package itself back**, install the `.ipk` of the earlier version from the Releases page or from `https://xstrwe.github.io/vpn.panel-gl.inet/all/vpn-panel-gl-inet_<version>_all.ipk` (same “download, then `opkg install /tmp/vrp.ipk`” steps as above). Your saved links stay in place.
 
 To copy the saved state off the router before a change, copy those files (they contain credentials; keep the copy private).
 
@@ -298,10 +298,18 @@ To copy the saved state off the router before a change, copy those files (they c
 
 Install a newer `.ipk` the same way as above, or `opkg update && opkg upgrade` if you use the feed.
 
-`aurora-router-panel` replaces `vless-router-panel`. Settings under `/etc/xray`, `/etc/hysteria` and `/etc/naive`, and the active protocol, are preserved. `/etc/xray/vless.sh` and the page address `/cgi-bin/vless` stay the same.
+`vpn-panel-gl-inet` replaces the earlier packages `aurora-router-panel` and `vless-router-panel`, so installing it upgrades in place. Settings under `/etc/xray` (links, saved configs, `httpd.conf` login), `/etc/hysteria` and `/etc/naive`, and the active protocol, are preserved. `/etc/xray/vless.sh` stays where it was. The page address is now `/cgi-bin/vpn` (the old `/cgi-bin/vless` is gone), the uhttpd section is `uhttpd.vpn_panel` and the page files are in `/www-vpn-panel`.
+
+If you installed `aurora-router-panel` from the feed, point the feed line at the new address once; the signing key is unchanged:
 
 ```sh
-opkg remove aurora-router-panel
+sed -i '/xstrwe.github.io\/Aurora-router-panel/d' /etc/opkg/customfeeds.conf
+echo 'src/gz vpn_panel https://xstrwe.github.io/vpn.panel-gl.inet/all' >> /etc/opkg/customfeeds.conf
+opkg update && opkg install vpn-panel-gl-inet
+```
+
+```sh
+opkg remove vpn-panel-gl-inet
 ```
 
 This removes the panel, its uhttpd section and the autoupdate cron line. It does not stop Xray, Hysteria, Naive or WireGuard, so a working transparent proxy keeps running. Saved links, configs `/usr/bin/naive` and `/usr/bin/dnsproxy` stay on the router; delete them yourself if you no longer need them.
@@ -329,4 +337,4 @@ This removes the panel, its uhttpd section and the autoupdate cron line. It does
 /etc/xray/vless.sh probe 204|youtube|ip|speed
 ```
 
-Useful logs: `logread -e xray`, `logread -e hysteria`, `logread -e naive`, `logread -e vless-autoupdate`, `logread -e aurora`.
+Useful logs: `logread -e xray`, `logread -e hysteria`, `logread -e naive`, `logread -e vless-autoupdate`, `logread -e aurora` (the internal tag of the steering scripts).

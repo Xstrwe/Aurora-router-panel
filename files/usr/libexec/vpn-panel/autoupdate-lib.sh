@@ -8,9 +8,10 @@
 [ -n "${NAD:-}" ] || NAD=${VLESS_NAIVE_DIR:-/etc/naive}
 AU_DIR=$D/autoupdate
 AU_CRON=${VLESS_AU_CRON:-/etc/crontabs/root}
-AU_CRON_MARK='aurora-router-panel-autoupdate'
+AU_CRON_MARK='vpn-panel-gl-inet-autoupdate'
 AU_CRON_OLD_MARK='vless-router-panel-autoupdate'
-AU_RUN=${VLESS_AU_RUN:-/usr/libexec/aurora-panel/autoupdate-run.sh}
+AU_CRON_OLD_MARK2='aurora-router-panel-autoupdate'
+AU_RUN=${VLESS_AU_RUN:-/usr/libexec/vpn-panel/autoupdate-run.sh}
 AU_SH=${VLESS_SH:-/etc/xray/vless.sh}
 
 au_ok_proto() { case "$1" in vless|hy2|naive|wg) return 0;; *) return 1;; esac; }
@@ -258,10 +259,13 @@ au_cron_line() {
 au_cron_install() {
 	mkdir -p "$(dirname "$AU_CRON")"
 	touch "$AU_CRON"
-	# Drop the line left by the old vless-router-panel package (its paths are gone).
-	if grep -q "$AU_CRON_OLD_MARK" "$AU_CRON" 2>/dev/null; then
-		sed -i "/$AU_CRON_OLD_MARK/d" "$AU_CRON"
-	fi
+	# Drop the lines left by the old vless-router-panel / aurora-router-panel packages
+	# (their paths are gone).
+	for _om in "$AU_CRON_OLD_MARK" "$AU_CRON_OLD_MARK2"; do
+		if grep -q "$_om" "$AU_CRON" 2>/dev/null; then
+			sed -i "/$_om/d" "$AU_CRON"
+		fi
+	done
 	if grep -q "$AU_CRON_MARK" "$AU_CRON" 2>/dev/null; then
 		return 0
 	fi

@@ -2,10 +2,10 @@
 # Runs on the router after install or upgrade. Do not overwrite user state.
 [ -n "$IPKG_INSTROOT" ] && exit 0
 
-# When this package replaces vless-router-panel, opkg drops files that both
+# When this package replaces vless-router-panel or aurora-router-panel, opkg drops files that both
 # packages ship (e.g. /etc/xray/vless.sh) from our file list while removing the
 # old one. Re-add them so that later upgrades and removals work.
-OWN=/usr/lib/opkg/info/aurora-router-panel.list
+OWN=/usr/lib/opkg/info/vpn-panel-gl-inet.list
 if [ -f "$OWN" ]; then
 	for f in @FILES@; do
 		[ -e "$f" ] && { grep -qxF "$f" "$OWN" || echo "$f" >> "$OWN"; }
@@ -16,7 +16,7 @@ mkdir -p /etc/xray
 
 if [ ! -f /etc/xray/httpd.conf ]; then
 	cat > /etc/xray/httpd.conf <<'CONF'
-# Authentication for the VLESS panel (uhttpd basic-auth).
+# Authentication for the vpn.panel-gl.inet panel (uhttpd basic-auth).
 #
 # This package does not set a password. Until you add a /rfc2617 line
 # below, the page on port 8088 is open to anyone on the LAN (no login).
@@ -37,26 +37,32 @@ if ! grep -qE '^/[^:]*:[^:]+:.+' /etc/xray/httpd.conf 2>/dev/null; then
 	echo "WARNING: /etc/xray/httpd.conf has no basic-auth entry; the panel on :8088 is reachable without a password. See the comments in that file."
 fi
 
-# Migrate from the old vless-router-panel package: its uhttpd instance "vless"
-# (same port) is replaced by "aurora", keeping a custom listen address.
-LISTEN='192.168.8.1:8088'
-if uci -q get uhttpd.vless >/dev/null; then
-	OLDL=$(uci -q get uhttpd.vless.listen_http | head -1)
-	[ -n "$OLDL" ] && LISTEN=$OLDL
-	uci -q delete uhttpd.vless
+# Migrate from the old packages (vless-router-panel, aurora-router-panel): their
+# uhttpd instances ("vless", "aurora"; same port) are replaced by "vpn_panel",
+# keeping a custom listen address. Their old page and helper directories are removed.
+LISTEN=''
+for OLDS in vless aurora; do
+	if uci -q get uhttpd.$OLDS >/dev/null; then
+		if [ -z "$LISTEN" ]; then
+			LISTEN=$(uci -q get uhttpd.$OLDS.listen_http | head -1)
+		fi
+		uci -q delete uhttpd.$OLDS
+		uci commit uhttpd
+	fi
+done
+[ -n "$LISTEN" ] || LISTEN='192.168.8.1:8088'
+if ! uci -q get uhttpd.vpn_panel >/dev/null; then
+	uci set uhttpd.vpn_panel=uhttpd
+	uci add_list uhttpd.vpn_panel.listen_http="$LISTEN"
+	uci set uhttpd.vpn_panel.home='/www-vpn-panel'
+	uci set uhttpd.vpn_panel.cgi_prefix='/cgi-bin'
+	uci set uhttpd.vpn_panel.config='/etc/xray/httpd.conf'
+	uci set uhttpd.vpn_panel.realm='vpn.panel-gl.inet'
+	uci set uhttpd.vpn_panel.script_timeout='90'
+	uci set uhttpd.vpn_panel.max_requests='3'
 	uci commit uhttpd
 fi
-if ! uci -q get uhttpd.aurora >/dev/null; then
-	uci set uhttpd.aurora=uhttpd
-	uci add_list uhttpd.aurora.listen_http="$LISTEN"
-	uci set uhttpd.aurora.home='/www-aurora'
-	uci set uhttpd.aurora.cgi_prefix='/cgi-bin'
-	uci set uhttpd.aurora.config='/etc/xray/httpd.conf'
-	uci set uhttpd.aurora.realm='Aurora'
-	uci set uhttpd.aurora.script_timeout='90'
-	uci set uhttpd.aurora.max_requests='3'
-	uci commit uhttpd
-fi
+rm -rf /www-aurora /usr/libexec/aurora-panel
 
 /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
 
@@ -71,9 +77,9 @@ esac
 
 mkdir -p /etc/xray/autoupdate
 # Install the hourly autoupdate cron line (idempotent). Does not enable any proto.
-if [ -f /usr/libexec/aurora-panel/autoupdate-lib.sh ]; then
+if [ -f /usr/libexec/vpn-panel/autoupdate-lib.sh ]; then
 	# shellcheck disable=SC1091
-	. /usr/libexec/aurora-panel/autoupdate-lib.sh
+	. /usr/libexec/vpn-panel/autoupdate-lib.sh
 	au_cron_install
 fi
 exit 0

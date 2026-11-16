@@ -2,8 +2,8 @@
 # Tests for aurora-geoip.sh (geoip.dat parser) and aurora-split.sh (per-protocol nft split).
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-GEO=$ROOT/files/usr/libexec/aurora-panel/aurora-geoip.sh
-SPLIT=$ROOT/files/usr/libexec/aurora-panel/aurora-split.sh
+GEO=$ROOT/files/usr/libexec/vpn-panel/aurora-geoip.sh
+SPLIT=$ROOT/files/usr/libexec/vpn-panel/aurora-split.sh
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 fail=0
@@ -116,7 +116,7 @@ if ! grep -q '/etc/xray/config\|inet xray\|xray-client' "$SPLIT" "$GEO"; then ok
 
 
 # --- client binary updates: one client from its own upstream, only its own service restarted ---
-CU=$ROOT/files/usr/libexec/aurora-panel/client-update.sh
+CU=$ROOT/files/usr/libexec/vpn-panel/client-update.sh
 mkdir -p "$TMP/srv" "$TMP/cb" "$TMP/up"
 ARCHN=$(uname -m); case "$ARCHN" in aarch64) XA=arm64-v8a; HA=arm64;; x86_64) XA=64; HA=amd64;; *) XA=""; HA="";; esac
 if [ -n "$XA" ] && command -v unzip >/dev/null 2>&1; then

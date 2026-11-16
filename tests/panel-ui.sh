@@ -3,8 +3,8 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 SH=$ROOT/files/etc/xray/vless.sh
-CGI=$ROOT/files/www-aurora/cgi-bin/vless
-LIB=$ROOT/files/usr/libexec/aurora-panel/autoupdate-lib.sh
+CGI=$ROOT/files/www-vpn-panel/cgi-bin/vpn
+LIB=$ROOT/files/usr/libexec/vpn-panel/autoupdate-lib.sh
 VC=$ROOT/tools/vercmp.sh
 fail=0
 ok() { echo "ok - $1"; }
@@ -296,7 +296,7 @@ fi
 # --- naive ---
 echo naive > "$D/proto"
 out=$(env VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/no-naive" "$SH" restart 2>/dev/null || true)
-if printf '%s\n' "$out" | grep -q '^HINT: INSTALL NAIVE WITH /USR/LIBEXEC/AURORA-PANEL/INSTALL-NAIVE.SH'; then
+if printf '%s\n' "$out" | grep -q '^HINT: INSTALL NAIVE WITH /USR/LIBEXEC/VPN-PANEL/INSTALL-NAIVE.SH'; then
 	ok "naive restart points at install-naive.sh"
 else
 	bad "naive missing ($out)"
@@ -798,7 +798,7 @@ printf '#!/bin/sh\nexit 1\n' > "$TMP/hooks/probe-fail.sh"
 chmod 755 "$TMP/hooks/probe-ok.sh" "$TMP/hooks/probe-fail.sh"
 echo 'server: hy.example:443' > "$TMP/etc-hy/client.yaml"
 echo '{"listen":"socks://127.0.0.1:10828"}' > "$TMP/etc-na/config.json"
-SPLITSH=$ROOT/files/usr/libexec/aurora-panel/aurora-split.sh
+SPLITSH=$ROOT/files/usr/libexec/vpn-panel/aurora-split.sh
 nenv() { env PIDOF_FILE="$TMP/pidof.state" VLESS_INITD="$TMP/ni" VLESS_HYSTERIA_DIR="$TMP/etc-hy" VLESS_NAIVE_DIR="$TMP/etc-na" \
 	VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module" VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" \
 	VLESS_AU_SKIP_XRAY_TEST=1 VLESS_AU_NOLISTENCHECK=1 VLESS_AU_PROBE="$TMP/hooks/probe-ok.sh" VLESS_AU_DNSCHECK="$TMP/hooks/probe-ok.sh" VLESS_AURORA_SPLIT="$SPLITSH" \

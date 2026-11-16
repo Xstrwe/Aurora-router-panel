@@ -36,7 +36,7 @@ ensure_conf() {
 	mkdir -p "$(dirname "$CONF")"
 	cat > "$CONF" <<CFG
 # Aurora split rules for $NAME. Edit freely; applied when the service starts
-# (or after: /usr/libexec/aurora-panel/aurora-split.sh $P up).
+# (or after: /usr/libexec/vpn-panel/aurora-split.sh $P up).
 # mode ru  : the "direct" lines below bypass the tunnel
 # mode all : only private ranges and explicit CIDR lines bypass the tunnel
 mode ru

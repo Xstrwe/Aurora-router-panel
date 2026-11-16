@@ -1,16 +1,16 @@
-Package: aurora-router-panel
+Package: vpn-panel-gl-inet
 Version: 1.5.0a5
 Depends: curl, jq, ucode, uhttpd, kmod-nft-tproxy
-Replaces: vless-router-panel
-Conflicts: vless-router-panel
+Replaces: aurora-router-panel, vless-router-panel
+Conflicts: aurora-router-panel, vless-router-panel
 License: MIT
 Section: net
 Priority: optional
 Architecture: all
 Installed-Size: 141
 Maintainer: Xstrwe <https://github.com/Xstrwe>
-Source: https://github.com/Xstrwe/Aurora-router-panel
-Description: Aurora router panel (formerly "VLESS on the router") for OpenWrt (uhttpd :8088).
+Source: https://github.com/Xstrwe/vpn.panel-gl.inet
+Description: vpn.panel-gl.inet: VPN panel for GL.iNet routers on OpenWrt (uhttpd :8088).
  Toggle transparent proxy, test connection and speed, save vless://,
  hysteria2://, naive+https:// links and a WireGuard .conf, and
  autoupdate each protocol from its own saved connection link (when it is
@@ -19,7 +19,7 @@ Description: Aurora router panel (formerly "VLESS on the router") for OpenWrt (u
  buttons on the page install the official build of each one (nothing is
  downloaded when the package is installed).
  Every protocol is its own service: VLESS = Xray, Hysteria = hysteria, Naive = naive (+ dnsproxy for DNS), WireGuard = kernel interface; only one runs at a time and none goes through another. WireGuard needs kmod-wireguard and wireguard-tools (optional). Every client is optional.
-Filename: aurora-router-panel_1.5.0a5_all.ipk
-Size: 48649
-SHA256sum: 3e6ab54bd2a77306694e92b6ca31cec142c4c380485376ee36003e5807fa06f9
+Filename: vpn-panel-gl-inet_1.5.0a5_all.ipk
+Size: 48840
+SHA256sum: c75ea93391955c2f17d7e2b8e0a251f0798c963c00fffe5fa339b2df0b09d927
 

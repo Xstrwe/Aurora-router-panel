@@ -9,7 +9,7 @@ After you install the panel, these protocols can be used (only one is active at 
 - **Naive** — official naive client at `/usr/bin/naive` (optional; not in the package; the **Install Naive** button installs it together with `dnsproxy`, which Naive uses for DNS through the tunnel). Naive carries TCP only.
 - **WireGuard** — implemented as a native kernel client (`wireguard-client`, interface `wg-aurora`). It is usable once `kmod-wireguard`, `wireguard-tools` and `ip-full` are installed (the **Install WireGuard** button does it) and you paste a standard WireGuard `.conf`. The panel does not set up a WireGuard server.
 
-The clients are not inside the `.ipk`, and nothing is downloaded when the package is installed. In the middle of the page, four buttons — **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard** — install the official client from its developer on demand. Each shows a progress bar from 0 to 100% and, when done, the installed version.
+The clients are not inside the `.ipk`, and nothing is downloaded when the package is installed. In the middle of the page, four buttons — **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard** — install the official client from its developer on demand. Each shows a progress bar from 0 to 100%. The block lists only the clients that are not installed yet and disappears from the page when all four are installed.
 
 The panel also has **SOCKS5** and **HTTP** upstreams (they run through Xray). IPv6 is not proxied.
 

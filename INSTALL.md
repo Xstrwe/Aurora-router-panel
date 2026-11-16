@@ -118,13 +118,13 @@ The script installs the klzgrad/naiveproxy static build for this router’s arch
 
 ## Install the VPN clients
 
-Open the panel. In the middle of the page, under **Enable** / **Disable**, the **Install VPN clients** block has four buttons: **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard**. Press the one you need.
+Open the panel. In the middle of the page, under **Enable** / **Disable**, the **Install VPN clients** block has up to four buttons: **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard**. Only the clients that are not installed yet are listed (Naive counts as installed only when both `naive` and `dnsproxy` are present); when all four are installed, the whole block is not on the page. Press the one you need.
 
 Under each button the panel shows a progress bar with a percent from 0 to 100 and the current step (checking the router, looking up the latest release, downloading, verifying, unpacking, installing). At the end the card shows:
 
-- **Installed · version …** (green, 100%) when it worked;
+- **Installed · version …** (green, 100%) when it worked; a moment later the card disappears, and so does the whole block once nothing is left to install;
 - **Error: …** (red) with a short reason when it did not, for example not enough free space, GitHub not reachable, or a checksum mismatch;
-- **Installed · version …** also appears on its own when the client is already on the router. Press the button again to reinstall or update it.
+- A client that is already on the router has no card. To update one, use the auto-update of the panel or the command line.
 
 What each button does:
 

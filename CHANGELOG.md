@@ -7,9 +7,11 @@ Install the VPN clients from the panel. Pre-release.
 - New **Install VPN clients** block in the middle of the page with four buttons:
   **Install VLESS**, **Install Hysteria 2**, **Install Naive** and
   **Install WireGuard**. Under each button a progress bar shows 0-100% and the current
-  step. When it ends the card shows the installed version, or a short error reason.
-  A client that is already installed shows its version, and its button reinstalls or
-  updates it.
+  step. The block lists only the clients that are not installed yet (Naive counts as
+  installed only when both `naive` and `dnsproxy` are present). While an install runs its
+  card stays with the progress; at 100% it shows "Installed" for a moment and disappears.
+  On an error the card stays with the reason. When all four clients are installed the whole
+  block (heading, cards and hint) is not on the page.
 - Every client is the official build from its developer and stays a separate program with
   its own service:
   - VLESS: the XTLS/Xray-core release for the router's CPU, checked against the published

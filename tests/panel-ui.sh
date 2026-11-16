@@ -1161,6 +1161,66 @@ else
 fi
 rm -f "$TMP/hooks/ic-stub.sh"
 
+# --- Install block shows only the clients that are not installed ---
+if printf '%s' "$ihtml" | grep -q '<div class=isec id=install hidden>' \
+   && printf '%s' "$ihtml" | grep -q "sec.parentNode.removeChild(sec)" \
+   && printf '%s' "$ihtml" | grep -q "if(o&&o.installed&&st!=='running'&&st!=='error')" \
+   && ! printf '%s' "$ihtml" | grep -qi 'reinstall'; then
+	ok "the install block starts hidden, hides installed clients, and is removed when none is left"
+else
+	bad "install block hide logic missing"
+fi
+# Render the page in headless Chrome with a mocked ?install-status (skipped when there is no Chrome)
+CHROME=""
+for c in google-chrome chromium chromium-browser chrome; do command -v "$c" >/dev/null 2>&1 && { CHROME=$c; break; }; done
+if [ -z "$CHROME" ]; then
+	echo "SKIP: no headless Chrome, install-block render checks not run"
+else
+	mkdir -p "$TMP/rt"
+	rpage() { # <js status expression> -> sets $rdom
+		python3 - "$1" "$TMP/rt" <<'PYEND'
+import sys
+j,d=sys.argv[1],sys.argv[2]
+h=sys.stdin.read() if False else open(d+'/page.html').read()
+mock="<script>var __S=%s;window.fetch=function(u,o){var b=String(u).indexOf('?install-status')===0?JSON.stringify(typeof __S==='function'?__S():__S):'';return Promise.resolve({json:function(){return Promise.resolve(JSON.parse(b))},text:function(){return Promise.resolve(b)}})};</script>"%j
+open(d+'/t.html','w').write(h.replace('<body>','<body>'+mock,1))
+PYEND
+		rdom=$("$CHROME" --headless=new --no-sandbox --disable-gpu --virtual-time-budget=${2:-6000} --dump-dom "file://$TMP/rt/t.html" 2>/dev/null)
+	}
+	printf '%s' "$ihtml" | sed '1,/^$/d' > "$TMP/rt/page.html"
+	[ -s "$TMP/rt/page.html" ] || printf '%s' "$ihtml" > "$TMP/rt/page.html"
+	I='{"installed":true,"version":"1","state":"idle","percent":0,"stage":"","error":""}'
+	N='{"installed":false,"version":"","state":"idle","percent":0,"stage":"","error":""}'
+	live() { printf '%s' "$rdom" | grep -o '<div class="c ic[^"]*" data-p="[a-z0-9]*"[^>]*>' | grep -v 'data-gone' | sed 's/.*data-p="\([a-z0-9]*\)".*/\1/' | tr '\n' ' '; }
+	rpage "{xray:$I,hy2:$I,naive:$I,wg:$I}"
+	if ! printf '%s' "$rdom" | grep -q 'id="install"' && ! printf '%s' "$rdom" | grep -q 'Install VPN clients'; then
+		ok "render: all four installed -> the whole install block (heading, cards, hint) is absent"
+	else bad "render all installed: block still there"; fi
+	rpage "{xray:$I,hy2:$N,naive:$I,wg:$I}"
+	if [ "$(live)" = "hy2 " ] && ! printf '%s' "$rdom" | grep -q 'id="install" hidden'; then
+		ok "render: one client missing -> only its card is shown and the block is visible"
+	else bad "render one missing: '$(live)'"; fi
+	rpage "{xray:$N,hy2:$N,naive:$N,wg:$N}"
+	if [ "$(live)" = "xray hy2 naive wg " ]; then ok "render: none installed -> all four cards"; else bad "render none installed: '$(live)'"; fi
+	rpage "{xray:$I,hy2:$I,naive:{installed:false,missing:'dnsproxy',state:'idle',percent:0},wg:$I}"
+	if [ "$(live)" = "naive " ] && printf '%s' "$rdom" | grep -q 'dnsproxy is missing'; then
+		ok "render: Naive without dnsproxy counts as not installed"
+	else bad "render naive half installed: '$(live)'"; fi
+	rpage "{xray:$I,hy2:{installed:false,state:'error',percent:40,error:'checksum mismatch'},naive:$I,wg:$I}"
+	if [ "$(live)" = "hy2 " ] && printf '%s' "$rdom" | grep -q 'Error: checksum mismatch'; then
+		ok "render: a failed install keeps its card with the error"
+	else bad "render error card: '$(live)'"; fi
+	rpage "(function(){var n=0;return function(){n++;return {xray:$I,hy2:{installed:false,state:'running',percent:50,stage:'downloading'},naive:$I,wg:$I}}})()" 5000
+	if [ "$(live)" = "hy2 " ] && printf '%s' "$rdom" | grep -q '50%'; then
+		ok "render: a running install keeps its card with progress"
+	else bad "render running card: '$(live)'"; fi
+	rpage "(function(){var n=0;return function(){n++;return {xray:$I,hy2:n<3?{installed:false,state:'running',percent:50,stage:'downloading'}:{installed:true,version:'2',state:'done',percent:100,stage:'done'},naive:$I,wg:$I}}})()" 15000
+	if ! printf '%s' "$rdom" | grep -q 'id="install"'; then
+		ok "render: after the install reaches 100% its card and the empty block disappear"
+	else bad "render running->done: block still there: '$(live)'"; fi
+fi
+
+
 
 if [ "$fail" -eq 0 ]; then
 	echo "All panel UI tests passed."

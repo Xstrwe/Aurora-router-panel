@@ -416,7 +416,7 @@ cat <<HTML
 <form method=post><input type=hidden name=action value=test><button>Test connection</button></form>
 <form method=post><input type=hidden name=action value=speed><button>Speed</button></form>
 </div>
-<div class=isec id=install>
+<div class=isec id=install hidden>
 <h3 style="text-align:center">Install VPN clients</h3>
 <div class=instgrid>
 <div class="c ic" data-p=xray><button type=button class=ib data-p=xray style="background:#6a1b9a">Install VLESS</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
@@ -424,7 +424,7 @@ cat <<HTML
 <div class="c ic" data-p=naive><button type=button class=ib data-p=naive style="background:#00695c">Install Naive</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
 <div class="c ic" data-p=wg><button type=button class=ib data-p=wg style="background:#283593">Install WireGuard</button><div class=ibar><div class=ifill></div></div><div class=ipct>&nbsp;</div><div class=itxt>checking&hellip;</div></div>
 </div>
-<p class=hint style="text-align:center">Each client is the official build from its developer, installed as its own separate program. Install Naive also installs dnsproxy, its DNS helper. Press a button again to reinstall or update.</p>
+<p class=hint style="text-align:center">Each client is the official build from its developer, installed as its own separate program. Install Naive also installs dnsproxy, its DNS helper.</p>
 </div>
 <div class=sec>
 <h3>VPN</h3>
@@ -533,19 +533,36 @@ document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventL
     else if(st==='error'){c.className='c ic err';f.style.width=n+'%';pc.textContent=n+'%';tx.textContent='Error: '+(o.error||'installation failed')}
     else{f.style.width='0';pc.textContent='0%';tx.textContent='Not installed'}
   }
+  // The section lists only the clients that are not installed yet. A card stays while its install runs
+  // or failed, shows "done" for a moment at 100%, then goes away; with nothing left the section is removed.
+  var sec=document.getElementById('install'),gone=0,seen={};
+  function drop(c){
+    if(c.getAttribute('data-gone'))return;
+    c.setAttribute('data-gone','1');c.style.display='none';gone++;
+    if(gone>=cards.length&&sec&&sec.parentNode){clearTimeout(timer);sec.parentNode.removeChild(sec)}
+  }
   function poll(){
     fetch('?install-status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
       var run=false;
-      cards.forEach(function(c){var o=j[c.getAttribute('data-p')];show(c,o);if(o&&o.state==='running')run=true});
+      cards.forEach(function(c){
+        if(c.getAttribute('data-gone'))return;
+        var p=c.getAttribute('data-p'),o=j[p],st=o&&o.state||'idle';
+        if(st==='running')run=true;
+        if(o&&o.installed&&st!=='running'&&st!=='error'){
+          if(seen[p]){show(c,o);if(!c.getAttribute('data-fade')){c.setAttribute('data-fade','1');setTimeout(function(){drop(c)},2500)}}
+          else drop(c);
+        }else{seen[p]=1;show(c,o)}
+      });
+      if(sec&&sec.parentNode&&gone<cards.length)sec.hidden=false;
       setBtns(run);
       clearTimeout(timer);
-      if(run)timer=setTimeout(poll,1500);
+      if(run||cards.some(function(c){return c.getAttribute('data-fade')&&!c.getAttribute('data-gone')}))timer=setTimeout(poll,run?1500:3000);
     }).catch(function(){clearTimeout(timer);timer=setTimeout(poll,4000)});
   }
   cards.forEach(function(c){
     c.querySelector('button.ib').addEventListener('click',function(){
       var p=c.getAttribute('data-p');
-      setBtns(true);
+      seen[p]=1;setBtns(true);
       show(c,{state:'running',percent:0,stage:'queued'});
       fetch('?install',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'client='+p}).then(function(r){return r.text()}).then(function(t){
         if(t.indexOf('ERROR')===0){show(c,{state:'error',percent:0,error:t.replace(/^ERROR:?\s*/,'')});setBtns(false);return}

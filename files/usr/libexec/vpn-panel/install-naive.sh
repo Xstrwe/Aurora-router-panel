@@ -65,7 +65,7 @@ fi
 
 detect_arch() {
 	if [ -f "${AURORA_OPENWRT_RELEASE:-/etc/openwrt_release}" ]; then
-		# shellcheck disable=SC1091
+		# shellcheck disable=SC1090,SC1091
 		. "${AURORA_OPENWRT_RELEASE:-/etc/openwrt_release}"
 		if [ -n "${DISTRIB_ARCH:-}" ]; then
 			echo "$DISTRIB_ARCH"

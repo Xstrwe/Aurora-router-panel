@@ -163,7 +163,7 @@ if [ "$(grep -c '>Update now<' "$CGI")" = 4 ] && [ "$(grep -c '>Connect ' "$CGI"
 else
 	bad "CGI button count"
 fi
-if [ "$(grep -c 'link_field ' "$CGI")" = 4 ] \
+if [ "$(grep -c 'link_field ' "$CGI")" = 3 ] \
    && grep -q 'rows=2' "$CGI" \
    && grep -q 'overflow:auto' "$CGI" \
    && grep -q 'field-sizing:fixed' "$CGI" \
@@ -182,12 +182,12 @@ if grep -q '<h3>VPN</h3>' "$CGI" \
    && [ "$(grep -c 'class=sec' "$CGI")" = 2 ] \
    && grep -q 'class="grid vpn"' "$CGI" \
    && ! grep -q 'class=col' "$CGI" \
-   && grep -q '192.168.8.1:10808' "$CGI" \
-   && grep -q '192.168.8.1:10809' "$CGI" \
+   && ! grep -q '192.168.8.1:10808' "$CGI" \
+   && ! grep -q '192.168.8.1:10809' "$CGI" \
    && grep -q '>SOCKS5<' "$CGI" \
    && grep -q '>HTTP<' "$CGI" \
-   && grep -q 'IPv6 is not proxied.' "$CGI" \
-   && grep -q 'Local proxies for individual apps' "$CGI" \
+   && ! grep -q 'IPv6 is not proxied.' "$CGI" \
+   && ! grep -q 'Local proxies for individual apps' "$CGI" \
    && grep -q '>Connect SOCKS5<' "$CGI" \
    && grep -q '>Connect HTTP<' "$CGI" \
    && grep -q 'name=addr' "$CGI" \

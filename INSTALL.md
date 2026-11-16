@@ -141,21 +141,42 @@ In the **VPN** section, paste into the matching card and press its **Connect …
 | --- | --- | --- |
 | **vless:// link** | a `vless://…` link, or an `http(s)://` subscription URL | **Connect VLESS** |
 | **hysteria2:// link** | a `hysteria2://…` or `hy2://…` link, or a subscription URL | **Connect Hysteria2** |
-| **naive+https:// link** | a `naive+https://…` link, or a subscription URL | **Connect Naive** |
+| **Naive** | separate fields from the official NaiveProxy client config: **Server**, **Port** (443 if empty), **Username**, **Password**, **Scheme** (`https` or `quic`); optional **Advanced** keys (see below) | **Connect Naive** |
 | **WireGuard config (.conf)** | a standard WireGuard config (`[Interface]` with `PrivateKey` and `Address`, `[Peer]` with `PublicKey` and `Endpoint`; `AllowedIPs` defaults to `0.0.0.0/0` if omitted) | **Connect WireGuard** |
 
 **Connect …** saves the card and makes that protocol the active one. If transparent mode was not turned off earlier, steering for the LAN is brought up as well. If the new protocol does not come up, its files and the previously active protocol are restored.
 
 In the **Proxy** section, **Add SOCKS5** and **Add HTTP** reveal a form (Address, Port, Login, Password; HTTP also has **TLS**, **SNI**, and **do not verify the certificate**). If a proxy is already saved, its card is shown expanded. **Connect SOCKS5** / **Connect HTTP** saves the fields and applies them as the tunnel’s upstream. An HTTP upstream cannot carry UDP (QUIC is blocked, other UDP goes direct).
 
-A small note under VPN says **IPv6 is not proxied.** Under Proxy, local proxies for individual apps are listed as SOCKS5 `192.168.8.1:10808` and HTTP `192.168.8.1:10809`. Those two LAN ports exist only while VLESS, SOCKS5 or HTTP is active (they are Xray’s). Hysteria 2 exposes SOCKS5 on `127.0.0.1:10818` and Naive on `127.0.0.1:10828`, for local use on the router only.
+IPv6 is not proxied. While VLESS, SOCKS5 or HTTP is active, Xray also offers local proxies on the LAN: SOCKS5 `192.168.8.1:10808` and HTTP `192.168.8.1:10809`. Hysteria 2 exposes SOCKS5 on `127.0.0.1:10818` and Naive on `127.0.0.1:10828`, for local use on the router only.
+
+#### Naive card
+
+The card writes the official [NaiveProxy](https://github.com/klzgrad/naiveproxy) client config, `/etc/naive/config.json`, as described in the upstream README and `USAGE.txt`:
+
+```json
+{
+  "listen": ["socks://127.0.0.1:10828", "redir://0.0.0.0:12366"],
+  "proxy": "https://user:pass@example.com:443",
+  "host-resolver-rules": "MAP example.com 192.0.2.1"
+}
+```
+
+- **Server** is a host name or an IPv4 address, **Port** 1–65535 (443 if empty), **Scheme** `https` (HTTP/2) or `quic` (HTTP/3). **Username** and **Password** are percent-encoded into `"proxy"`. `"listen"` is fixed (the panel's SOCKS entry and the transparent redir port), and `"host-resolver-rules"` pins the server name to the address it resolved to when you saved, so Naive never needs DNS through its own tunnel.
+- The saved password is never shown in the page. The field stays empty with a “saved” placeholder; leave it empty to keep the saved password, or type a new one. **show** reveals what you type.
+- **Advanced** (collapsed unless something in it is set) has only options upstream documents: `insecure-concurrency` (1–16; upstream recommends trying 2 and not more than 4), `extra-headers` (one `Name: value` per line, sent joined with CRLF), `tunnel-timeout` and `idle-timeout` (seconds). Empty means the upstream default and the key is not written.
+- **Subscription URL** (in Advanced) is optional. Auto-update and **Update now** re-fetch it and apply the first `naive+https://` (or `naive+quic://`) link it returns: server, port, username, password and scheme change, the Advanced keys are kept. Without a subscription URL there is nothing to auto-update. If you leave **Server** empty and fill only the subscription URL, **Connect Naive** takes the server from it.
+- Settings saved by an older version (a `naive+https://` link) appear in the fields without any action; saving the same values writes the same `config.json`.
 
 From the command line (write the link or config to a file first; never put real credentials in a ticket or a commit):
 
 ```sh
 /etc/panel/vpn.sh save <file>         # save a vless:// link and connect VLESS
 /etc/panel/vpn.sh hy2save <file>      # save a hysteria2:// link and connect Hysteria 2
-/etc/panel/vpn.sh naivesave <file>    # save a naive+https:// link and connect Naive
+/etc/panel/vpn.sh naivesave <file>    # Naive fields as key=value lines (host=, port=, user=, pass=, scheme=https|quic,
+                                      #   concurrency=, tunnel_timeout=, idle_timeout=, header= per line; empty pass keeps
+                                      #   the saved one) or a naive+https:// link; writes /etc/naive/config.json, connects Naive
+/etc/panel/vpn.sh naive-show          # the Naive fields as JSON (never the password)
 /etc/panel/vpn.sh wgsave <file>       # save a WireGuard .conf and connect WireGuard
 /etc/panel/vpn.sh store vless|hy2|naive|wg|socks|http <file>   # save only, do not switch
 ```
@@ -200,8 +221,8 @@ The status card also shows:
 
 - **Service (daemon):** Xray, Naive, Hysteria and WireGuard. Green if that daemon is running, red and bold if the *active* protocol’s daemon is not running, grey if a daemon is stopped because it is not the active protocol (that is normal: only one runs). Each name has a small restart button that restarts only that service. A service that is not installed, or WireGuard with no saved config, is shown red with the reason, and its restart button is disabled.
 - **Protocol:** the protocol last applied by a **Connect …** button.
-- **Server:** host (and SNI, or “no SNI” for WireGuard).
-- **Egress IP:** the public address seen through the live tunnel, filled in after the page has loaded so a dead tunnel never delays the page. If it cannot be determined, the row says **could not determine**.
+- **Server:** the configured server host of the active protocol, from its own saved link or config (the IP if it is configured by IP; no port).
+- **Egress IP:** the public address seen through the live tunnel, followed by the active protocol's server port (`<egress-ip>:<port>`), filled in after the page has loaded so a dead tunnel never delays the page. If it cannot be determined, the row says **could not determine**.
 
 From the command line:
 
@@ -255,7 +276,7 @@ A per-service restart (the small button, or the command below) does not change t
 
 Each VPN card has an **Auto-update** row: a checkbox labelled **on**, an **Interval** of **1 hour** / **6 hours** / **24 hours**, plus **Connect …** and **Update now**.
 
-The fresh config always comes from that card’s field. If the field holds an `http(s)` subscription URL, it is remembered as the source and the first matching entry is applied (plain text or base64; 1 MiB limit). A plain `vless://`, `hysteria2://`, `naive+https://` link or a WireGuard config cannot be re-fetched, so there is then nothing to update.
+The fresh config always comes from that card’s field. If the field holds an `http(s)` subscription URL, it is remembered as the source and the first matching entry is applied (plain text or base64; 1 MiB limit). For Naive the subscription URL has its own field under **Advanced**. A plain `vless://`, `hysteria2://` link, the Naive fields or a WireGuard config cannot be re-fetched, so there is then nothing to update.
 
 **Connect …** saves the auto-update settings and the link, then connects. **Update now** saves the settings and the link, then runs the update (a new direct link in the field is applied like Connect). Cron runs `/usr/libexec/vpn-panel/autoupdate-run.sh` every hour. Autoupdate is off until you enable it.
 

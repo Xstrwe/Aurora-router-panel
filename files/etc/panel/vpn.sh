@@ -1,5 +1,5 @@
 #!/bin/sh
-# vpn.sh save <linkfile> | hy2save <linkfile> | naivesave <linkfile> | wgsave <conffile>
+# vpn.sh save <linkfile> | hy2save <linkfile> | naivesave <fieldsfile|linkfile> | naive-show | wgsave <conffile>
 #         | sockssave <json> | httpsave <json>
 #         | store vless|hy2|naive|wg|socks|http <file> | proto vless|hy2|naive|wg|socks|http
 #         | mode ru|all | on | off | status | restart | restart-svc xray|naive|hysteria|wireguard | recover | egress
@@ -395,19 +395,151 @@ store_hy2(){
   fi
   return 0
 }
-store_naive(){
-  L=$(cat "$1" | tr -d '\r\n ')
-  case "$L" in naive+https://*@*) ;; *) err "The link must start with naive+https://";; esac
-  U=$(echo "$L" | sed -E 's#^naive\+https://([^@]+)@.*#\1#')
-  HP=$(echo "$L" | sed -E 's#^naive\+https://[^@]+@([^/?\#]+).*#\1#')
-  NH=${HP%:*}; NP=${HP##*:}; [ "$NP" = "$HP" ] && NP=443
+# --- Naive: the official Naive (klzgrad) client config.json --------------------------------
+# Written keys: "listen" (fixed: socks 127.0.0.1:10828 + redir :12366), "proxy"
+# (<scheme>://<user>:<pass>@<host>:<port>, scheme https or quic), "host-resolver-rules"
+# (MAP <host> <ip>), plus the optional keys documented in upstream USAGE.txt:
+# "insecure-concurrency", "extra-headers", "tunnel-timeout", "idle-timeout".
+# Input of store_naive: the card's fields as key=value lines (host, port, user, pass,
+# scheme, concurrency, tunnel_timeout, idle_timeout, header= once per header line), or a
+# naive+https:// / naive+quic:// link (subscriptions, CLI, upgrade); a link keeps the saved
+# optional keys. An empty pass keeps the saved password.
+nv_enc(){ # percent-encode for the user/password of the proxy URL: only A-Z a-z 0-9 - . _ ~ stay
+  printf '%s' "$1" | LC_ALL=C awk 'BEGIN{for(i=1;i<256;i++)o[sprintf("%c",i)]=i}
+    {if(NR>1)r=r "%0A"; n=length($0); for(i=1;i<=n;i++){c=substr($0,i,1); if(c ~ /[A-Za-z0-9._~-]/)r=r c; else r=r sprintf("%%%02X",o[c])}}
+    END{printf "%s",r}'
+}
+nv_dec(){ # percent-decode
+  printf '%s' "$1" | LC_ALL=C awk 'BEGIN{for(i=1;i<256;i++)h[sprintf("%02X",i)]=sprintf("%c",i)}
+    {if(NR>1)r=r "\n"; s=$0; while((p=index(s,"%"))>0){x=toupper(substr(s,p+1,2)); if(x in h){r=r substr(s,1,p-1) h[x]; s=substr(s,p+3)} else {r=r substr(s,1,p); s=substr(s,p+1)}} r=r s}
+    END{printf "%s",r}'
+}
+nv_clear(){ NV_SCHEME=https; NV_HOST=; NV_PORT=; NV_USER=; NV_PASS=; NV_CONC=; NV_TT=; NV_IT=; NV_HDR=; }
+nv_parse_proxy(){ # $1 = https://user:pass@host:port (or quic://)
+  _u=$1
+  case "$_u" in https://*) NV_SCHEME=https;; quic://*) NV_SCHEME=quic;; *) return 1;; esac
+  _u=${_u#*://}; _hp=${_u%%[/?#]*}
+  case "$_hp" in
+    *@*) _ui=${_hp%@*}; _hp=${_hp##*@}
+      case "$_ui" in
+        *:*) NV_USER=$(nv_dec "${_ui%%:*}"); NV_PASS=$(nv_dec "${_ui#*:}");;
+        *) NV_USER=$(nv_dec "$_ui"); NV_PASS=;;
+      esac;;
+    *) NV_USER=; NV_PASS=;;
+  esac
+  NV_HOST=${_hp%:*}; NV_PORT=${_hp##*:}; [ "$NV_PORT" = "$_hp" ] && NV_PORT=443
+  [ -n "$NV_HOST" ]
+}
+nv_load_cfg(){ # the saved config.json -> NV_* (0 when it has a usable proxy)
+  nv_clear
+  [ -s "$NAD/config.json" ] || return 1
+  _p=$(jq -r 'if (.proxy|type)=="string" then .proxy else empty end' "$NAD/config.json" 2>/dev/null)
+  NV_CONC=$(jq -r '."insecure-concurrency" // empty' "$NAD/config.json" 2>/dev/null)
+  NV_TT=$(jq -r '."tunnel-timeout" // empty' "$NAD/config.json" 2>/dev/null)
+  NV_IT=$(jq -r '."idle-timeout" // empty' "$NAD/config.json" 2>/dev/null)
+  NV_HDR=$(jq -r '."extra-headers" // empty' "$NAD/config.json" 2>/dev/null | tr -d '\r')
+  nv_parse_proxy "$_p"
+}
+nv_link(){ # $1 naive+https:// or naive+quic:// link -> NV_* server, port and credentials
+  _l=$(printf '%s' "$1" | tr -d '\r\n\t ')
+  case "$_l" in naive+https://*|naive+quic://*) ;; *) return 1;; esac
+  nv_parse_proxy "${_l#naive+}" || return 1
+  case "$_l" in *\?*extra-headers=*)
+    _h=$(printf '%s' "${_l#*\?}" | sed 's/#.*//' | tr '&' '\n' | sed -n 's/^extra-headers=//p' | head -1)
+    NV_HDR=$(nv_dec "$_h" | tr -d '\r');;
+  esac
+  return 0
+}
+nv_from_fields(){ # $1 key=value file
+  nv_load_cfg || { [ -s "$D/naive.txt" ] && nv_link "$(cat "$D/naive.txt")"; } || true
+  _oldpass=$NV_PASS
+  _h=; _po=; _us=; _pa=; _sc=; _co=; _tt=; _it=; _hd=
+  while IFS= read -r _ln || [ -n "$_ln" ]; do
+    _k=${_ln%%=*}; _v=${_ln#*=}
+    case "$_k" in
+      host) _h=$_v;; port) _po=$_v;; user) _us=$_v;; pass) _pa=$_v;; scheme) _sc=$_v;;
+      concurrency) _co=$_v;; tunnel_timeout) _tt=$_v;; idle_timeout) _it=$_v;;
+      header) _v=$(printf '%s' "$_v" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'); [ -n "$_v" ] && _hd="$_hd${_hd:+
+}$_v";;
+    esac
+  done < "$1"
+  NV_HOST=$(printf '%s' "$_h" | tr -d ' \t'); NV_PORT=$(printf '%s' "$_po" | tr -d ' \t')
+  NV_USER=$_us; NV_PASS=$_pa; [ -z "$NV_PASS" ] && NV_PASS=$_oldpass
+  [ -z "$NV_USER" ] && [ -z "$_pa" ] && NV_PASS=
+  NV_SCHEME=${_sc:-https}; NV_CONC=$(printf '%s' "$_co" | tr -d ' \t')
+  NV_TT=$(printf '%s' "$_tt" | tr -d ' \t'); NV_IT=$(printf '%s' "$_it" | tr -d ' \t'); NV_HDR=$_hd
+}
+nv_num(){ # $1 value $2 min $3 max: whole number in range
+  case "$1" in ''|*[!0-9]*) return 1;; esac
+  [ ${#1} -le 6 ] && [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
+}
+nv_check(){
+  [ -n "$NV_HOST" ] || err "Enter the Naive server"
+  [ ${#NV_HOST} -le 253 ] && printf '%s' "$NV_HOST" | grep -qE '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$' \
+    || err "The server must be a host name or an IPv4 address (letters, digits, dots and hyphens)"
+  [ -n "$NV_PORT" ] || NV_PORT=443
+  nv_num "$NV_PORT" 1 65535 || err "The port must be a number from 1 to 65535"
+  case "$NV_SCHEME" in https|quic) ;; *) err "The scheme must be https or quic";; esac
+  _cc=$(printf '\n\r\t')
+  case "$NV_USER$NV_PASS" in *["$_cc"]*) err "The username and the password must be one line";; esac
+  [ -n "$NV_USER" ] || [ -z "$NV_PASS" ] || err "Enter the username"
+  [ -z "$NV_USER" ] || [ -n "$NV_PASS" ] || err "Enter the password"
+  [ -z "$NV_CONC" ] || nv_num "$NV_CONC" 1 16 || err "Concurrency must be a number from 1 to 16"
+  [ -z "$NV_TT" ] || nv_num "$NV_TT" 1 86400 || err "Tunnel timeout must be a number of seconds from 1 to 86400"
+  [ -z "$NV_IT" ] || nv_num "$NV_IT" 1 86400 || err "Idle timeout must be a number of seconds from 1 to 86400"
+  if [ -n "$NV_HDR" ]; then
+    printf '%s\n' "$NV_HDR" | grep -vqE "^[!#\$%&'*+.^_\`|~0-9A-Za-z-]+:[[:print:]]*\$" && err "Each extra header must be one line: Name: value"
+  fi
+  return 0
+}
+nv_proxy_url(){
+  if [ -n "$NV_USER" ]; then printf '%s://%s:%s@%s:%s' "$NV_SCHEME" "$(nv_enc "$NV_USER")" "$(nv_enc "$NV_PASS")" "$NV_HOST" "$NV_PORT"
+  else printf '%s://%s:%s' "$NV_SCHEME" "$NV_HOST" "$NV_PORT"; fi
+}
+nv_write(){
+  nv_check
+  NH=$NV_HOST
   if echo "$NH" | grep -qE '^[0-9]+(\.[0-9]+){3}$'; then NIP=$NH
   else NIP=$(nslookup "$NH" 2>/dev/null | awk '/^Name:/{n=1} n&&/^Address/{print $NF}' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1); [ -n "$NIP" ] || NIP=$(cat $NAD/server_ip 2>/dev/null); fi
   [ -n "$NIP" ] || err "Could not resolve the Naive server $NH"
-  mkdir -p $NAD; cp $NAD/config.json $NAD/config.json.prev 2>/dev/null
-  jq -n --arg p "https://$U@$NH:$NP" --arg r "MAP $NH $NIP" '{listen:["socks://127.0.0.1:10828","redir://0.0.0.0:12366"],proxy:$p,"host-resolver-rules":$r}' > $NAD/config.json || err "jq"
+  _px=$(nv_proxy_url)
+  _hj=$(printf '%s' "$NV_HDR" | awk 'NR>1{printf "\r\n"} {printf "%s",$0}')
+  mkdir -p $NAD
+  ( umask 077; jq -n --arg p "$_px" --arg r "MAP $NH $NIP" --arg c "$NV_CONC" --arg h "$_hj" --arg t "$NV_TT" --arg i "$NV_IT" \
+    '{listen:["socks://127.0.0.1:10828","redir://0.0.0.0:12366"],proxy:$p,"host-resolver-rules":$r}
+     | if $c != "" then .["insecure-concurrency"]=($c|tonumber) else . end
+     | if $h != "" then .["extra-headers"]=$h else . end
+     | if $t != "" then .["tunnel-timeout"]=($t|tonumber) else . end
+     | if $i != "" then .["idle-timeout"]=($i|tonumber) else . end' > $NAD/config.json.new ) || { rm -f $NAD/config.json.new; err "jq"; }
+  cp $NAD/config.json $NAD/config.json.prev 2>/dev/null
+  mv $NAD/config.json.new $NAD/config.json; chmod 600 $NAD/config.json
   echo "$NIP" > $NAD/server_ip
-  chmod 600 $NAD/config.json; printf '%s\n' "$L" > $D/naive.txt; chmod 600 $D/naive.txt
+  # the same server as a link (kept for upgrades and for comparing subscription updates)
+  if [ -n "${NV_LINK:-}" ]; then printf '%s\n' "$NV_LINK" > $D/naive.txt; else printf 'naive+%s\n' "$_px" > $D/naive.txt; fi
+  chmod 600 $D/naive.txt
+}
+store_naive(){
+  _c=$(tr -d '\r\n\t ' < "$1")
+  NV_LINK=
+  case "$_c" in
+    naive+https://*|naive+quic://*)
+      nv_load_cfg || true
+      nv_link "$_c" || err "Could not read the Naive link"
+      NV_LINK=$_c;;
+    naive+*|http://*|https://*|quic://*) err "The link must start with naive+https:// or naive+quic://";;
+    *=*) nv_from_fields "$1";;
+    *) err "Fill in the Naive server, port, username and password";;
+  esac
+  nv_write
+}
+# The card's fields as JSON (never the password: only whether one is saved). Taken from
+# config.json; before the first save in this version, from the saved naive+https:// link.
+naive_show(){
+  nv_load_cfg || { nv_clear; [ -s "$D/naive.txt" ] && nv_link "$(cat "$D/naive.txt")"; } || nv_clear
+  _hp=0; [ -n "$NV_PASS" ] && _hp=1
+  jq -n --arg s "$NV_SCHEME" --arg h "$NV_HOST" --arg p "$NV_PORT" --arg u "$NV_USER" --argjson hp "$_hp" \
+    --arg c "$NV_CONC" --arg hd "$NV_HDR" --arg t "$NV_TT" --arg i "$NV_IT" \
+    '{scheme:$s,host:$h,port:$p,user:$u,has_pass:($hp==1),concurrency:$c,headers:$hd,tunnel_timeout:$t,idle_timeout:$i}'
 }
 store_wg(){
   tr -d '\r' < "$1" > /tmp/wg.conf
@@ -996,6 +1128,7 @@ MODE=$(cat $D/mode 2>/dev/null || echo ru)
 case "$1" in
 save) store_vless "$2"; gen $D/link.txt "$MODE" vless;;
 hy2save) native_switch hy2 "$2";;
+naive-show) naive_show;;
 naivesave)
   [ -x "$NAIVE_BIN" ] || err "Install naive first: /usr/libexec/vpn-panel/install-naive.sh"
   native_switch naive "$2";;

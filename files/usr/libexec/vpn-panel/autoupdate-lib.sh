@@ -97,6 +97,9 @@ au_current_file() {
 au_norm() {
 	if [ "$1" = wg ]; then
 		tr -d '\r' < "$2" | sed 's/[[:space:]]*$//'
+	elif [ "$1" = naive ]; then
+		# a Naive link: the server and credentials only (a #name does not change the config)
+		tr -d '\r\n\t ' < "$2" | sed 's/#.*//'
 	else
 		tr -d '\r\n\t ' < "$2"
 	fi
@@ -143,7 +146,7 @@ au_first() {
 			printf '%s\n' "$text" | tr '\r' '\n' | sed -n -e 's/.*\(hysteria2:\/\/[^[:space:]]*\).*/\1/p' -e 's/.*\(hy2:\/\/[^[:space:]]*\).*/\1/p' | head -1
 			;;
 		naive)
-			printf '%s\n' "$text" | tr '\r' '\n' | sed -n 's/.*\(naive+https:\/\/[^[:space:]]*\).*/\1/p' | head -1
+			printf '%s\n' "$text" | tr '\r' '\n' | sed -n -e 's/.*\(naive+https:\/\/[^[:space:]]*\).*/\1/p' -e 's/.*\(naive+quic:\/\/[^[:space:]]*\).*/\1/p' | head -1
 			;;
 		wg)
 			printf '%s\n' "$text" | tr -d '\r' | grep -qi '\[Interface\]' || return 1

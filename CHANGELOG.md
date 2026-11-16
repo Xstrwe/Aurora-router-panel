@@ -56,6 +56,32 @@ Install the VPN clients from the panel. Pre-release.
   where they were. The install removes the old `/etc/xray/vless.sh` and leaves no link
   under that name, so any own script that calls it must use `/etc/panel/vpn.sh` (same
   commands).
+- The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
+  README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**,
+  **Port** (default 443), **Username**, **Password** (with a show/hide button) and
+  **Scheme** (`https` or `quic`) fields, plus a collapsible **Advanced** section with only
+  keys upstream documents: `insecure-concurrency`, `extra-headers` (one per line),
+  `tunnel-timeout` and `idle-timeout`, and an optional **Subscription URL** with the
+  auto-update row and **Update now** (auto-update re-fetches a subscription; it has
+  nothing to do without one). `vpn.sh naivesave <file>` takes these fields as key=value
+  lines (or, as before, a `naive+https://` / `naive+quic://` link), validates them (host
+  name or IPv4, port 1-65535, one-line username and password) and writes
+  `/etc/naive/config.json` with `"listen"` (unchanged: SOCKS `127.0.0.1:10828` and redir
+  `:12366`), `"proxy": "<scheme>://<user>:<pass>@<host>:<port>"` (username and password
+  percent-encoded) and `"host-resolver-rules": "MAP <host> <ip>"`. New `vpn.sh naive-show`
+  prints the fields as JSON without the password.
+- The saved Naive password is never written into the page: the field is empty with a
+  "saved" placeholder, and leaving it empty keeps the saved password. Existing settings
+  carry over without a save: the fields are read from `/etc/naive/config.json` (or, before
+  the first save, from the saved link), and saving the same values writes the same file.
+- The page decodes form fields with awk instead of `printf %b`, so a backslash in a
+  password or a header stays a backslash.
+- Status card: **Server:** shows only the active protocol's configured server host (the IP
+  when it is configured by IP; no port, no SNI), and **Egress IP:** shows the egress IP
+  followed by that server's port (`<egress-ip>:<port>`). Both come from the active
+  protocol's own saved config.
+- Removed the hints "IPv6 is not proxied." and "Local proxies for individual apps: ..."
+  from the page (nothing else changed: the local proxy ports work as before).
 - Fixed on a real GL-BE6500 (found while testing the buttons):
   - Install Naive found no build because the router reports its CPU as
     `aarch64_cortex-a53_neon-vfpv4`; the installer now also tries the name without the

@@ -211,6 +211,9 @@ if [ -x "$ROOT/tests/install-client.sh" ]; then
   "$ROOT/tests/install-client.sh" || { echo "ERROR: install-client tests failed" >&2; exit 1; }
 fi
 
+if [ -x "$ROOT/tests/naive-fields.sh" ]; then
+  "$ROOT/tests/naive-fields.sh" || { echo "ERROR: naive fields tests failed" >&2; exit 1; }
+fi
 if [ -x "$ROOT/tests/panel-ui.sh" ]; then
   "$ROOT/tests/panel-ui.sh" || { echo "ERROR: panel UI tests failed" >&2; exit 1; }
 fi

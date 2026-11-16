@@ -377,7 +377,9 @@ if printf '%s' "$proto" | grep -q '>Hysteria2<' \
    && printf '%s' "$svc" | grep -q 'color:#1a7f37" title="running">Xray</span>' \
    && printf '%s' "$svc" | grep -q 'color:#c62828;font-weight:700" title="not installed">Hysteria</span>' \
    && ! printf '%s\n' "$html" | grep -q 'Restart service' \
-   && printf '%s' "$html" | grep -q '192.0.2.20:443'; then
+   && [ "$(row 'Server:')" = 192.0.2.20 ] \
+   && printf '%s' "$exitrow" | grep -q 'id=egress data-port="443"' \
+   && printf '%s' "$html" | grep -q "el.textContent=x+(pt?':'+pt:'')"; then
 	ok "status card shows the connected protocol, daemon colours and the far-end IP"
 else
 	bad "status card proto=$proto exit=$exitrow"
@@ -481,8 +483,10 @@ if [ "$ntxt" = 4 ] \
    && printf '%s\n' "$html" | grep -q 'id=card-http>' \
    && ! printf '%s\n' "$html" | grep -q 'id=card-http hidden' \
    && printf '%s\n' "$html" | grep -q 'value="proxy.example"' \
-   && printf '%s\n' "$html" | grep -q 'IPv6 is not proxied.' \
-   && printf '%s\n' "$html" | grep -q 'Local proxies for individual apps'; then
+   && ! printf '%s\n' "$html" | grep -q 'IPv6 is not proxied.' \
+   && ! printf '%s\n' "$html" | grep -q 'Local proxies for individual apps' \
+   && ! printf '%s\n' "$html" | grep -q 'name=nv ' \
+   && printf '%s\n' "$html" | grep -q 'name=hdr class=hdr'; then
 	ok "VPN fields are 2-line, SOCKS is behind a button, saved HTTP is expanded"
 else
 	bad "rendered layout (textareas=$ntxt)"
@@ -532,7 +536,8 @@ echo socks > "$D/proto"
 printf '%s\n' '{"address":"10.0.0.8","port":1080,"user":"","pass":""}' > "$D/socks.json"
 html3=$(render xray 0 "$TMP/hooks/egress-final.sh")
 if printf '%s\n' "$html3" | grep -q '<b>SOCKS5</b>' \
-   && printf '%s\n' "$html3" | grep -q '10.0.0.8:1080' \
+   && printf '%s\n' "$html3" | grep -q '<tr><td>Server:</td><td>10.0.0.8</td></tr>' \
+   && printf '%s\n' "$html3" | grep -q 'id=egress data-port="1080"' \
    && ! printf '%s\n' "$html3" | sed -n 's/.*<tr><td>Protocol:<\/td><td>\(.*\)<\/td><\/tr>.*/\1/p' | grep -q 'VLESS'; then
 	ok "protocol row follows a connected SOCKS5 upstream"
 else
@@ -1082,7 +1087,7 @@ fi
 cat > "$TMP/bin/curl" <<EOF
 #!/bin/sh
 echo "\$*" >> "$TMP/curl.log"
-case "\$*" in *generate_204*) printf '204 0.100';; *ipify*) printf '185.167.97.143';; *youtube*) printf '200';; *speed.cloudflare*) printf '5000000 50000000';; esac
+case "\$*" in *generate_204*) printf '204 0.100';; *ipify*) printf '198.51.100.77';; *youtube*) printf '200';; *speed.cloudflare*) printf '5000000 50000000';; esac
 EOF
 chmod 755 "$TMP/bin/curl"
 pe=""

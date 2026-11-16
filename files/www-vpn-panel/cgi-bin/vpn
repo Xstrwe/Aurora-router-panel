@@ -5,7 +5,10 @@ AU_LIB=${VLESS_AU_LIB:-/usr/libexec/vpn-panel/autoupdate-lib.sh}
 # shellcheck disable=SC1090
 [ -f "$AU_LIB" ] && . "$AU_LIB"
 esc(){ sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
-ud(){ printf '%b' "$(printf '%s' "$1" | sed -e 's/+/ /g' -e 's/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g')"; }
+# Form-urlencoded value -> raw bytes ("+" = space, %XX = byte). Plain awk, so a typed
+# backslash (e.g. in a password) stays a backslash.
+ud(){ printf '%s' "$1" | LC_ALL=C awk 'BEGIN{for(i=1;i<256;i++)h[sprintf("%02X",i)]=sprintf("%c",i)}
+  {gsub(/\+/," "); s=$0; r=""; while((p=index(s,"%"))>0){x=toupper(substr(s,p+1,2)); if(x in h){r=r substr(s,1,p-1) h[x]; s=substr(s,p+3)} else {r=r substr(s,1,p); s=substr(s,p+1)}} printf "%s",r s}'; }
 fld(){ printf '%s' "$POST" | tr '&' '\n' | sed -n "s/^$1=//p" | head -1; }
 # $1 proto: the "Auto-update" row (checkbox + interval, one line) inside a card form
 au_row(){
@@ -80,6 +83,50 @@ BLK
 </div>
 BLK
 }
+# Naive card: separate fields of the official Naive (klzgrad) client config (server, port,
+# username, password, scheme) and an Advanced section with the optional keys from
+# upstream USAGE.txt, the subscription URL and auto-update. The saved password is
+# never written into the page: the field stays empty and an empty field keeps it.
+naive_fields(){
+  NJ=$($V naive-show 2>/dev/null)
+  nj(){ printf '%s' "$NJ" | jq -r ".$1 // empty" 2>/dev/null; }
+  if [ -n "$NV_BAD" ]; then
+    N_H=$NV_F_HOST; N_P=$NV_F_PORT; N_U=$NV_F_USER; N_S=$NV_F_SCHEME; N_C=$NV_F_CONC
+    N_HD=$NV_F_HDR; N_T=$NV_F_TT; N_I=$NV_F_IT; N_SUB=$NV_F_SUB
+  else
+    N_H=$(nj host); N_P=$(nj port); N_U=$(nj user); N_S=$(nj scheme); N_C=$(nj concurrency)
+    N_HD=$(nj headers); N_T=$(nj tunnel_timeout); N_I=$(nj idle_timeout)
+    N_SUB=$(cat "$AU_DIR/naive.src" 2>/dev/null)
+  fi
+  N_HASP=$(nj has_pass)
+  [ -n "$N_P" ] || N_P=443
+  S1=selected; S2=; [ "$N_S" = quic ] && { S1=; S2=selected; }
+  PPH="password"; [ "$N_HASP" = true ] && PPH="•••••••• (saved, leave empty to keep)"
+  ADV_O=; { [ -n "$N_C$N_HD$N_T$N_I$N_SUB" ] || [ "$NV_BAD" = adv ]; } && ADV_O=" open"
+  cat <<BLK
+<div class=pf>
+<label>Server <input type=text name=host value="$(printf '%s' "$N_H" | esc)" placeholder="example.com" autocomplete=off spellcheck=false></label>
+<label>Port <input type=text name=port value="$(printf '%s' "$N_P" | esc)" inputmode=numeric autocomplete=off></label>
+<label>Username <input type=text name=user value="$(printf '%s' "$N_U" | esc)" autocomplete=off spellcheck=false></label>
+<label>Password <span class=pw><input type=password name=pass value="" placeholder="$PPH" autocomplete=new-password><button type=button class=pwt aria-label="Show password">show</button></span></label>
+<label>Scheme <select name=scheme><option value=https $S1>https (HTTP/2)</option><option value=quic $S2>quic (HTTP/3)</option></select></label>
+</div>
+<details class=adv$ADV_O><summary>Advanced</summary>
+<div class=pf>
+<label>insecure-concurrency <input type=text name=conc value="$(printf '%s' "$N_C" | esc)" inputmode=numeric placeholder="1 (default)" autocomplete=off></label>
+<label>tunnel-timeout, s <input type=text name=tt value="$(printf '%s' "$N_T" | esc)" inputmode=numeric placeholder="1800 (default)" autocomplete=off></label>
+<label>idle-timeout, s <input type=text name=it value="$(printf '%s' "$N_I" | esc)" inputmode=numeric placeholder="600 (default)" autocomplete=off></label>
+<label class=span2>extra-headers (one per line: Name: value)<textarea name=hdr class=hdr rows=2 spellcheck=false>$(printf '%s' "$N_HD" | esc)</textarea></label>
+<label class=span2>Subscription URL (for auto-update) <input type=text name=sub value="$(printf '%s' "$N_SUB" | esc)" placeholder="https://… (optional)" autocomplete=off spellcheck=false></label>
+</div>
+BLK
+  au_row naive
+  cat <<BLK
+<p class=hint>Auto-update re-reads the subscription URL and applies the naive+https:// link it returns. Without a subscription URL there is nothing to update.</p>
+<div class=btns><button type=submit name=action value=naiveupdate>Update now</button></div>
+</details>
+BLK
+}
 # One entry of the service row: $1 whitelist key, $2 label, $3 1 if running,
 # $4 tooltip, $5 "disabled" to grey out the restart button. Running = green,
 # not running = red bold (only for the active protocol's daemon; an idle one is grey,
@@ -133,6 +180,7 @@ fi
 MSG=""
 A=""
 PF_BAD=""
+NV_BAD=""
 if [ "$REQUEST_METHOD" = POST ]; then
   POST=$(head -c "${CONTENT_LENGTH:-0}")
   A=$(fld action)
@@ -163,10 +211,46 @@ YouTube: $([ "$Y" = 200 ] && echo opens || echo "code $Y")"
       if [ "${2%.*}" -gt 100000 ] 2>/dev/null; then MSG="Speed ($PNX): $(awk "BEGIN{printf \"%.1f\", $1*8/1000000}") Mbit/s (downloaded $(awk "BEGIN{printf \"%.1f\", $2/1048576}") MB)"
       else MSG="Speed: could not measure ❌"; fi;;
     proto) MSG=$($V proto "$(fld proto)" 2>&1);;
-    save|hy2save|naivesave|wgsave|update)
+    naivesave|naiveupdate)
+      # Naive card: fields -> key=value file (0600, never on a command line) -> vpn.sh naivesave.
+      umask 077
+      one(){ ud "$(fld "$1")" | tr -d '\r\n'; }
+      NV_F_HOST=$(one host); NV_F_PORT=$(one port); NV_F_USER=$(one user); NV_F_PASSV=$(one pass)
+      NV_F_SCHEME=$(one scheme); case "$NV_F_SCHEME" in https|quic) ;; *) NV_F_SCHEME=https;; esac
+      NV_F_CONC=$(one conc); NV_F_TT=$(one tt); NV_F_IT=$(one it)
+      NV_F_HDR=$(ud "$(fld hdr)" | tr -d '\r'); NV_F_SUB=$(one sub | tr -d ' \t')
+      EN=0; [ "$(fld en)" = 1 ] && EN=1
+      INT=$(fld int); case "$INT" in 1h|6h|24h) ;; *) INT=24h;; esac
+      IN=/tmp/cgi-naive.in; OUT=/tmp/cgi-naive.out; SUBF=/tmp/cgi-naive.sub
+      printf '%s\n' "$NV_F_SUB" > $SUBF
+      case "$NV_F_SUB" in ''|http://*|https://*) MSG=$($V autoset naive "$EN" "$INT" 2>&1);;
+        *) MSG="ERROR: The subscription URL must start with http:// or https://"; NV_BAD=adv;; esac
+      case "$MSG" in *ERROR*) ;; *)
+        if [ "$A" = naiveupdate ]; then
+          # "Update now": save the subscription URL as the source, then fetch and apply it.
+          MSG=$($V src naive $SUBF $OUT 0 2>&1)
+          case "$MSG" in *ERROR*) ;; *) MSG=$($V update naive 2>&1);; esac
+        elif [ -z "$NV_F_HOST" ] && [ -n "$NV_F_SUB" ]; then
+          # Only a subscription URL: take the server from it.
+          MSG=$($V src naive $SUBF $OUT 1 2>&1)
+          case "$MSG" in *ERROR*) ;; *) MSG=$($V naivesave $OUT 2>&1);; esac
+        else
+          {
+            printf 'host=%s\nport=%s\nuser=%s\npass=%s\nscheme=%s\n' "$NV_F_HOST" "$NV_F_PORT" "$NV_F_USER" "$NV_F_PASSV" "$NV_F_SCHEME"
+            printf 'concurrency=%s\ntunnel_timeout=%s\nidle_timeout=%s\n' "$NV_F_CONC" "$NV_F_TT" "$NV_F_IT"
+            printf '%s\n' "$NV_F_HDR" | sed 's/^/header=/'
+          } > $IN
+          MSG=$($V naivesave $IN 2>&1)
+          # the subscription URL is remembered for auto-update (an empty field forgets it)
+          case "$MSG" in *ERROR*) ;; *) $V src naive $SUBF $OUT 0 >/dev/null 2>&1;; esac
+        fi;;
+      esac
+      rm -f $IN $OUT $SUBF; NV_F_PASSV=
+      case "$MSG" in *ERROR*) [ -n "$NV_BAD" ] || NV_BAD=1;; esac;;
+    save|hy2save|wgsave|update)
       # One form per protocol card: link field + auto-update row + two buttons.
       AP=$(fld proto)
-      case "$AP" in vless) FN=link; CMD=save;; hy2) FN=hy2; CMD=hy2save;; naive) FN=nv; CMD=naivesave;; wg) FN=wg; CMD=wgsave;; *) AP=""; MSG="ERROR: unknown protocol";; esac
+      case "$AP" in vless) FN=link; CMD=save;; hy2) FN=hy2; CMD=hy2save;; wg) FN=wg; CMD=wgsave;; *) AP=""; MSG="ERROR: unknown protocol";; esac
       if [ -n "$AP" ]; then
         EN=0; [ "$(fld en)" = 1 ] && EN=1
         INT=$(fld int); case "$INT" in 1h|6h|24h) ;; *) INT=24h;; esac
@@ -218,7 +302,7 @@ YouTube: $([ "$Y" = 200 ] && echo opens || echo "code $Y")"
         PF_SNI=$SNI; PF_TLS=$TLS; PF_INS=$INS;;
       esac;;
   esac
-  case "$A" in test|speed|update) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Done";; esac;; esac
+  case "$A" in test|speed|update|naiveupdate) ;; *) case "$MSG" in *ERROR*) ;; *) MSG="Done";; esac;; esac
 fi
 WHY=""; HOW=""
 if [ "$A" = restartsvc ]; then
@@ -234,7 +318,6 @@ fi
 eval "$($V status | sed 's/^/S_/')"
 HEALTH=$($V health 2>/dev/null)
 HY2=$(field_raw hy2 | esc)
-NV=$(field_raw naive | esc)
 WG=$(field_raw wg | esc)
 # Protocol of the connection the Connect buttons last applied (the proto file), not a fixed VLESS.
 case "$S_proto" in
@@ -249,22 +332,36 @@ esac
 LINK=$(field_raw vless | esc)
 case "$S_proto" in
   hy2) F=$D/hy2.txt;;
-  naive) F=$D/naive.txt;;
-  wg|socks|http) F=;;
+  naive|wg|socks|http) F=;;
   *) F=$D/link.txt;;
 esac
+# Status card: "Server:" is the active protocol's configured server host only (a bare IP
+# when it is configured by IP, never the port); its port goes after the egress IP.
+hp_split(){ # host:port, [v6]:port or host -> SRVH / SRVP
+  _x=$1
+  case "$_x" in
+    \[*\]:*) SRVH=${_x%%]*}; SRVH=${SRVH#[}; SRVP=${_x##*]:};;
+    \[*\]) SRVH=${_x#[}; SRVH=${SRVH%]}; SRVP=;;
+    *:*:*) SRVH=$_x; SRVP=;;
+    *:*) SRVH=${_x%:*}; SRVP=${_x##*:};;
+    *) SRVH=$_x; SRVP=;;
+  esac
+}
+SRVH=; SRVP=
 if [ -n "$F" ]; then
-  HOST=$(sed -E 's#^[a-z0-9+]+://[^@]+@([^/?\#]+).*#\1#' $F 2>/dev/null | head -1 | esc)
-  SNI=$(sed -nE 's#.*[?&]sni=([^&\#]+).*#\1#p' $F 2>/dev/null | head -1 | esc)
-  [ -n "$SNI" ] || SNI=${HOST%:*}
+  hp_split "$(sed -nE 's#^[a-z0-9+]+://([^@/?\#]*@)?([^/?\#]+).*#\2#p' $F 2>/dev/null | head -1)"
+  [ -n "$SRVP" ] || SRVP=443
+elif [ "$S_proto" = naive ]; then
+  NSJ=$($V naive-show 2>/dev/null)
+  SRVH=$(printf '%s' "$NSJ" | jq -r '.host // empty' 2>/dev/null); SRVP=$(printf '%s' "$NSJ" | jq -r '.port // empty' 2>/dev/null)
 elif [ "$S_proto" = socks ] || [ "$S_proto" = http ]; then
-  HOST=$(jq -r '[.address,(.port|tostring)] | join(":")' $D/$S_proto.json 2>/dev/null | esc)
-  SNI=$(jq -r 'if .tls==true then (.sni // "" | if .=="" then "TLS" else . end) else "no SNI" end' $D/$S_proto.json 2>/dev/null | esc)
-  [ -n "$HOST" ] || HOST="—"
+  SRVH=$(jq -r '.address // empty' $D/$S_proto.json 2>/dev/null); SRVP=$(jq -r '.port // empty | tostring' $D/$S_proto.json 2>/dev/null)
 else
-  HOST=$(jq -r '.settings.peers[0].endpoint' $D/wg.json 2>/dev/null | esc)
-  SNI="no SNI"
+  hp_split "$(jq -r '.settings.peers[0].endpoint // empty' $D/wg.json 2>/dev/null)"
 fi
+HOST=$(printf '%s' "$SRVH" | esc); [ -n "$HOST" ] || HOST="—"
+# digits (a Hysteria port range keeps its commas and dashes) only: it goes into JS-visible HTML
+SRVP=$(printf '%s' "$SRVP" | tr -cd '0-9,-' | head -c 40)
 # All services behind the VPN cards, always listed. Xray = xray-client, Naive =
 # naive-client, Hysteria = hysteria-client, WireGuard = wireguard-client (kernel
 # interface wg-aurora; running means the interface is up).
@@ -391,6 +488,11 @@ button.rb .rg{font-size:.9em;line-height:1.2em}
 .pcell{min-width:0}
 button.add{background:#fff;color:#1565c0;border:1px solid #1565c0;padding:8px 16px;font-size:15px}
 button.addproxy{margin-top:0}
+.pf select{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px}
+.pw{display:flex;gap:6px}.pw input{flex:1 1 auto;min-width:0}
+button.pwt{background:#fff;color:#1565c0;border:1px solid #ccc;border-radius:8px;padding:4px 10px;font-size:13px}
+details.adv{margin-top:10px;font-size:14px}details.adv summary{cursor:pointer;color:#1565c0}
+.pf textarea.hdr{height:56px;min-height:56px;max-height:none;font-size:13px}
 button.add:hover{background:#e3f2fd}
 </style></head><body>
 HTML
@@ -407,8 +509,8 @@ cat <<HTML
 <tr><td>Transparent mode for the network:</td><td><b style="color:$SC">$ST</b></td></tr>
 <tr><td>Service (daemon):</td><td><div class=svcs>$SVC</div></td></tr>
 <tr><td>Protocol:</td><td><b>$PN</b></td></tr>
-<tr><td>Server:</td><td>$HOST ($SNI)</td></tr>
-<tr><td>Egress IP:</td><td id=egress>detecting…</td></tr>
+<tr><td>Server:</td><td>$HOST</td></tr>
+<tr><td>Egress IP:</td><td id=egress data-port="$SRVP">detecting…</td></tr>
 </table></div>
 <div class=c style="display:flex;flex-wrap:wrap;gap:8px">
 <form method=post><input type=hidden name=action value=on><button style="background:#1a7f37">Enable</button></form>
@@ -435,12 +537,11 @@ link_field link "$LINK"
 au_row vless
 cat <<HTML
 <div class=btns><button type=submit name=action value=save style="background:#6a1b9a">Connect VLESS</button><button type=submit name=action value=update>Update now</button></div></form></div>
-<div class=c><form method=post><input type=hidden name=proto value=naive><b>naive+https:// link</b>
+<div class=c><form method=post><input type=hidden name=proto value=naive><b>Naive</b>
 HTML
-link_field nv "$NV"
-au_row naive
+naive_fields
 cat <<HTML
-<div class=btns><button type=submit name=action value=naivesave style="background:#00695c">Connect Naive</button><button type=submit name=action value=update>Update now</button></div></form></div>
+<div class=btns><button type=submit name=action value=naivesave style="background:#00695c">Connect Naive</button></div></form></div>
 <div class=c><form method=post><input type=hidden name=proto value=hy2><b>hysteria2:// link</b>
 HTML
 link_field hy2 "$HY2"
@@ -461,7 +562,6 @@ au_row wg
 cat <<HTML
 <div class=btns><button type=submit name=action value=wgsave style="background:#283593">Connect WireGuard</button><button type=submit name=action value=update>Update now</button></div></form></div>
 </div>
-<p class=hint>IPv6 is not proxied.</p>
 </div>
 <div class=sec>
 <h3>Proxy</h3>
@@ -484,7 +584,6 @@ cat <<HTML
 <div class=btns><button type=submit name=action value=httpsave style="background:#0277bd">Connect HTTP</button></div></form></div>
 </div>
 </div>
-<p class=hint>Local proxies for individual apps: SOCKS5 192.168.8.1:10808, HTTP 192.168.8.1:10809.</p>
 </div>
 <script>
 function syncTls(c){var e=c.form&&c.form.querySelector('.tls-extra');if(!e)return;e.hidden=!c.checked}
@@ -504,6 +603,14 @@ document.querySelectorAll('button.addproxy').forEach(function(b){
     eqCards();
   });
 });
+document.querySelectorAll('button.pwt').forEach(function(b){
+  b.addEventListener('click',function(){
+    var i=b.parentNode.querySelector('input');if(!i)return;
+    var show=i.type==='password';i.type=show?'text':'password';b.textContent=show?'hide':'show';
+    b.setAttribute('aria-label',show?'Hide password':'Show password');
+  });
+});
+document.querySelectorAll('details.adv').forEach(function(d){d.addEventListener('toggle',eqCards)});
 document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventListener('change',function(){syncTls(c)});syncTls(c)});
 (function(){
   var el=document.getElementById('egress');if(!el)return;
@@ -512,7 +619,8 @@ document.querySelectorAll('.pf input[name=tls]').forEach(function(c){c.addEventL
   var t=setTimeout(function(){if(ctl)ctl.abort()},8000);
   fetch('?ip',{cache:'no-store',signal:ctl?ctl.signal:undefined}).then(function(r){return r.text()}).then(function(x){
     clearTimeout(t);x=x.trim();
-    if(/^(\d{1,3}\.){3}\d{1,3}\$/.test(x)||/^[0-9A-Fa-f:]+:[0-9A-Fa-f:]+\$/.test(x))el.textContent=x;else fail();
+    var pt=el.getAttribute('data-port')||'';
+    if(/^(\d{1,3}\.){3}\d{1,3}\$/.test(x))el.textContent=x+(pt?':'+pt:'');else if(/^[0-9A-Fa-f:]+:[0-9A-Fa-f:]+\$/.test(x))el.textContent=pt?'['+x+']:'+pt:x;else fail();
   }).catch(function(){clearTimeout(t);fail()});
 })();
 (function(){

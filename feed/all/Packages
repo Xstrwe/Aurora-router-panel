@@ -7,12 +7,13 @@ License: MIT
 Section: net
 Priority: optional
 Architecture: all
-Installed-Size: 141
+Installed-Size: 155
 Maintainer: Xstrwe <https://github.com/Xstrwe>
 Source: https://github.com/Xstrwe/vpn.panel-gl.inet
 Description: vpn.panel-gl.inet: VPN panel for GL.iNet routers on OpenWrt (uhttpd :8088).
- Toggle transparent proxy, test connection and speed, save vless://,
- hysteria2://, naive+https:// links and a WireGuard .conf, and
+ Toggle transparent proxy, test connection and speed, save vless:// and
+ hysteria2:// links, Naive server/login fields (official NaiveProxy
+ config.json) and a WireGuard .conf, and
  autoupdate each protocol from its own saved connection link (when it is
  an http(s) subscription URL). The clients are not in the package:
  the Install VLESS, Install Hysteria 2, Install Naive and Install WireGuard
@@ -20,6 +21,6 @@ Description: vpn.panel-gl.inet: VPN panel for GL.iNet routers on OpenWrt (uhttpd
  downloaded when the package is installed).
  Every protocol is its own service: VLESS = Xray, Hysteria = hysteria, Naive = naive (+ dnsproxy for DNS), WireGuard = kernel interface; only one runs at a time and none goes through another. WireGuard needs kmod-wireguard and wireguard-tools (optional). Every client is optional.
 Filename: vpn-panel-gl-inet_1.5.0a5_all.ipk
-Size: 48866
-SHA256sum: 37ff06fc90be64197b46a7d9fb7aeabd37b969b286b54284a4fe69b41034f5db
+Size: 53513
+SHA256sum: a78de6c5a6ec6c518a14bacb349b93afbf0fba688ba7e463308466a818132728
 

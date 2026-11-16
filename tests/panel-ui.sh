@@ -499,6 +499,25 @@ else
 	bad "textarea height"
 fi
 
+# Saved SOCKS5/HTTP passwords never appear in the page; the field is empty with a "saved" hint.
+cp "$D/http.json" "$D/http.json.pw.bak"
+printf '%s\n' '{"address":"proxy.example","port":8080,"user":"u","pass":"s3cr3t-HttpPw","tls":true,"sni":"proxy.example","allowInsecure":false}' > "$D/http.json"
+printf '%s\n' '{"address":"10.9.9.9","port":1080,"user":"bob","pass":"s3cr3t-SocksPw"}' > "$D/socks.json"
+htmlpw=$(render xray 0 "$TMP/hooks/egress-final.sh")
+mv "$D/http.json.pw.bak" "$D/http.json"
+rm -f "$D/socks.json"
+if printf '%s\n' "$htmlpw" | grep -q 'type=password name=pass value=""' \
+   && n_hint=$(printf '%s\n' "$htmlpw" | grep -c 'saved, leave empty to keep' || true) && [ "$n_hint" -ge 2 ] \
+   && printf '%s\n' "$htmlpw" | grep -q 'class=pwt' \
+   && printf '%s\n' "$htmlpw" | grep -q 'value="10.9.9.9"' \
+   && printf '%s\n' "$htmlpw" | grep -q 'value="bob"' \
+   && ! printf '%s\n' "$htmlpw" | grep -q 's3cr3t-HttpPw' \
+   && ! printf '%s\n' "$htmlpw" | grep -q 's3cr3t-SocksPw'; then
+	ok "SOCKS5 and HTTP saved passwords stay out of the page, with a saved hint"
+else
+	bad "proxy password hidden in HTML"
+fi
+
 # SNI / insecure row: shown with TLS on, hidden with TLS off, and [hidden] wins in CSS.
 if printf '%s\n' "$html" | grep -q 'class="tls-extra span2">' \
    && grep -q '.tls-extra\[hidden\]{display:none}' "$CGI" \
@@ -517,20 +536,22 @@ else
 	bad "tls-extra hidden when TLS off"
 fi
 
-# A failed SOCKS5 save keeps the card open with what was typed.
-body='action=sockssave&proto=socks&addr=10.9.9.9&port=1080&user=bob&pass=s3'
+# A failed SOCKS5 save keeps the card open with what was typed, but never the password.
+body='action=sockssave&proto=socks&addr=10.9.9.9&port=1080&user=bob&pass=s3cr3t-typed'
 rm -f "$D/socks.json"
 htmlf=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vpn-fail.sh" \
 	REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
 if printf '%s\n' "$htmlf" | grep -q 'id=card-socks>' \
    && printf '%s\n' "$htmlf" | grep -q 'value="10.9.9.9"' \
    && printf '%s\n' "$htmlf" | grep -q 'value="bob"' \
+   && printf '%s\n' "$htmlf" | grep -q 'type=password name=pass value=""' \
+   && printf '%s\n' "$htmlf" | grep -q 'class=pwt' \
+   && ! printf '%s\n' "$htmlf" | grep -q 's3cr3t-typed' \
    && printf '%s\n' "$htmlf" | grep -q 'class=msg>ERROR'; then
-	ok "failed SOCKS5 save keeps the card open with the typed values"
+	ok "failed SOCKS5 save keeps the card open with the typed values, not the password"
 else
 	bad "failed save keeps values"
 fi
-
 # SOCKS5 is the connected protocol when that Connect button was used.
 echo socks > "$D/proto"
 printf '%s\n' '{"address":"10.0.0.8","port":1080,"user":"","pass":""}' > "$D/socks.json"

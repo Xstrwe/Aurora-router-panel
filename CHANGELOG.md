@@ -91,6 +91,10 @@ Install the VPN clients from the panel. Pre-release.
     so restarting Xray or Hysteria under traffic failed with "address already in use" for
     about a minute. The services of Xray, Hysteria 2 and dnsproxy now start with
     `GODEBUG=multipathtcp=0`; a restart takes about 5-10 seconds.
+- The SOCKS5 and HTTP upstream cards hide the saved password the same way as Naive:
+  the field is empty with a "saved" placeholder and a show/hide button, the password
+  is never written into the page, and leaving the field empty keeps the saved
+  password (the saved file is left unchanged when the other fields are the same).
 
 ## 1.5.0a4
 

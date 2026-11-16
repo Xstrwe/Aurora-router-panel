@@ -26,7 +26,7 @@ Install the VPN clients from the panel. Pre-release.
     both versions and counts as installed only when both are present. Both files are replaced
     together after both downloads are verified; if the Naive service is running it is restarted
     once, with rollback of both files.
-  - WireGuard: `kmod-wireguard`, `wireguard-tools` and `ip-full` from opkg (or apk, see below).
+  - WireGuard: `kmod-wireguard`, `wireguard-tools` and `ip-full` from opkg.
 - Free space is checked before anything is downloaded. If GitHub is not reachable
   directly, the download is retried through the local SOCKS entry of the active protocol.
   Only the service whose own binary is replaced is restarted, and only if it was running;
@@ -37,17 +37,6 @@ Install the VPN clients from the panel. Pre-release.
 - New helper scripts `install-client.sh` and `install-lib.sh` in
   `/usr/libexec/aurora-panel`. `install-naive.sh` can report progress.
 - `INSTALL.md` and `README.md` describe the Install buttons.
-- Experimental apk package for OpenWrt 25.x and main (apk-tools 3), untested on hardware.
-  `tools/build-apk.sh` builds `aurora-router-panel-1.5.0_alpha5-r1.apk` with `apk mkpkg`, the same way
-  OpenWrt's `package-pack.mk` does, from the files of the `.ipk` (same files, modes and owners).
-  The apk is `noarch`, depends on `curl`, `jq`, `ucode`, `uhttpd` and `kmod-nft-tproxy`, and replaces
-  `vless-router-panel`. The post-install, post-upgrade, pre-deinstall and post-deinstall scripts are the
-  opkg `postinst`, `prerm` and `postrm` scripts with the same behaviour; on apk the panel listens on
-  the router's LAN address. It is built as a file and a CI artifact only: it is not on the opkg feed and
-  not part of a release.
-- The package manager is detected (opkg, or apk when there is no opkg) by the new helper
-  `pm-lib.sh`. The Install WireGuard button, the WireGuard update and the helper installs of
-  `curl`, `unzip` and `xz` use `apk update` and `apk add` on apk firmware, and opkg as before elsewhere.
 - Fixed on a real GL-BE6500 (found while testing the buttons):
   - Install Naive found no build because the router reports its CPU as
     `aarch64_cortex-a53_neon-vfpv4`; the installer now also tries the name without the

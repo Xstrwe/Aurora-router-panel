@@ -5,7 +5,7 @@
 #   xray      XTLS/Xray-core release zip, checked against the published .dgst (SHA2-256)
 #   hysteria  apernet/hysteria release binary, checked against the published hashes.txt
 #   naive     klzgrad/naiveproxy release (install-naive.sh)
-#   wireguard the OpenWrt/GL.iNet feed: upgrade kmod-wireguard wireguard-tools with opkg or apk
+#   wireguard the OpenWrt/GL.iNet feed: opkg upgrade kmod-wireguard wireguard-tools
 # The previous binary is kept as <binary>.bak and put back if the new one does not start.
 set -u
 WHO=${1:-}; ACT=${2:-check}
@@ -15,8 +15,6 @@ HYSTERIA_BIN=${VLESS_HYSTERIA_BIN:-/usr/bin/hysteria}
 GH=${AURORA_GH_API:-https://api.github.com}
 DL=${AURORA_GH_DL:-https://github.com}
 err() { echo "ERROR: $*"; exit 1; }
-# shellcheck disable=SC1091
-. "$(dirname "$0")/pm-lib.sh"
 case "$ACT" in check|install) ;; *) err "usage: client-update.sh xray|hysteria|naive|wireguard check|install";; esac
 arch() {
 	case "$(uname -m)" in
@@ -82,12 +80,11 @@ case "$WHO" in
 		up naive && "$VSH" restart-svc naive >/dev/null 2>&1
 		echo "OK: naive updated";;
 	wireguard)
-		cur=$(pm_version wireguard-tools)
-		echo "wireguard installed=${cur:-none} source=$(pm_name) feed"
+		cur=$(opkg list-installed wireguard-tools 2>/dev/null | awk '{print $3}')
+		echo "wireguard installed=${cur:-none} source=opkg feed"
 		[ "$ACT" = install ] || exit 0
-		[ "$(pm_name)" != none ] || err "no package manager (opkg or apk) is available"
-		pm_update >/dev/null 2>&1 || err "$(pm_name) update failed"
-		pm_upgrade wireguard-tools kmod-wireguard >/dev/null 2>&1 || err "$(pm_name) upgrade failed"
+		opkg update >/dev/null 2>&1 || err "opkg update failed"
+		opkg upgrade wireguard-tools kmod-wireguard >/dev/null 2>&1 || err "opkg upgrade failed"
 		echo "OK: wireguard packages upgraded (the running interface keeps the old kernel module until reboot)";;
 	*) err "usage: client-update.sh xray|hysteria|naive|wireguard check|install";;
 esac

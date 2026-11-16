@@ -9,7 +9,7 @@
 #     version     release tag, e.g. v154.0.8037.49-5 (default: latest)
 #     url         direct https URL to a naiveproxy-*-openwrt-*.tar.xz
 #
-# Needs: curl, and xz (or unxz). On OpenWrt: opkg install xz (apk add xz on 25.x)
+# Needs: curl, and xz (or unxz). On OpenWrt: opkg install xz
 # Does not overwrite /etc/naive/config.json.
 # The archive is checked against the SHA-256 digest GitHub publishes for the release asset
 # (when the release has one). With AURORA_PROGRESS=1 it prints "@PROGRESS <pct> <stage>" lines
@@ -60,7 +60,7 @@ if command -v xz >/dev/null 2>&1; then
 elif command -v unxz >/dev/null 2>&1; then
 	unxz_c() { unxz -c "$1"; }
 else
-	err "xz is required to unpack the archive (opkg update && opkg install xz; on OpenWrt 25.x: apk update && apk add xz)"
+	err "xz is required to unpack the archive (opkg update && opkg install xz)"
 fi
 
 detect_arch() {

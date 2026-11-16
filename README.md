@@ -13,6 +13,6 @@ The clients are not inside the `.ipk`, and nothing is downloaded when the packag
 
 The panel also has **SOCKS5** and **HTTP** upstreams (they run through Xray). IPv6 is not proxied.
 
-Install and set the panel up: see [INSTALL.md](INSTALL.md). Firmware that uses apk instead of opkg (OpenWrt 25.x and main) can use an experimental apk build of the panel; it is untested on hardware, see [OpenWrt with apk](INSTALL.md#openwrt-with-apk-untested-on-hardware).
+Install and set the panel up: see [INSTALL.md](INSTALL.md).
 
 Changelog: [CHANGELOG.md](CHANGELOG.md). License: MIT, see [LICENSE](LICENSE).

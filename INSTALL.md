@@ -219,7 +219,7 @@ The row **Transparent mode for the network:** is honest: it is green only when t
 
 The status card also shows:
 
-- **Service (daemon):** Xray, Naive, Hysteria and WireGuard. Green if that daemon is running, red and bold if the *active* protocol’s daemon is not running, grey if a daemon is stopped because it is not the active protocol (that is normal: only one runs). Each name has a small restart button that restarts only that service. A service that is not installed, or WireGuard with no saved config, is shown red with the reason, and its restart button is disabled.
+- **Client:** Xray, Naive, Hysteria and WireGuard. Green if that daemon is running, red and bold if the *active* protocol’s daemon is not running, grey if a daemon is stopped because it is not the active protocol (that is normal: only one runs). Each name has a small restart button that restarts only that service. A service that is not installed, or WireGuard with no saved config, is shown red with the reason, and its restart button is disabled.
 - **Protocol:** the protocol last applied by a **Connect …** button.
 - **Server:** the configured server host of the active protocol, from its own saved link or config (the IP if it is configured by IP; no port).
 - **Egress IP:** the public address seen through the live tunnel, followed by the active protocol's server port (`<egress-ip>:<port>`), filled in after the page has loaded so a dead tunnel never delays the page. If it cannot be determined, the row says **could not determine**.

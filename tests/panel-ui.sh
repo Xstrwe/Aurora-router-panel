@@ -370,7 +370,7 @@ ipget() { env PIDOF_UP="$1" VLESS_AU_EGRESS="$2" REQUEST_METHOD=GET QUERY_STRING
 row() { printf '%s\n' "$html" | sed -n "s/.*<tr><td>$1<\\/td><td>\\(.*\\)<\\/td><\\/tr>.*/\\1/p" | head -1; }
 proto=$(row 'Protocol:')
 exitrow=$(printf '%s\n' "$html" | grep '<td>Egress IP:</td>' | head -1)
-svc=$(row 'Service (daemon):')
+svc=$(row 'Client:')
 if printf '%s' "$proto" | grep -q '>Hysteria2<' \
    && printf '%s' "$exitrow" | grep -q 'id=egress' \
    && ! printf '%s' "$exitrow" | grep -q '192.0.2' \

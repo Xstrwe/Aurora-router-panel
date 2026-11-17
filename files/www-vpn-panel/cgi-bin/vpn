@@ -524,7 +524,7 @@ cat <<HTML
 <select name=mode><option value=ru $M1>Everything except Russian sites</option><option value=all $M2>Everything through the tunnel</option></select>
 <button>Apply</button></form></td></tr>
 <tr><td>Transparent mode for the network:</td><td><b style="color:$SC">$ST</b></td></tr>
-<tr><td>Service (daemon):</td><td><div class=svcs>$SVC</div></td></tr>
+<tr><td>Client:</td><td><div class=svcs>$SVC</div></td></tr>
 <tr><td>Protocol:</td><td><b>$PN</b></td></tr>
 <tr><td>Server:</td><td>$HOST</td></tr>
 <tr><td>Egress IP:</td><td id=egress data-port="$SRVP">detecting…</td></tr>

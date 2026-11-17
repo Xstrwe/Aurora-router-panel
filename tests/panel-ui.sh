@@ -546,6 +546,13 @@ else
 	bad "Auto-update row still has a border-top divider"
 fi
 
+# VPN card action buttons sit about half a line below Auto-update / Advanced.
+if grep -q '.vpn>.c>form>.btns{margin-top:auto;padding-top:12px}' "$CGI"; then
+	ok "VPN card action buttons have 12px extra top space"
+else
+	bad "VPN card button spacing"
+fi
+
 # Saved SOCKS5/HTTP passwords never appear in the page; the field is empty with a "saved" hint.
 cp "$D/http.json" "$D/http.json.pw.bak"
 printf '%s\n' '{"address":"proxy.example","port":8080,"user":"u","pass":"s3cr3t-HttpPw","tls":true,"sni":"proxy.example","allowInsecure":false}' > "$D/http.json"

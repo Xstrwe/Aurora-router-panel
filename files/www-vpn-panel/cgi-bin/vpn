@@ -464,7 +464,7 @@ button.rb .rg{font-size:.9em;line-height:1.2em}
 .grid .c{margin:0}
 .vpn>.c{box-sizing:border-box;display:flex;flex-direction:column;height:100%;position:relative;overflow:visible}
 .vpn>.c>form{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;position:relative;overflow:visible}
-.vpn .btns{margin-top:auto}
+.vpn>.c>form>.btns{margin-top:auto;padding-top:12px}
 .vpn .pf.nv{margin-top:8px;gap:6px 10px}
 .vpn .pf.nv label{gap:2px;font-size:12px}
 .vpn .pf.nv input[type=text],.vpn .pf.nv input[type=password]{font-size:14px;padding:5px 8px}

@@ -65,6 +65,8 @@ Install the VPN clients from the panel. Pre-release.
   touch devices and with a keyboard. The **Advanced** trigger sits on the second
   row, left column, under Server (where the Username label used to be). The pop-up
   stays open while the pointer is inside it, and it does not change the card height.
+  The Connect and Update now buttons sit about half a line lower, so they are not
+  tight against the Auto-update row or the Advanced link.
 - The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
   README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**
   and **Port** (default 443) fields stay on the card. **Username**, **Password** (with

@@ -129,7 +129,7 @@ The progress of each install is also written to `/tmp/aurora-install-<xray|hy2|n
 
 ## Set up the panel
 
-The page title is **vpn.panel-gl.inet**. A status card sits at the top, with **Enable**, **Disable**, **Test connection** and **Speed** under **Egress IP:** (results appear under those buttons). Then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
+The page title is **vpn.panel-gl.inet**. A status card sits at the top, with **Enable**, **Disable**, **Test connection** and **Speed** under **Egress IP:Port:** (results appear under those buttons). Then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
 
 ### Add a protocol and connect
 
@@ -219,10 +219,10 @@ The row **Transparent mode for the network:** is honest: it is green only when t
 
 The status card also shows:
 
-- **Client:** Xray, Naive, Hysteria and WireGuard. Green and bold if that daemon is running, red and bold if the *active* protocol’s daemon is not running, grey (regular weight) if a daemon is stopped because it is not the active protocol (that is normal: only one runs). The Protocol, Server and Egress IP values are regular weight, like the row labels; only those green and red state values are bold. Each name has a small restart button that restarts only that service. A service that is not installed, or WireGuard with no saved config, is shown red with the reason, and its restart button is disabled.
+- **Client:** Xray, Naive, Hysteria and WireGuard. Green and bold if that daemon is running, red and bold if the *active* protocol’s daemon is not running, grey (regular weight) if a daemon is stopped because it is not the active protocol (that is normal: only one runs). The Protocol, Server and Egress IP:Port values are regular weight, like the row labels; only those green and red state values are bold. Client names are sized to match the restart icons beside them. The Transparent mode row is 1.5px smaller than the other status rows. Each name has a small restart button that restarts only that service. A service that is not installed, or WireGuard with no saved config, is shown red with the reason, and its restart button is disabled.
 - **Protocol:** the protocol last applied by a **Connect …** button.
 - **Server:** the configured server host of the active protocol, from its own saved link or config (the IP if it is configured by IP; no port).
-- **Egress IP:** the public address seen through the live tunnel, followed by the active protocol's server port (`<egress-ip>:<port>`), filled in after the page has loaded so a dead tunnel never delays the page. If it cannot be determined, the row says **could not determine**.
+- **Egress IP:Port:** the public address seen through the live tunnel, followed by the active protocol's server port (`<egress-ip>:<port>`), filled in after the page has loaded so a dead tunnel never delays the page. If it cannot be determined, the row says **could not determine**.
 
 From the command line:
 

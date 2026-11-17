@@ -369,7 +369,7 @@ html=$(render xray 0 "$TMP/hooks/egress-final.sh")
 ipget() { env PIDOF_UP="$1" VLESS_AU_EGRESS="$2" REQUEST_METHOD=GET QUERY_STRING=ip "$CGI"; }
 row() { printf '%s\n' "$html" | sed -n "s/.*<tr><td>$1<\\/td><td>\\(.*\\)<\\/td><\\/tr>.*/\\1/p" | head -1; }
 proto=$(row 'Protocol:')
-exitrow=$(printf '%s\n' "$html" | grep '<td>Egress IP:</td>' | head -1)
+exitrow=$(printf '%s\n' "$html" | grep '<td>Egress IP:Port:</td>' | head -1)
 svc=$(row 'Client:')
 if [ "$proto" = Hysteria2 ] \
    && printf '%s' "$exitrow" | grep -q 'id=egress' \
@@ -554,13 +554,18 @@ else
 fi
 
 # One typeface and size for body text, fields, hints, Auto-update and buttons.
-if grep -q 'body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px' "$CGI" \
+if grep -q 'body{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px' "$CGI" \
    && grep -q '.au,.hint,.http-udp,.msg,.itxt,.ipct,.svcs,td{font-family:inherit;font-size:inherit' "$CGI" \
-   && grep -q 'input,select,textarea,button{font-family:inherit;font-size:14px' "$CGI" \
+   && grep -q 'input,select,textarea,button{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px' "$CGI" \
+   && grep -q 'input,select,textarea{color:#222}' "$CGI" \
    && ! grep -q 'font-family:monospace' "$CGI" \
    && grep -q 'button{[^}]*padding:6px 12px' "$CGI" \
    && grep -q 'button{[^}]*height:30px' "$CGI" \
-   && grep -q 'button.rb{[^}]*min-height:0' "$CGI"; then
+   && grep -q 'button.rb{[^}]*min-height:0' "$CGI" \
+   && grep -q '#status .modef select,#status .modef button{height:22px' "$CGI" \
+   && grep -q '#status tr.tmrow td,#status tr.tmrow td span{font-size:12.5px}' "$CGI" \
+   && grep -q '#status .svc>span{[^}]*font-size:17px' "$CGI" \
+   && grep -q '.au{[^}]*gap:0 4px' "$CGI"; then
 	ok "one 14px font for body, fields and buttons; compact 30px buttons"
 else
 	bad "unified typography or button size"
@@ -568,7 +573,9 @@ fi
 
 # Naive Auto-update row is forced onto one line even inside the card grid.
 if grep -q '^\.au{[^}]*flex-wrap:nowrap' "$CGI" \
-   && grep -q '.vpn .pf.nv .au label{display:inline-flex;flex-direction:row' "$CGI"; then
+   && grep -q '.vpn .pf.nv .au label{display:inline-flex;flex-direction:row' "$CGI" \
+   && grep -q '.au{[^}]*gap:0 4px' "$CGI" \
+   && grep -q '.au input\[type=checkbox\]{margin:0' "$CGI"; then
 	ok "Naive Advanced Auto-update row stays on one line"
 else
 	bad "Naive Auto-update row CSS"
@@ -705,14 +712,14 @@ else
 	bad "service row (buttons=$nrb)"
 fi
 # Mode is the first row of the status card (above the transparent-mode row) and still posts action=mode.
-if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr><td>Transparent mode for the network:</td>' \
+if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr class=tmrow><td>Transparent mode for the network:</td>' \
    && ! printf '%s\n' "$html" | grep -q 'id=modecard' \
    && [ "$(printf '%s\n' "$html" | grep -c '<b>Mode:</b>')" = 0 ]; then
 	ok "the mode selector is the first row of the status card; no separate mode card"
 else
 	bad "mode row position"
 fi
-# Enable / Disable / Test / Speed live in the status card, under Egress IP, not in a separate card.
+# Enable / Disable / Test / Speed live in the status card, under Egress IP:Port, not in a separate card.
 python3 - "$html" <<'PYEND'
 import re,sys
 h=sys.argv[1]
@@ -723,9 +730,9 @@ if not m:
 if not m:
     sys.exit(2)
 card=m.group(1)
-if 'Egress IP:' not in card: sys.exit(3)
-# buttons after Egress IP
-if card.find('Egress IP:') > card.find('name=action value=on'): sys.exit(4)
+if 'Egress IP:Port:' not in card: sys.exit(3)
+# buttons after Egress IP:Port
+if card.find('Egress IP:Port:') > card.find('name=action value=on'): sys.exit(4)
 if not all(s in card for s in ('name=action value=on','name=action value=off','name=action value=test','name=action value=speed','class=acts')):
     sys.exit(5)
 # no leftover separate button card
@@ -733,7 +740,7 @@ if 'style="display:flex;flex-wrap:wrap;gap:8px"' in h: sys.exit(6)
 sys.exit(0)
 PYEND
 if [ $? -eq 0 ] && grep -q '.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}' "$CGI"; then
-	ok "Enable, Disable, Test and Speed sit in the status card under Egress IP"
+	ok "Enable, Disable, Test and Speed sit in the status card under Egress IP:Port"
 else
 	bad "status card action buttons"
 fi
@@ -1198,7 +1205,7 @@ hrow() { # $1 up-list $2 proto $3 probe-hook $4 NFT_FAIL -> rendered page
 	env PIDOF_UP="$1" NFT_FAIL="${4:-}" VLESS_AU_PROBE="$3" VLESS_HEALTH_CACHE="$TMP/health.cache" VLESS_AU_EGRESS="$TMP/hooks/egress-final.sh" \
 		VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" REQUEST_METHOD=GET "$CGI"
 }
-tm() { printf '%s\n' "$1" | sed -n 's/.*<tr><td>Transparent mode for the network:<\/td><td><span style="color:\(#[0-9a-fA-F]*\)[^"]*">\(.*\)<\/span><\/td><\/tr>.*/\1 \2/p' | head -1; }
+tm() { printf '%s\n' "$1" | sed -n 's/.*<tr\( class=tmrow\)\?><td>Transparent mode for the network:<\/td><td><span style="color:\(#[0-9a-fA-F]*\)[^"]*">\(.*\)<\/span><\/td><\/tr>.*/\2 \3/p' | head -1; }
 h_ok=$(hrow naive naive "$TMP/hooks/health-ok.sh")
 h_bad=$(hrow naive naive "$TMP/hooks/health-bad.sh")
 h_down=$(hrow xray naive "$TMP/hooks/health-ok.sh")
@@ -1482,6 +1489,7 @@ meas="""<script>
     if(pop0)pop0.classList.add("open");
     var btns=[].slice.call(document.querySelectorAll("button")).filter(function(b){
       if(b.classList.contains("rb")||b.classList.contains("advbtn")||b.classList.contains("pxclose"))return false;
+      if(b.closest&&b.closest(".modef"))return false;
       if(b.hidden||b.getAttribute("hidden")!==null)return false;
       var r=b.getBoundingClientRect();
       return r.height>0 && r.width>0;
@@ -1541,18 +1549,59 @@ meas="""<script>
       }
     });
     typItems.forEach(function(it){
-      var typ=it.slice(it.indexOf(":")+1).split("|");
-      if(!typFam)typFam=typ[0];
-      if(!typSize)typSize=typ[1];
-      if(typ[0]!==typFam||typ[1]!==typSize)typOk=0;
+      var bits=it.split("|");
+      var fam=bits[0].slice(bits[0].lastIndexOf(":")+1);
+      if(!typFam)typFam=fam;
+      if(fam!==typFam)typOk=0;
     });
-    report("ui-status-type", typItems.join(";")+" || famok="+(typOk?"1":"0")+" size="+typSize);
+    report("ui-status-type", typItems.join(";")+" || famok="+(typOk?"1":"0"));
+    var serverEl=null;
+    [].slice.call(document.querySelectorAll("#status table tr")).forEach(function(tr){
+      var lab=(tr.cells[0]&&tr.cells[0].textContent||"").replace(/\\s+/g," ").trim().replace(/:$/,"");
+      if(lab==="Server") serverEl=tr.cells[1];
+    });
+    function typFont(el){var s=getComputedStyle(el);return [s.fontFamily,s.fontSize,typW(s.fontWeight),s.color.replace(/\\s/g,"")].join("|")}
+    var srv=serverEl?typFont(serverEl):"missing";
+    function sameFont(el,withColor){
+      if(!el||!serverEl)return "missing";
+      var a=typFont(el).split("|"), b=srv.split("|");
+      var ok=(a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2]&&(!withColor||a[3]===b[3]));
+      return (ok?"ok":a.join("/")+" vs "+b.join("/"));
+    }
+    var ff=[
+      "input:"+sameFont(document.querySelector(".pf input[type=text]"),true),
+      "textarea:"+sameFont(document.querySelector(".vpn textarea")||document.querySelector("textarea"),true),
+      "select:"+sameFont(document.querySelector(".pf select")||document.querySelector("select[name=int]"),true),
+      "modeSel:"+sameFont(document.querySelector("select[name=mode]"),true)
+    ];
+    report("ui-field-font", ff.join(";")+" || server="+srv);
+    var modeSel=document.querySelector("#status .modef select");
+    var modeBtn=document.querySelector("#status .modef button");
+    function boxH(el){return el?Math.round(el.getBoundingClientRect().height):0}
+    report("ui-mode-ht", modeSel&&modeBtn? (boxH(modeSel)+":"+boxH(modeBtn)):"missing");
+    var cName=document.querySelector("#status .svc>span");
+    var cBtn=document.querySelector("#status button.rb");
+    report("ui-client-ht", (cName&&cBtn)? (Math.round(cName.getBoundingClientRect().height)+":"+Math.round(cBtn.getBoundingClientRect().height)):"missing");
+    function auGap(au){
+      if(!au)return "missing";
+      var cs=getComputedStyle(au);
+      var gap=cs.columnGap||cs.gap;
+      var lab=au.querySelector("label");
+      var lg=lab?(getComputedStyle(lab).columnGap||getComputedStyle(lab).gap):"na";
+      var cb=au.querySelector("input[type=checkbox]");
+      var ml=cb?getComputedStyle(cb).marginLeft:"na";
+      var mr=cb?getComputedStyle(cb).marginRight:"na";
+      return gap+"|"+lg+"|"+ml+"|"+mr;
+    }
+    var auCard=document.querySelector(".grid.vpn .c > form > .au")||document.querySelector(".grid.vpn form > .au");
+    var auPop=document.querySelector(".advbox .au");
+    report("ui-au-gap", auGap(auCard)+" || "+auGap(auPop));
         report("ui-state", (tmEl?(tmEl.textContent.trim()+":"+getComputedStyle(tmEl).color):"missing")+" || "+clients.join(";"));
     var pop=document.querySelector(".advpop");
     if(pop)pop.classList.add("open");
     var auN=document.querySelector(".advbox .au");
     if(auN){
-      var kids=[].slice.call(auN.querySelectorAll("b, label, select"));
+      var kids=[].slice.call(auN.querySelectorAll("span, label, select"));
       var tops=kids.map(function(el){return Math.round(el.getBoundingClientRect().top)});
       var min=Math.min.apply(null,tops), max=Math.max.apply(null,tops);
       report("ui-naive-au", (max-min)+":"+Math.round(auN.getBoundingClientRect().height)+":"+tops.join(","));
@@ -1581,6 +1630,10 @@ PYEND
 		ui_state=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-state">\([^<]*\)<.*/\1/p' | head -1)
 		ui_nau=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-naive-au">\([^<]*\)<.*/\1/p' | head -1)
 		ui_typ=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-status-type">\([^<]*\)<.*/\1/p' | head -1)
+		ui_ffield=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-field-font">\([^<]*\)<.*/\1/p' | head -1)
+		ui_modeht=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-mode-ht">\([^<]*\)<.*/\1/p' | head -1)
+		ui_cliht=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-client-ht">\([^<]*\)<.*/\1/p' | head -1)
+		ui_augap=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-au-gap">\([^<]*\)<.*/\1/p' | head -1)
 	}
 	chrome_ui "$TMP/rt/ui-on.html"
 	# fonts: every listed control is ok
@@ -1656,7 +1709,8 @@ print("nauheight=%d"%h)
 	else
 		bad "render ON state colours: $ui_state"
 	fi
-	# Status card: one family and 14px size; green/red state values are 700, everything else 400.
+	# Status card typography: one family; 12.5px Transparent mode, 17px client names,
+	# 14px otherwise; green/red state values are 700, everything else 400.
 	eval "$(printf '%s' "$ui_typ" | python3 -c '
 import sys
 s=sys.stdin.read().strip()
@@ -1665,26 +1719,30 @@ ok = 1
 reasons = []
 if "famok=1" not in meta:
     ok = 0
-    reasons.append("family/size mismatch")
-if "size=14px" not in meta.replace(" ", ""):
-    # meta is "famok=1 size=14px"
-    if "size=14px" not in meta:
-        ok = 0
-        reasons.append("size "+meta)
+    reasons.append("family mismatch")
+def expected_size(name):
+    if name.startswith("lab-Transparent") or name == "val-tm":
+        return "12.5px"
+    if name.startswith("val-") and name not in ("val-tm", "val-Protocol", "val-Server") and not name.startswith("val-Egress"):
+        return "17px"
+    return "14px"
 state_n = plain_n = 0
 for part in body.split(";"):
     if not part or ":" not in part:
         continue
-    name, typ = part.split(":", 1)
-    bits = typ.split("|")
-    if len(bits) < 4:
+    bits = part.split("|")
+    if len(bits) < 4 or ":" not in bits[0]:
         ok = 0
-        reasons.append("bad "+name)
+        reasons.append("bad "+part[:40])
         continue
+    head = bits[0]
+    i = head.rfind(":")
+    name, _fam = head[:i], head[i+1:]
     sz, w, role = bits[1], bits[2], bits[3]
-    if sz != "14px":
+    exp = expected_size(name)
+    if sz != exp:
         ok = 0
-        reasons.append(name+" size="+sz)
+        reasons.append(name+" size="+sz+" want="+exp)
     if role == "state":
         state_n += 1
         if w != "700":
@@ -1699,12 +1757,93 @@ if state_n < 2 or plain_n < 4:
     ok = 0
     reasons.append("counts state=%d plain=%d" % (state_n, plain_n))
 print("typok=%s" % (1 if ok else 0))
-print("typreasons=%s" % (",".join(reasons) if reasons else "ok"))
+print("typreasons=%s" % repr(",".join(reasons) if reasons else "ok"))
 ')"
 	if [ "${typok:-0}" = 1 ]; then
-		ok "render: status labels and values share one 14px font; only green/red state values are bold"
+		ok "render: status typography uses one family; only green/red state values are bold"
 	else
 		bad "render status typography: ${typreasons:-fail} ($ui_typ)"
+	fi
+	# Fields match the Server value font (family, 14px, weight, colour).
+	if printf '%s' "$ui_ffield" | grep -q 'input:ok' \
+	   && printf '%s' "$ui_ffield" | grep -q 'textarea:ok' \
+	   && printf '%s' "$ui_ffield" | grep -q 'select:ok' \
+	   && printf '%s' "$ui_ffield" | grep -q 'modeSel:ok' \
+	   && ! printf '%s' "$ui_ffield" | grep -q 'missing'; then
+		ok "render: inputs, selects and link fields use the same font as the Server value"
+	else
+		bad "render field font: $ui_ffield"
+	fi
+	# Mode select and Apply: slim ~22px, same height, text fits (not shorter than ~20).
+	eval "$(printf '%s' "$ui_modeht" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=s.split(":")
+ok=0
+try:
+    a,b=int(parts[0]),int(parts[1])
+    ok=1 if (20<=a<=24 and 20<=b<=24 and abs(a-b)<=1) else 0
+except Exception:
+    a=b=-1
+print("modehtok=%d"%ok)
+print("modesel_h=%s"%parts[0] if parts else "modesel_h=0")
+print("modebtn_h=%s"%(parts[1] if len(parts)>1 else "0"))
+')"
+	if [ "${modehtok:-0}" = 1 ]; then
+		ok "render: Mode select and Apply are a slim matching height (${modesel_h}/${modebtn_h}px)"
+	else
+		bad "render Mode control height: $ui_modeht"
+	fi
+	# Client names match the restart-icon height (within 2px).
+	eval "$(printf '%s' "$ui_cliht" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=s.split(":")
+ok=0
+try:
+    a,b=int(parts[0]),int(parts[1])
+    ok=1 if (a>=16 and b>=16 and abs(a-b)<=2) else 0
+except Exception:
+    a=b=-1
+print("clihtok=%d"%ok)
+print("cliname_h=%s"% (parts[0] if parts else "0"))
+print("clibtn_h=%s"% (parts[1] if len(parts)>1 else "0"))
+')"
+	if [ "${clihtok:-0}" = 1 ]; then
+		ok "render: Client names match the restart icon height (${cliname_h}/${clibtn_h}px)"
+	else
+		bad "render Client name height: $ui_cliht"
+	fi
+	# Auto-update gaps are tight on the card and in the Naive pop-up (computed gap <= 6px, no checkbox margin).
+	eval "$(printf '%s' "$ui_augap" | python3 -c '
+import sys,re
+s=sys.stdin.read().strip()
+ok=1
+reasons=[]
+def px(v):
+    v=(v or "").strip()
+    if v in ("0","0px","normal"):
+        return 0.0
+    m=re.match(r"^([0-9.]+)px$", v)
+    return float(m.group(1)) if m else 99.0
+for i,side in enumerate(s.split(" || ")):
+    label=("card","popup")[i] if i<2 else "au"+str(i)
+    bits=side.split("|")
+    if side.strip()=="missing" or len(bits)<4:
+        ok=0
+        reasons.append(label+" missing")
+        continue
+    gap,lg,ml,mr=bits[0],bits[1],bits[2],bits[3]
+    if px(gap)>6 or px(lg)>6 or px(ml)>1 or px(mr)>1:
+        ok=0
+        reasons.append(label+" "+side)
+print("augapok=%d"%ok)
+print("augapreasons=%s"%repr(",".join(reasons) if reasons else "ok"))
+')"
+	if [ "${augapok:-0}" = 1 ]; then
+		ok "render: Auto-update controls sit tight on the card and in the Naive pop-up"
+	else
+		bad "render Auto-update gaps: ${augapreasons:-fail} ($ui_augap)"
 	fi
 	chrome_ui "$TMP/rt/ui-off.html"
 	if printf '%s' "$ui_state" | grep -q 'DISABLED (direct internet):rgb(198, 40, 40)'; then

@@ -17,9 +17,7 @@ au_row(){
   I1=""; I6=""; I24=""
   case "$AU_INTERVAL" in 1h) I1=selected ;; 6h) I6=selected ;; *) I24=selected ;; esac
   cat <<BLK
-<div class=au>Auto-update
-<label><input type=checkbox name=en value=1 $EN> on</label>
-<label>Interval <select name=int>
+<div class=au><span>Auto-update</span><label><input type=checkbox name=en value=1 $EN>on</label><label>Interval <select name=int>
 <option value=1h $I1>1 hour</option>
 <option value=6h $I6>6 hours</option>
 <option value=24h $I24>24 hours</option>
@@ -441,15 +439,16 @@ echo
 cat <<HTML
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>vpn.panel-gl.inet</title><style>
-body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;font-weight:400;line-height:1.4;max-width:1040px;margin:20px auto;padding:0 14px;background:#f4f5f7;color:#222}
+body{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:400;line-height:1.4;max-width:1040px;margin:20px auto;padding:0 14px;background:#f4f5f7;color:#222}
 .au,.hint,.http-udp,.msg,.itxt,.ipct,.svcs,td{font-family:inherit;font-size:inherit;font-style:inherit}
-input,select,textarea,button{font-family:inherit;font-size:14px;font-style:inherit;font-weight:400}
+input,select,textarea,button{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:400;font-style:normal;letter-spacing:normal}
+input,select,textarea{color:#222}
 .c{background:#fff;border-radius:12px;padding:16px 18px;margin:14px 0;box-shadow:0 1px 4px #0002}
-button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;color:#fff;background:#1565c0;padding:6px 12px;font-family:inherit;font-size:inherit;font-weight:inherit;font-style:inherit;line-height:1.25;height:30px;min-height:30px;cursor:pointer}
+button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;color:#fff;background:#1565c0;padding:6px 12px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:400;font-style:normal;letter-spacing:normal;line-height:1.25;height:30px;min-height:30px;cursor:pointer}
 [hidden]{display:none!important}
 .big{width:100%}
-textarea{display:block;width:100%;box-sizing:border-box;resize:none;overflow:auto;border:1px solid #ccc;border-radius:6px;font-family:inherit;font-size:inherit;line-height:18px;padding:0 8px;height:38px;min-height:38px;max-height:38px;word-break:break-all;field-sizing:fixed;white-space:pre-wrap}
-select{font-family:inherit;font-size:inherit;font-weight:inherit;font-style:inherit;padding:6px 8px;height:30px;box-sizing:border-box;border:1px solid #ccc;border-radius:6px;background:#fff;color:inherit}
+textarea{display:block;width:100%;box-sizing:border-box;resize:none;overflow:auto;border:1px solid #ccc;border-radius:6px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:400;font-style:normal;letter-spacing:normal;color:#222;line-height:18px;padding:0 8px;height:38px;min-height:38px;max-height:38px;word-break:break-all;field-sizing:fixed;white-space:pre-wrap}
+select{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:400;font-style:normal;letter-spacing:normal;color:#222;padding:6px 8px;height:30px;box-sizing:border-box;border:1px solid #ccc;border-radius:6px;background:#fff}
 .msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}
 td{padding:3px 8px 3px 0}
 #status table{border-collapse:collapse;border-spacing:0;background:transparent;border:0}
@@ -458,6 +457,10 @@ td{padding:3px 8px 3px 0}
 #status,#status table,#status td,#status .svcs,#status .svc,#status .svc>span{font-weight:400;font-style:normal}
 #status .modef{background:transparent}
 #status select{background:#fff}
+#status .modef select,#status .modef button{height:22px;min-height:22px;padding-top:0;padding-bottom:0;line-height:20px;box-sizing:border-box}
+#status tr.tmrow td,#status tr.tmrow td span{font-size:12.5px}
+#status .svc>span{display:inline-block;font-size:17px;line-height:17px;height:17px;vertical-align:middle}
+#status button.rb{vertical-align:middle}
 .banner{padding:12px 14px;border-radius:8px;background:#fff;border:1px solid #f3c1c1;margin:0 0 14px}
 .banner .why{color:#c62828;font-weight:700;text-transform:uppercase;white-space:pre-wrap}
 .banner .how{color:#1a7f37;font-weight:700;text-transform:uppercase;white-space:pre-wrap;margin-top:8px}
@@ -503,15 +506,16 @@ button.advbtn:hover,button.advbtn:focus{text-decoration:underline}
 @media(max-width:480px){.instgrid{grid-template-columns:1fr}}
 .pf{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:8px}
 .pf label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#444}
-.pf input[type=text],.pf input[type=password],.pf input[type=number],.pf select{font-family:inherit;font-size:14px;font-weight:400;font-style:inherit;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;height:30px}
+.pf input[type=text],.pf input[type=password],.pf input[type=number],.pf select{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:400;font-style:normal;letter-spacing:normal;color:#222;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;height:30px}
 .pf .chk{flex-direction:row;align-items:center;gap:8px}
 .pf .span2{grid-column:1/-1}
 .tls-extra{display:contents}
 .tls-extra[hidden]{display:none}
 .http-udp{color:#777;margin:10px 0 0}
-.au{display:flex;flex-wrap:nowrap;align-items:center;gap:4px 14px;margin-top:12px;white-space:nowrap}
-.au label,.pf .au label,.vpn .pf.nv .au label{display:inline-flex;flex-direction:row;align-items:center;gap:6px;margin:0;font-size:inherit;font-weight:inherit;color:inherit;white-space:nowrap}
-.au select{font-size:inherit;padding:4px 8px;height:30px}
+.au{display:flex;flex-wrap:nowrap;align-items:center;gap:0 4px;margin-top:12px;white-space:nowrap}
+.au label,.pf .au label,.vpn .pf.nv .au label{display:inline-flex;flex-direction:row;align-items:center;gap:4px;margin:0;padding:0;font-size:inherit;font-weight:inherit;color:inherit;white-space:nowrap}
+.au input[type=checkbox]{margin:0;padding:0;flex:none;vertical-align:middle}
+.au select{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:400;font-style:normal;letter-spacing:normal;color:#222;padding:4px 8px;height:30px}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .fld{margin-top:6px}
 .pcell{min-width:0}
@@ -537,11 +541,11 @@ cat <<HTML
 <tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>
 <select name=mode><option value=ru $M1>Everything except Russian sites</option><option value=all $M2>Everything through the tunnel</option></select>
 <button>Apply</button></form></td></tr>
-<tr><td>Transparent mode for the network:</td><td><span style="color:$SC;font-weight:700">$ST</span></td></tr>
+<tr class=tmrow><td>Transparent mode for the network:</td><td><span style="color:$SC;font-weight:700">$ST</span></td></tr>
 <tr><td>Client:</td><td><div class=svcs>$SVC</div></td></tr>
 <tr><td>Protocol:</td><td>$PN</td></tr>
 <tr><td>Server:</td><td>$HOST</td></tr>
-<tr><td>Egress IP:</td><td id=egress data-port="$SRVP">detecting…</td></tr>
+<tr><td>Egress IP:Port:</td><td id=egress data-port="$SRVP">detecting…</td></tr>
 </table>
 <div class=acts>
 <form method=post><input type=hidden name=action value=on><button style="background:#1a7f37">Enable</button></form>

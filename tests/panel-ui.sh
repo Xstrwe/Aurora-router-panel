@@ -371,10 +371,10 @@ row() { printf '%s\n' "$html" | sed -n "s/.*<tr><td>$1<\\/td><td>\\(.*\\)<\\/td>
 proto=$(row 'Protocol:')
 exitrow=$(printf '%s\n' "$html" | grep '<td>Egress IP:</td>' | head -1)
 svc=$(row 'Client:')
-if printf '%s' "$proto" | grep -q '>Hysteria2<' \
+if [ "$proto" = Hysteria2 ] \
    && printf '%s' "$exitrow" | grep -q 'id=egress' \
    && ! printf '%s' "$exitrow" | grep -q '192.0.2' \
-   && printf '%s' "$svc" | grep -q 'color:#1a7f37" title="running">Xray</span>' \
+   && printf '%s' "$svc" | grep -q 'color:#1a7f37;font-weight:700" title="running">Xray</span>' \
    && printf '%s' "$svc" | grep -q 'color:#c62828;font-weight:700" title="not installed">Hysteria</span>' \
    && ! printf '%s\n' "$html" | grep -q 'Restart service' \
    && [ "$(row 'Server:')" = 192.0.2.20 ] \
@@ -1105,8 +1105,8 @@ wr4=$(wgrow VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module")
 rm -f "$TMP/wgup.state"
 if printf '%s' "$wr1" | grep -q 'color:#c62828;font-weight:700" title="not installed' && printf '%s' "$wr1" | grep -q 'class=rb disabled' \
    && printf '%s' "$wr2" | grep -q 'color:#c62828;font-weight:700" title="config not saved' && printf '%s' "$wr2" | grep -q 'class=rb disabled' \
-   && printf '%s' "$wr3" | grep -q 'color:#777" title="stopped: not the active protocol' && ! printf '%s' "$wr3" | grep -q 'class=rb disabled' \
-   && printf '%s' "$wr4" | grep -q 'color:#1a7f37" title="running' && ! printf '%s' "$wr4" | grep -q 'class=rb disabled'; then
+   && printf '%s' "$wr3" | grep -q 'color:#777" title="stopped: not the active protocol' && ! printf '%s' "$wr3" | grep -q 'font-weight:700' && ! printf '%s' "$wr3" | grep -q 'class=rb disabled' \
+   && printf '%s' "$wr4" | grep -q 'color:#1a7f37;font-weight:700" title="running' && ! printf '%s' "$wr4" | grep -q 'class=rb disabled'; then
 	ok "the WireGuard row shows its real state: not installed, config not saved, idle (grey, not red), running"
 else
 	bad "wg row ($wr1 | $wr2 | $wr3 | $wr4)"
@@ -1198,7 +1198,7 @@ hrow() { # $1 up-list $2 proto $3 probe-hook $4 NFT_FAIL -> rendered page
 	env PIDOF_UP="$1" NFT_FAIL="${4:-}" VLESS_AU_PROBE="$3" VLESS_HEALTH_CACHE="$TMP/health.cache" VLESS_AU_EGRESS="$TMP/hooks/egress-final.sh" \
 		VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" REQUEST_METHOD=GET "$CGI"
 }
-tm() { printf '%s\n' "$1" | sed -n 's/.*<tr><td>Transparent mode for the network:<\/td><td><b style="color:\([^"]*\)">\(.*\)<\/b><\/td><\/tr>.*/\1 \2/p' | head -1; }
+tm() { printf '%s\n' "$1" | sed -n 's/.*<tr><td>Transparent mode for the network:<\/td><td><span style="color:\(#[0-9a-fA-F]*\)[^"]*">\(.*\)<\/span><\/td><\/tr>.*/\1 \2/p' | head -1; }
 h_ok=$(hrow naive naive "$TMP/hooks/health-ok.sh")
 h_bad=$(hrow naive naive "$TMP/hooks/health-bad.sh")
 h_down=$(hrow xray naive "$TMP/hooks/health-ok.sh")
@@ -1499,7 +1499,7 @@ meas="""<script>
     var tmEl=null, clientRow=null;
     [].slice.call(document.querySelectorAll("#status tr")).forEach(function(tr){
       var lab=(tr.cells[0]&&tr.cells[0].textContent||"").replace(/\\s+/g," ").trim();
-      if(lab.indexOf("Transparent mode")===0) tmEl=tr.cells[1]&&tr.cells[1].querySelector("b");
+      if(lab.indexOf("Transparent mode")===0) tmEl=tr.cells[1]&&tr.cells[1].querySelector("span");
       if(lab.indexOf("Client:")===0) clientRow=tr.cells[1];
     });
     var clients=[];
@@ -1511,7 +1511,43 @@ meas="""<script>
         clients.push(name+":"+getComputedStyle(s).color);
       });
     }
-    report("ui-state", (tmEl?(tmEl.textContent.trim()+":"+getComputedStyle(tmEl).color):"missing")+" || "+clients.join(";"));
+    function typW(w){return (w==="700"||w==="bold")?"700":((w==="400"||w==="normal")?"400":w)}
+    function typRole(el){
+      var c=getComputedStyle(el).color.replace(/\\s/g,"");
+      if(c==="rgb(26,127,55)"||c==="rgb(198,40,40)")return "state";
+      return "plain";
+    }
+    function typOf(el,role){var s=getComputedStyle(el);return [s.fontFamily,s.fontSize,typW(s.fontWeight),role||"plain"].join("|")}
+    var typItems=[], typFam="", typSize="", typOk=1;
+    [].slice.call(document.querySelectorAll("#status table tr")).forEach(function(tr){
+      var labCell=tr.cells[0], valCell=tr.cells[1];
+      if(!labCell||!valCell)return;
+      var lab=(labCell.textContent||"").replace(/\\s+/g," ").trim().replace(/:$/,"");
+      typItems.push("lab-"+lab+":"+typOf(labCell,"plain"));
+      if(lab.indexOf("Transparent mode")===0){
+        var el=valCell.querySelector("span")||valCell;
+        typItems.push("val-tm:"+typOf(el,typRole(el)));
+      }else if(lab.indexOf("Client")===0){
+        [].slice.call(valCell.querySelectorAll(".svc > span")).forEach(function(s){
+          if(s.classList.contains("rg")||s.tagName==="FORM")return;
+          var name=s.textContent.trim();
+          if(!name||name.charCodeAt(0)===8635)return;
+          typItems.push("val-"+name+":"+typOf(s,typRole(s)));
+        });
+      }else if(lab==="Mode"){
+        /* skip the select and Apply button */
+      }else{
+        typItems.push("val-"+lab+":"+typOf(valCell,"plain"));
+      }
+    });
+    typItems.forEach(function(it){
+      var typ=it.slice(it.indexOf(":")+1).split("|");
+      if(!typFam)typFam=typ[0];
+      if(!typSize)typSize=typ[1];
+      if(typ[0]!==typFam||typ[1]!==typSize)typOk=0;
+    });
+    report("ui-status-type", typItems.join(";")+" || famok="+(typOk?"1":"0")+" size="+typSize);
+        report("ui-state", (tmEl?(tmEl.textContent.trim()+":"+getComputedStyle(tmEl).color):"missing")+" || "+clients.join(";"));
     var pop=document.querySelector(".advpop");
     if(pop)pop.classList.add("open");
     var auN=document.querySelector(".advbox .au");
@@ -1544,6 +1580,7 @@ PYEND
 		ui_mode=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-mode-bg">\([^<]*\)<.*/\1/p' | head -1)
 		ui_state=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-state">\([^<]*\)<.*/\1/p' | head -1)
 		ui_nau=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-naive-au">\([^<]*\)<.*/\1/p' | head -1)
+		ui_typ=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-status-type">\([^<]*\)<.*/\1/p' | head -1)
 	}
 	chrome_ui "$TMP/rt/ui-on.html"
 	# fonts: every listed control is ok
@@ -1618,6 +1655,56 @@ print("nauheight=%d"%h)
 		ok "render ON: Transparent mode is green ENABLED and the running client is green"
 	else
 		bad "render ON state colours: $ui_state"
+	fi
+	# Status card: one family and 14px size; green/red state values are 700, everything else 400.
+	eval "$(printf '%s' "$ui_typ" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+body, _, meta = s.partition(" || ")
+ok = 1
+reasons = []
+if "famok=1" not in meta:
+    ok = 0
+    reasons.append("family/size mismatch")
+if "size=14px" not in meta.replace(" ", ""):
+    # meta is "famok=1 size=14px"
+    if "size=14px" not in meta:
+        ok = 0
+        reasons.append("size "+meta)
+state_n = plain_n = 0
+for part in body.split(";"):
+    if not part or ":" not in part:
+        continue
+    name, typ = part.split(":", 1)
+    bits = typ.split("|")
+    if len(bits) < 4:
+        ok = 0
+        reasons.append("bad "+name)
+        continue
+    sz, w, role = bits[1], bits[2], bits[3]
+    if sz != "14px":
+        ok = 0
+        reasons.append(name+" size="+sz)
+    if role == "state":
+        state_n += 1
+        if w != "700":
+            ok = 0
+            reasons.append(name+" state weight="+w)
+    else:
+        plain_n += 1
+        if w != "400":
+            ok = 0
+            reasons.append(name+" plain weight="+w)
+if state_n < 2 or plain_n < 4:
+    ok = 0
+    reasons.append("counts state=%d plain=%d" % (state_n, plain_n))
+print("typok=%s" % (1 if ok else 0))
+print("typreasons=%s" % (",".join(reasons) if reasons else "ok"))
+')"
+	if [ "${typok:-0}" = 1 ]; then
+		ok "render: status labels and values share one 14px font; only green/red state values are bold"
+	else
+		bad "render status typography: ${typreasons:-fail} ($ui_typ)"
 	fi
 	chrome_ui "$TMP/rt/ui-off.html"
 	if printf '%s' "$ui_state" | grep -q 'DISABLED (direct internet):rgb(198, 40, 40)'; then

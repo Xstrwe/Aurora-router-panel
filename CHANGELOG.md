@@ -83,9 +83,13 @@ Install the VPN clients from the panel. Pre-release.
   trigger stay as they were. The Mode row has no grey highlight or extra
   borders. In the Naive Advanced pop-up the Auto-update row stays on one
   line, like the other cards: Auto-update, the on checkbox, and Interval.
-  Green and red status colours are unchanged: Transparent mode is green
-  ENABLED or red DISABLED, and in Client: a running service is green and a
-  stopped or failed one is red.
+  In the status card, labels and values share the same 14px regular
+  typeface. Green and red *state* values are bold (font-weight 700):
+  Transparent mode ENABLED or DISABLED (or ERROR), and a running or
+  failed Client name. Grey inactive client names, the Protocol value,
+  Server and Egress IP stay regular weight, like the row labels. State
+  is otherwise shown only by colour (green enabled/running, red
+  disabled/failed, grey stopped/inactive).
 - The SOCKS5 and HTTP cards have a close "×" in the top-right corner. It
   hides the card and brings back **Add SOCKS5** / **Add HTTP**. Saved
   proxy settings are not deleted: an unconfigured card still starts

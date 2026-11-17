@@ -17,7 +17,7 @@ au_row(){
   I1=""; I6=""; I24=""
   case "$AU_INTERVAL" in 1h) I1=selected ;; 6h) I6=selected ;; *) I24=selected ;; esac
   cat <<BLK
-<div class=au><b>Auto-update</b>
+<div class=au>Auto-update
 <label><input type=checkbox name=en value=1 $EN> on</label>
 <label>Interval <select name=int>
 <option value=1h $I1>1 hour</option>
@@ -136,12 +136,12 @@ BLK
 BLK
 }
 # One entry of the service row: $1 whitelist key, $2 label, $3 1 if running,
-# $4 tooltip, $5 "disabled" to grey out the restart button. Running = green,
-# not running = red bold (only for the active protocol's daemon; an idle one is grey,
-# it is meant to be stopped), then a tiny restart button.
+# $4 tooltip, $5 "disabled" to grey out the restart button. Running = green
+# bold, not running = red bold (only for the active protocol's daemon; an idle
+# one is grey and regular, it is meant to be stopped). Then a tiny restart button.
 svc_item(){
   if [ "$3" = 1 ]; then
-    _st="color:#1a7f37"
+    _st="color:#1a7f37;font-weight:700"
   elif [ "$3" = 2 ]; then
     _st="color:#777"
   else
@@ -455,6 +455,7 @@ td{padding:3px 8px 3px 0}
 #status table{border-collapse:collapse;border-spacing:0;background:transparent;border:0}
 #status tr,#status td{background:transparent;border:0;outline:0}
 #status td{vertical-align:middle}
+#status,#status table,#status td,#status .svcs,#status .svc,#status .svc>span{font-weight:400;font-style:normal}
 #status .modef{background:transparent}
 #status select{background:#fff}
 .banner{padding:12px 14px;border-radius:8px;background:#fff;border:1px solid #f3c1c1;margin:0 0 14px}
@@ -494,7 +495,7 @@ button.advbtn:hover,button.advbtn:focus{text-decoration:underline}
 .ifill{height:100%;width:0;background:#1565c0;transition:width .4s}
 .ic.ok .ifill{background:#1a7f37}
 .ic.err .ifill{background:#c62828}
-.ipct{font-weight:700;margin-top:6px}
+.ipct{margin-top:6px}
 .itxt{color:#555;margin-top:4px;min-height:2.6em;word-break:break-word}
 .ic.ok .itxt{color:#1a7f37}
 .ic.err .itxt{color:#c62828}
@@ -536,9 +537,9 @@ cat <<HTML
 <tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>
 <select name=mode><option value=ru $M1>Everything except Russian sites</option><option value=all $M2>Everything through the tunnel</option></select>
 <button>Apply</button></form></td></tr>
-<tr><td>Transparent mode for the network:</td><td><b style="color:$SC">$ST</b></td></tr>
+<tr><td>Transparent mode for the network:</td><td><span style="color:$SC;font-weight:700">$ST</span></td></tr>
 <tr><td>Client:</td><td><div class=svcs>$SVC</div></td></tr>
-<tr><td>Protocol:</td><td><b>$PN</b></td></tr>
+<tr><td>Protocol:</td><td>$PN</td></tr>
 <tr><td>Server:</td><td>$HOST</td></tr>
 <tr><td>Egress IP:</td><td id=egress data-port="$SRVP">detecting…</td></tr>
 </table>

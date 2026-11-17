@@ -458,9 +458,8 @@ td{padding:3px 8px 3px 0}
 #status .modef{background:transparent}
 #status select{background:#fff}
 #status .modef select,#status .modef button{height:22px;min-height:22px;padding-top:0;padding-bottom:0;line-height:20px;box-sizing:border-box}
-#status tr.tmrow td,#status tr.tmrow td span{font-size:12.5px}
-#status .svc>span{display:inline-block;font-size:17px;line-height:17px;height:17px;vertical-align:middle}
-#status button.rb{vertical-align:middle}
+#status tr.moderow td{padding-top:13px;padding-bottom:8px}
+#status .svc>span,#status button.rb{vertical-align:middle}
 .banner{padding:12px 14px;border-radius:8px;background:#fff;border:1px solid #f3c1c1;margin:0 0 14px}
 .banner .why{color:#c62828;font-weight:700;text-transform:uppercase;white-space:pre-wrap}
 .banner .how{color:#1a7f37;font-weight:700;text-transform:uppercase;white-space:pre-wrap;margin-top:8px}
@@ -468,9 +467,9 @@ td{padding:3px 8px 3px 0}
 .svcs{line-height:1.45}
 .svc{white-space:nowrap}
 .svcb{display:inline;margin:0}
-button.rb{display:inline-block;box-sizing:border-box;width:1.2em;height:1.2em;min-width:0;min-height:0;padding:0;margin:0 .1em 0 .3em;border-radius:3px;font-size:1em;line-height:1.2em;text-align:center;vertical-align:.04em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
+button.rb{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:16px;height:16px;min-width:16px;min-height:0;padding:0;margin:0 .1em 0 .3em;border-radius:3px;font-size:11px;line-height:1;text-align:center;vertical-align:middle;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
 button.rb:disabled{opacity:.35;cursor:not-allowed}
-button.rb .rg{font-size:.9em;line-height:1.2em}
+button.rb .rg{font-size:11px;line-height:1}
 .sec{margin:18px 0 8px}
 .sec>h3,.isec>h3{margin:0 0 10px;font-size:18px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;margin:0}
@@ -538,7 +537,7 @@ fi
 echo '<h2>vpn.panel-gl.inet</h2>'
 cat <<HTML
 <div class=c id=status><table>
-<tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>
+<tr class=moderow><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>
 <select name=mode><option value=ru $M1>Everything except Russian sites</option><option value=all $M2>Everything through the tunnel</option></select>
 <button>Apply</button></form></td></tr>
 <tr class=tmrow><td>Transparent mode for the network:</td><td><span style="color:$SC;font-weight:700">$ST</span></td></tr>

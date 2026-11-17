@@ -82,16 +82,21 @@ Install the VPN clients from the panel. Pre-release.
   Action buttons (Enable, Disable, Test connection, Speed, Connect, Update
   now, Add SOCKS5, Add HTTP, show/hide and Install) stay one compact size
   (14px text, 6px 12px padding, 30px height); colours are unchanged. The Mode
-  select and its Apply button stay where they are and share a slimmer 22px
-  height (vertical padding reduced so the 14px text still fits). The tiny
+  select and its Apply button stay the same slimmer 22px height (vertical
+  padding reduced so the 14px text still fits). The whole Mode row (label,
+  select and Apply) sits a little lower: about 10px more space below the
+  top of the status card, and a little space before the Transparent mode
+  row. The tiny
   service restart buttons and the Advanced text trigger stay as they were.
   The Mode row has no grey highlight or extra borders. In every card and in
   the Naive Advanced pop-up the Auto-update row stays on one line, with the
   Auto-update label, the on checkbox, Interval and the select sitting tight
   (no extra horizontal gaps). In the status card, labels and values share
-  the same regular typeface. The Transparent mode row (label and value) is
-  1.5px smaller (12.5px). Client names are 17px so they match the height of
-  the restart icons beside them. Other status text stays 14px. Green and
+  the same 14px regular typeface, including the Transparent mode row
+  (label and value) and the Client names. Green and red state values
+  stay bold; grey inactive names stay regular. The restart icon buttons
+  are 16px square, with the icon scaled down, so they match that text
+  height. Green and
   red *state* values are bold (font-weight 700): Transparent mode ENABLED
   or DISABLED (or ERROR), and a running or failed Client name. Grey
   inactive client names, the Protocol value, Server and Egress IP:Port

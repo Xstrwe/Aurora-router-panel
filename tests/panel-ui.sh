@@ -563,8 +563,8 @@ if grep -q 'body{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-siz
    && grep -q 'button{[^}]*height:30px' "$CGI" \
    && grep -q 'button.rb{[^}]*min-height:0' "$CGI" \
    && grep -q '#status .modef select,#status .modef button{height:22px' "$CGI" \
-   && grep -q '#status tr.tmrow td,#status tr.tmrow td span{font-size:12.5px}' "$CGI" \
-   && grep -q '#status .svc>span{[^}]*font-size:17px' "$CGI" \
+   && grep -q '#status tr.moderow td{padding-top:13px;padding-bottom:8px}' "$CGI" \
+   && grep -q 'button.rb{[^}]*width:16px;height:16px' "$CGI" \
    && grep -q '.au{[^}]*gap:0 4px' "$CGI"; then
 	ok "one 14px font for body, fields and buttons; compact 30px buttons"
 else
@@ -706,13 +706,13 @@ nrb=$(printf '%s\n' "$html" | grep -o 'class=rb' | wc -l | tr -d ' ')
 if [ "$nrb" = 4 ] \
    && printf '%s' "$svc" | grep -q 'Xray</span>.*</span> / <span class=svc>.*Naive</span>.*</span> / <span class=svc>.*Hysteria</span>.*</span> / <span class=svc>.*WireGuard</span>' \
    && printf '%s\n' "$html" | grep -q 'name=svc value=wireguard' \
-   && grep -q 'button.rb{[^}]*width:1.2em;height:1.2em' "$CGI"; then
+   && grep -q 'button.rb{[^}]*width:16px;height:16px' "$CGI"; then
 	ok "services are one row: Xray / Naive / Hysteria / WireGuard, each with a small restart button"
 else
 	bad "service row (buttons=$nrb)"
 fi
 # Mode is the first row of the status card (above the transparent-mode row) and still posts action=mode.
-if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr class=tmrow><td>Transparent mode for the network:</td>' \
+if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr class=moderow><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr class=tmrow><td>Transparent mode for the network:</td>' \
    && ! printf '%s\n' "$html" | grep -q 'id=modecard' \
    && [ "$(printf '%s\n' "$html" | grep -c '<b>Mode:</b>')" = 0 ]; then
 	ok "the mode selector is the first row of the status card; no separate mode card"
@@ -1579,9 +1579,21 @@ meas="""<script>
     var modeBtn=document.querySelector("#status .modef button");
     function boxH(el){return el?Math.round(el.getBoundingClientRect().height):0}
     report("ui-mode-ht", modeSel&&modeBtn? (boxH(modeSel)+":"+boxH(modeBtn)):"missing");
+    var stCard=document.querySelector("#status");
+    var modeTr=document.querySelector("#status tr.moderow");
+    var tmTr=document.querySelector("#status tr.tmrow");
+    if(stCard&&modeTr&&tmTr&&modeSel){
+      var modeTd=modeTr.cells[0], tmTd=tmTr.cells[0];
+      var modePad=parseFloat(getComputedStyle(modeTd).paddingTop)||0;
+      var tmPad=parseFloat(getComputedStyle(tmTd).paddingTop)||0;
+      var gapTop=Math.round((modeTd.getBoundingClientRect().top+modePad)-stCard.getBoundingClientRect().top);
+      var modeBot=modeSel.getBoundingClientRect().bottom;
+      var gapBelow=Math.round((tmTd.getBoundingClientRect().top+tmPad)-modeBot);
+      report("ui-mode-gap", gapTop+":"+gapBelow);
+    } else report("ui-mode-gap","missing");
     var cName=document.querySelector("#status .svc>span");
     var cBtn=document.querySelector("#status button.rb");
-    report("ui-client-ht", (cName&&cBtn)? (Math.round(cName.getBoundingClientRect().height)+":"+Math.round(cBtn.getBoundingClientRect().height)):"missing");
+    report("ui-client-ht", (cName&&cBtn)? (getComputedStyle(cName).fontSize+":"+Math.round(cBtn.getBoundingClientRect().width)+":"+Math.round(cBtn.getBoundingClientRect().height)):"missing");
     function auGap(au){
       if(!au)return "missing";
       var cs=getComputedStyle(au);
@@ -1632,6 +1644,7 @@ PYEND
 		ui_typ=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-status-type">\([^<]*\)<.*/\1/p' | head -1)
 		ui_ffield=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-field-font">\([^<]*\)<.*/\1/p' | head -1)
 		ui_modeht=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-mode-ht">\([^<]*\)<.*/\1/p' | head -1)
+		ui_modegap=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-mode-gap">\([^<]*\)<.*/\1/p' | head -1)
 		ui_cliht=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-client-ht">\([^<]*\)<.*/\1/p' | head -1)
 		ui_augap=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-au-gap">\([^<]*\)<.*/\1/p' | head -1)
 	}
@@ -1709,8 +1722,7 @@ print("nauheight=%d"%h)
 	else
 		bad "render ON state colours: $ui_state"
 	fi
-	# Status card typography: one family; 12.5px Transparent mode, 17px client names,
-	# 14px otherwise; green/red state values are 700, everything else 400.
+	# Status card typography: one family and 14px size; green/red state values are 700, everything else 400.
 	eval "$(printf '%s' "$ui_typ" | python3 -c '
 import sys
 s=sys.stdin.read().strip()
@@ -1721,10 +1733,6 @@ if "famok=1" not in meta:
     ok = 0
     reasons.append("family mismatch")
 def expected_size(name):
-    if name.startswith("lab-Transparent") or name == "val-tm":
-        return "12.5px"
-    if name.startswith("val-") and name not in ("val-tm", "val-Protocol", "val-Server") and not name.startswith("val-Egress"):
-        return "17px"
     return "14px"
 state_n = plain_n = 0
 for part in body.split(";"):
@@ -1794,25 +1802,48 @@ print("modebtn_h=%s"%(parts[1] if len(parts)>1 else "0"))
 	else
 		bad "render Mode control height: $ui_modeht"
 	fi
-	# Client names match the restart-icon height (within 2px).
+	# Mode row sits ~10px lower (gap from card top ~29px) with a little space before Transparent mode.
+	eval "$(printf '%s' "$ui_modegap" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=s.split(":")
+ok=0
+try:
+    top,below=int(parts[0]),int(parts[1])
+    # was ~19px (16 card + 3 td); now 16+13=29, allow 26-34. Below was ~6; now ~8+3 plus margins, allow 8-20.
+    ok=1 if (26<=top<=34 and 8<=below<=20) else 0
+except Exception:
+    top=below=-1
+print("modegapok=%d"%ok)
+print("modegap_top=%s"%(parts[0] if parts else "0"))
+print("modegap_below=%s"%(parts[1] if len(parts)>1 else "0"))
+')"
+	if [ "${modegapok:-0}" = 1 ]; then
+		ok "render: Mode row has extra space above (${modegap_top}px) and a little space before Transparent mode (${modegap_below}px)"
+	else
+		bad "render Mode row spacing: $ui_modegap"
+	fi
+	# Client names are 14px; restart icons are a 16px square.
 	eval "$(printf '%s' "$ui_cliht" | python3 -c '
 import sys
 s=sys.stdin.read().strip()
 parts=s.split(":")
 ok=0
 try:
-    a,b=int(parts[0]),int(parts[1])
-    ok=1 if (a>=16 and b>=16 and abs(a-b)<=2) else 0
+    fs=parts[0]
+    w,h=int(parts[1]),int(parts[2])
+    ok=1 if (fs=="14px" and 15<=w<=17 and 15<=h<=17 and abs(w-h)<=1) else 0
 except Exception:
-    a=b=-1
+    fs,w,h="?","-1","-1"
 print("clihtok=%d"%ok)
-print("cliname_h=%s"% (parts[0] if parts else "0"))
-print("clibtn_h=%s"% (parts[1] if len(parts)>1 else "0"))
+print("cliname_fs=%s"% (parts[0] if parts else "0"))
+print("clibtn_w=%s"% (parts[1] if len(parts)>1 else "0"))
+print("clibtn_h=%s"% (parts[2] if len(parts)>2 else "0"))
 ')"
 	if [ "${clihtok:-0}" = 1 ]; then
-		ok "render: Client names match the restart icon height (${cliname_h}/${clibtn_h}px)"
+		ok "render: Client names are 14px and restart icons are ${clibtn_w}x${clibtn_h}px"
 	else
-		bad "render Client name height: $ui_cliht"
+		bad "render Client name/icon size: $ui_cliht"
 	fi
 	# Auto-update gaps are tight on the card and in the Naive pop-up (computed gap <= 6px, no checkbox margin).
 	eval "$(printf '%s' "$ui_augap" | python3 -c '

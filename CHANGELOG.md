@@ -67,7 +67,11 @@ Install the VPN clients from the panel. Pre-release.
   stays open while the pointer is inside it, and it does not change the card height.
   The Connect and Update now buttons sit about half a line lower, so they are not
   tight against the Auto-update row or the Advanced link. On the status card the
-  row label is **Client:** (it was "Service (daemon):").
+  row label is **Client:** (it was "Service (daemon):"). **Enable**, **Disable**,
+  **Test connection** and **Speed** sit in that same card, directly under
+  **Egress IP:** (about half a line of space above the buttons). Their result
+  is shown under the buttons in the status card; the old separate button card
+  is gone.
 - The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
   README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**
   and **Port** (default 443) fields stay on the card. **Username**, **Password** (with

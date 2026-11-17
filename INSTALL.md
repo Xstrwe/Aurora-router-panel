@@ -95,7 +95,7 @@ The script installs the klzgrad/naiveproxy static build for this router’s arch
 
 ## Install the VPN clients
 
-Open the panel. In the middle of the page, under **Enable** / **Disable**, the **Install VPN clients** block has up to four buttons: **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard**. Only the clients that are not installed yet are listed (Naive counts as installed only when both `naive` and `dnsproxy` are present); when all four are installed, the whole block is not on the page. Press the one you need.
+Open the panel. In the middle of the page, under the status card, the **Install VPN clients** block has up to four buttons: **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard**. Only the clients that are not installed yet are listed (Naive counts as installed only when both `naive` and `dnsproxy` are present); when all four are installed, the whole block is not on the page. Press the one you need.
 
 Under each button the panel shows a progress bar with a percent from 0 to 100 and the current step (checking the router, looking up the latest release, downloading, verifying, unpacking, installing). At the end the card shows:
 
@@ -129,7 +129,7 @@ The progress of each install is also written to `/tmp/aurora-install-<xray|hy2|n
 
 ## Set up the panel
 
-The page title is **vpn.panel-gl.inet**. A status card sits at the top, then **Enable** / **Disable**, **Test connection** and **Speed**, then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
+The page title is **vpn.panel-gl.inet**. A status card sits at the top, with **Enable**, **Disable**, **Test connection** and **Speed** under **Egress IP:** (results appear under those buttons). Then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
 
 ### Add a protocol and connect
 

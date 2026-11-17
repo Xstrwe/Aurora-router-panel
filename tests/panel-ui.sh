@@ -661,10 +661,40 @@ if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table>
 else
 	bad "mode row position"
 fi
+# Enable / Disable / Test / Speed live in the status card, under Egress IP, not in a separate card.
+python3 - "$html" <<'PYEND'
+import re,sys
+h=sys.argv[1]
+m=re.search(r'<div class=c id=status>(.*?)</div>\s*<div class=isec', h, re.S)
+# status card may include a following </div> only at the end; take until install block
+if not m:
+    m=re.search(r'<div class=c id=status>(.*?)id=install', h, re.S)
+if not m:
+    sys.exit(2)
+card=m.group(1)
+if 'Egress IP:' not in card: sys.exit(3)
+# buttons after Egress IP
+if card.find('Egress IP:') > card.find('name=action value=on'): sys.exit(4)
+if not all(s in card for s in ('name=action value=on','name=action value=off','name=action value=test','name=action value=speed','class=acts')):
+    sys.exit(5)
+# no leftover separate button card
+if 'style="display:flex;flex-wrap:wrap;gap:8px"' in h: sys.exit(6)
+sys.exit(0)
+PYEND
+if [ $? -eq 0 ] && grep -q '.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}' "$CGI"; then
+	ok "Enable, Disable, Test and Speed sit in the status card under Egress IP"
+else
+	bad "status card action buttons"
+fi
 # The mode action still works.
 body='action=mode&mode=all'
 htmlm=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vpn-fail.sh" REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
-if printf '%s\n' "$htmlm" | grep -q 'class=msg>ERROR: boom'; then ok "mode POST is still passed to vpn.sh mode"; else bad "mode post"; fi
+if printf '%s\n' "$htmlm" | grep -q 'class=msg>ERROR: boom' \
+   && printf '%s\n' "$htmlm" | tr '\n' ' ' | grep -q 'class=acts>.*class=msg>ERROR: boom'; then
+	ok "mode POST is still passed to vpn.sh mode"
+else
+	bad "mode post"
+fi
 # Whitelist: an unknown or injected service name is refused and nothing runs.
 body='action=restartsvc&svc=xray%3Btouch%20/tmp/aurora-pwned'
 rm -f /tmp/aurora-pwned

@@ -95,7 +95,7 @@ The script installs the klzgrad/naiveproxy static build for this router’s arch
 
 ## Install the VPN clients
 
-Open the panel. In the middle of the page, under **Enable** / **Disable**, the **Install VPN clients** block has up to four buttons: **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard**. Only the clients that are not installed yet are listed (Naive counts as installed only when both `naive` and `dnsproxy` are present); when all four are installed, the whole block is not on the page. Press the one you need.
+Open the panel. In the middle of the page, under the status card, the **Install VPN clients** block has up to four buttons: **Install VLESS**, **Install Hysteria 2**, **Install Naive** and **Install WireGuard**. Only the clients that are not installed yet are listed (Naive counts as installed only when both `naive` and `dnsproxy` are present); when all four are installed, the whole block is not on the page. Press the one you need.
 
 Under each button the panel shows a progress bar with a percent from 0 to 100 and the current step (checking the router, looking up the latest release, downloading, verifying, unpacking, installing). At the end the card shows:
 
@@ -129,7 +129,7 @@ The progress of each install is also written to `/tmp/aurora-install-<xray|hy2|n
 
 ## Set up the panel
 
-The page title is **vpn.panel-gl.inet**. A status card sits at the top, then **Enable** / **Disable**, **Test connection** and **Speed**, then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
+The page title is **vpn.panel-gl.inet**. A status card sits at the top, with **Enable**, **Disable**, **Test connection** and **Speed** under **Egress IP:** (results appear under those buttons). Then the **Install VPN clients** block, then a **VPN** section and a **Proxy** section.
 
 ### Add a protocol and connect
 
@@ -219,7 +219,7 @@ The row **Transparent mode for the network:** is honest: it is green only when t
 
 The status card also shows:
 
-- **Service (daemon):** Xray, Naive, Hysteria and WireGuard. Green if that daemon is running, red and bold if the *active* protocol’s daemon is not running, grey if a daemon is stopped because it is not the active protocol (that is normal: only one runs). Each name has a small restart button that restarts only that service. A service that is not installed, or WireGuard with no saved config, is shown red with the reason, and its restart button is disabled.
+- **Client:** Xray, Naive, Hysteria and WireGuard. Green if that daemon is running, red and bold if the *active* protocol’s daemon is not running, grey if a daemon is stopped because it is not the active protocol (that is normal: only one runs). Each name has a small restart button that restarts only that service. A service that is not installed, or WireGuard with no saved config, is shown red with the reason, and its restart button is disabled.
 - **Protocol:** the protocol last applied by a **Connect …** button.
 - **Server:** the configured server host of the active protocol, from its own saved link or config (the IP if it is configured by IP; no port).
 - **Egress IP:** the public address seen through the live tunnel, followed by the active protocol's server port (`<egress-ip>:<port>`), filled in after the page has loaded so a dead tunnel never delays the page. If it cannot be determined, the row says **could not determine**.

@@ -370,7 +370,7 @@ ipget() { env PIDOF_UP="$1" VLESS_AU_EGRESS="$2" REQUEST_METHOD=GET QUERY_STRING
 row() { printf '%s\n' "$html" | sed -n "s/.*<tr><td>$1<\\/td><td>\\(.*\\)<\\/td><\\/tr>.*/\\1/p" | head -1; }
 proto=$(row 'Protocol:')
 exitrow=$(printf '%s\n' "$html" | grep '<td>Egress IP:</td>' | head -1)
-svc=$(row 'Service (daemon):')
+svc=$(row 'Client:')
 if printf '%s' "$proto" | grep -q '>Hysteria2<' \
    && printf '%s' "$exitrow" | grep -q 'id=egress' \
    && ! printf '%s' "$exitrow" | grep -q '192.0.2' \
@@ -499,6 +499,60 @@ else
 	bad "textarea height"
 fi
 
+# Naive: Server and Port stay on the card; Username, Password, Scheme and
+# Advanced keys live in a hover/focus/click pop-up that does not use <details>.
+# The Advanced trigger is in the card grid (second row, under Server), not the corner.
+if printf '%s\n' "$html" | grep -q 'class="pf nv"' \
+   && printf '%s\n' "$html" | grep -q 'class=advbtn' \
+   && printf '%s\n' "$html" | grep -q 'class=advbox id=naive-adv' \
+   && ! printf '%s\n' "$html" | grep -q '<details' \
+   && ! grep -q 'nvtitle' "$CGI" \
+   && ! grep -q '.advpop{position:absolute;top:0;right:0' "$CGI" \
+   && grep -q '.advpop:hover .advbox,.advpop:focus-within .advbox,.advpop.open .advbox{display:block}' "$CGI" \
+   && grep -q 'position:absolute' "$CGI"; then
+	ok "Naive Advanced is a hover/focus/click pop-up, not a details block"
+else
+	bad "Naive Advanced pop-up markup"
+fi
+# Username/Password/Scheme are inside the pop-up; the card grid has host/port + Advanced.
+python3 - "$html" <<'PYEND'
+import re,sys
+h=sys.argv[1]
+m=re.search(r'name=proto value=naive(.*?)Connect Naive',h,re.S)
+if not m:
+    sys.exit(2)
+card=m.group(1)
+pre,_,rest=card.partition('class=advbox')
+if not _:
+    sys.exit(3)
+if not all(s in pre for s in ('name=host','name=port','class=advbtn')):
+    sys.exit(4)
+if any(s in pre for s in ('name=user','name=pass','name=scheme','name=conc','name=sub')):
+    sys.exit(5)
+if not all(s in rest for s in ('name=user','name=pass','name=scheme','name=conc','name=sub')):
+    sys.exit(6)
+sys.exit(0)
+PYEND
+if [ $? -eq 0 ]; then
+	ok "Username, Password and Scheme are in the pop-up; Server and Port stay on the card"
+else
+	bad "Naive field placement in the pop-up vs the card"
+fi
+
+# No horizontal divider between the link field and the Auto-update row.
+if grep -q '^\.au{' "$CGI" && ! grep '^\.au{' "$CGI" | grep -q 'border-top'; then
+	ok "no divider line under the link fields"
+else
+	bad "Auto-update row still has a border-top divider"
+fi
+
+# VPN card action buttons sit about half a line below Auto-update / Advanced.
+if grep -q '.vpn>.c>form>.btns{margin-top:auto;padding-top:12px}' "$CGI"; then
+	ok "VPN card action buttons have 12px extra top space"
+else
+	bad "VPN card button spacing"
+fi
+
 # Saved SOCKS5/HTTP passwords never appear in the page; the field is empty with a "saved" hint.
 cp "$D/http.json" "$D/http.json.pw.bak"
 printf '%s\n' '{"address":"proxy.example","port":8080,"user":"u","pass":"s3cr3t-HttpPw","tls":true,"sni":"proxy.example","allowInsecure":false}' > "$D/http.json"
@@ -607,10 +661,40 @@ if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table>
 else
 	bad "mode row position"
 fi
+# Enable / Disable / Test / Speed live in the status card, under Egress IP, not in a separate card.
+python3 - "$html" <<'PYEND'
+import re,sys
+h=sys.argv[1]
+m=re.search(r'<div class=c id=status>(.*?)</div>\s*<div class=isec', h, re.S)
+# status card may include a following </div> only at the end; take until install block
+if not m:
+    m=re.search(r'<div class=c id=status>(.*?)id=install', h, re.S)
+if not m:
+    sys.exit(2)
+card=m.group(1)
+if 'Egress IP:' not in card: sys.exit(3)
+# buttons after Egress IP
+if card.find('Egress IP:') > card.find('name=action value=on'): sys.exit(4)
+if not all(s in card for s in ('name=action value=on','name=action value=off','name=action value=test','name=action value=speed','class=acts')):
+    sys.exit(5)
+# no leftover separate button card
+if 'style="display:flex;flex-wrap:wrap;gap:8px"' in h: sys.exit(6)
+sys.exit(0)
+PYEND
+if [ $? -eq 0 ] && grep -q '.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}' "$CGI"; then
+	ok "Enable, Disable, Test and Speed sit in the status card under Egress IP"
+else
+	bad "status card action buttons"
+fi
 # The mode action still works.
 body='action=mode&mode=all'
 htmlm=$(printf '%s' "$body" | env PIDOF_UP=xray VLESS_SH="$TMP/hooks/vpn-fail.sh" REQUEST_METHOD=POST CONTENT_LENGTH=${#body} "$CGI")
-if printf '%s\n' "$htmlm" | grep -q 'class=msg>ERROR: boom'; then ok "mode POST is still passed to vpn.sh mode"; else bad "mode post"; fi
+if printf '%s\n' "$htmlm" | grep -q 'class=msg>ERROR: boom' \
+   && printf '%s\n' "$htmlm" | tr '\n' ' ' | grep -q 'class=acts>.*class=msg>ERROR: boom'; then
+	ok "mode POST is still passed to vpn.sh mode"
+else
+	bad "mode post"
+fi
 # Whitelist: an unknown or injected service name is refused and nothing runs.
 body='action=restartsvc&svc=xray%3Btouch%20/tmp/aurora-pwned'
 rm -f /tmp/aurora-pwned
@@ -1244,6 +1328,69 @@ PYEND
 	if ! printf '%s' "$rdom" | grep -q 'id="install"'; then
 		ok "render: after the install reaches 100% its card and the empty block disappear"
 	else bad "render running->done: block still there: '$(live)'"; fi
+
+	# Equal compact VPN cards at ~1024px: measure offsetHeights, then again
+	# with the Advanced pop-up open (it must not change the card height).
+	python3 - "$TMP/rt" <<'PYEND'
+import sys
+d=sys.argv[1]
+h=open(d+"/page.html").read()
+if h.lower().startswith("content-type"):
+    h=h.split("\n\n",1)[-1].split("\r\n\r\n",1)[-1]
+meas="""<script>
+(function(){
+  function report(id,extra){
+    if(typeof eqCards==="function")eqCards();
+    var cards=[].slice.call(document.querySelectorAll(".vpn>.c"));
+    var hs=cards.map(function(c){return c.offsetHeight});
+    var el=document.getElementById(id)||document.createElement("pre");
+    el.id=id;
+    el.textContent=hs.join(",")+(extra||"");
+    document.body.appendChild(el);
+  }
+  function go(){
+    report("vpn-card-heights");
+    var p=document.querySelector(".advpop");
+    if(p)p.classList.add("open");
+    report("vpn-card-heights-open");
+    if(p)p.classList.remove("open");
+    report("vpn-card-heights-closed");
+  }
+  if(document.readyState==="complete")setTimeout(go,50);
+  else window.addEventListener("load",function(){setTimeout(go,50)});
+})();
+</script>"""
+open(d+"/cards.html","w").write(h.replace("<body>","<body>"+meas,1) if "<body>" in h else meas+h)
+PYEND
+	rdom=$("$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars 		--window-size=1024,1400 --force-device-scale-factor=1 		--virtual-time-budget=8000 --dump-dom "file://$TMP/rt/cards.html" 2>/dev/null)
+	hs=$(printf '%s' "$rdom" | sed -n 's/.*id="vpn-card-heights">\([^<]*\)<.*/\1/p' | head -1)
+	ho=$(printf '%s' "$rdom" | sed -n 's/.*id="vpn-card-heights-open">\([^<]*\)<.*/\1/p' | head -1)
+	hc=$(printf '%s' "$rdom" | sed -n 's/.*id="vpn-card-heights-closed">\([^<]*\)<.*/\1/p' | head -1)
+	# hs like "210,210,210,210"
+	eval "$(printf '%s' "$hs" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=[p for p in s.replace(";",",").split(",") if p.strip().isdigit()]
+print("nheights=%d"%len(parts))
+if parts:
+    vals=list(map(int,parts))
+    print("hmin=%d"%min(vals))
+    print("hmax=%d"%max(vals))
+    print("h1=%d"%vals[0])
+    print("hequal=%s"%("1" if len(set(vals))==1 else "0"))
+else:
+    print("nheights=0"); print("hmin=0"); print("hmax=0"); print("h1=0"); print("hequal=0")
+')"
+	if [ "$nheights" = 4 ] && [ "$hequal" = 1 ] && [ "$hmin" -ge 120 ] && [ "$hmax" -le 280 ]; then
+		ok "render: four VPN cards have equal compact height (${h1}px at 1024px)"
+	else
+		bad "render card heights: '$hs' (n=$nheights equal=$hequal min=$hmin max=$hmax)"
+	fi
+	if [ -n "$hs" ] && [ "$hs" = "$ho" ] && [ "$hs" = "$hc" ]; then
+		ok "render: opening the Advanced pop-up does not change VPN card heights"
+	else
+		bad "render card heights with pop-up open: closed='$hs' open='$ho' again='$hc'"
+	fi
 fi
 
 

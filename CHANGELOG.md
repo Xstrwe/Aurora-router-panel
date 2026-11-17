@@ -56,14 +56,30 @@ Install the VPN clients from the panel. Pre-release.
   where they were. The install removes the old `/etc/xray/vless.sh` and leaves no link
   under that name, so any own script that calls it must use `/etc/panel/vpn.sh` (same
   commands).
+- The four VPN cards (VLESS, Naive, Hysteria2 and WireGuard) are compact and the
+  same height. VLESS, Hysteria2 and WireGuard keep a fixed two-line address/link
+  field, as in earlier versions, with no divider line under the field. On the
+  Naive card, only **Server** and **Port** stay visible. **Username**, **Password**,
+  **Scheme** and the other Advanced fields open in a small pop-up when the pointer
+  hovers **Advanced**, and also on click or keyboard focus so the pop-up works on
+  touch devices and with a keyboard. The **Advanced** trigger sits on the second
+  row, left column, under Server (where the Username label used to be). The pop-up
+  stays open while the pointer is inside it, and it does not change the card height.
+  The Connect and Update now buttons sit about half a line lower, so they are not
+  tight against the Auto-update row or the Advanced link. On the status card the
+  row label is **Client:** (it was "Service (daemon):"). **Enable**, **Disable**,
+  **Test connection** and **Speed** sit in that same card, directly under
+  **Egress IP:** (about half a line of space above the buttons). Their result
+  is shown under the buttons in the status card; the old separate button card
+  is gone.
 - The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
-  README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**,
-  **Port** (default 443), **Username**, **Password** (with a show/hide button) and
-  **Scheme** (`https` or `quic`) fields, plus a collapsible **Advanced** section with only
-  keys upstream documents: `insecure-concurrency`, `extra-headers` (one per line),
-  `tunnel-timeout` and `idle-timeout`, and an optional **Subscription URL** with the
-  auto-update row and **Update now** (auto-update re-fetches a subscription; it has
-  nothing to do without one). `vpn.sh naivesave <file>` takes these fields as key=value
+  README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**
+  and **Port** (default 443) fields stay on the card. **Username**, **Password** (with
+  a show/hide button), **Scheme** (`https` or `quic`) and the optional keys upstream
+  documents (`insecure-concurrency`, `extra-headers` (one per line), `tunnel-timeout`
+  and `idle-timeout`), plus an optional **Subscription URL**, the auto-update row and
+  **Update now**, are in the **Advanced** pop-up (auto-update re-fetches a subscription;
+  it has nothing to do without one). `vpn.sh naivesave <file>` takes these fields as key=value
   lines (or, as before, a `naive+https://` / `naive+quic://` link), validates them (host
   name or IPv4, port 1-65535, one-line username and password) and writes
   `/etc/naive/config.json` with `"listen"` (unchanged: SOCKS `127.0.0.1:10828` and redir

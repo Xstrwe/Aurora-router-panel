@@ -200,7 +200,7 @@ if grep -q '<h3>VPN</h3>' "$CGI" \
    && grep -q 'sockssave' "$CGI" \
    && grep -q 'httpsave' "$CGI" \
    && grep -q 'proxy_fields' "$CGI" \
-   && grep -q 'Service (daemon)' "$CGI" \
+   && grep -q 'Client:' "$CGI" \
    && grep -q 'name=action value=restartsvc' "$CGI" \
    && ! grep -q 'Restart service' "$CGI" \
    && grep -q '>Egress IP:<' "$CGI" \

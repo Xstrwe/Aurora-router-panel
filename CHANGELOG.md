@@ -72,6 +72,24 @@ Install the VPN clients from the panel. Pre-release.
   **Egress IP:** (about half a line of space above the buttons). Their result
   is shown under the buttons in the status card; the old separate button card
   is gone.
+- Panel typography and buttons are consistent. Body text, status rows, inputs,
+  selects, link fields (no longer monospace), hints, the Auto-update row and
+  the action buttons all use the same 14px system sans-serif. Section headings
+  (VPN, Proxy), card titles and the small field labels above inputs keep their
+  own style. Every action button (Apply, Enable, Disable, Test connection,
+  Speed, Connect, Update now, Add SOCKS5, Add HTTP, show/hide and Install)
+  is the same compact size (14px text, 6px 12px padding, 30px height); colours
+  are unchanged. The tiny service restart buttons and the Advanced text
+  trigger stay as they were. The Mode row has no grey highlight or extra
+  borders. In the Naive Advanced pop-up the Auto-update row stays on one
+  line, like the other cards: Auto-update, the on checkbox, and Interval.
+  Green and red status colours are unchanged: Transparent mode is green
+  ENABLED or red DISABLED, and in Client: a running service is green and a
+  stopped or failed one is red.
+- The SOCKS5 and HTTP cards have a close "×" in the top-right corner. It
+  hides the card and brings back **Add SOCKS5** / **Add HTTP**. Saved
+  proxy settings are not deleted: an unconfigured card still starts
+  hidden, and a saved one still starts open.
 - The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
   README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**
   and **Port** (default 443) fields stay on the card. **Username**, **Password** (with

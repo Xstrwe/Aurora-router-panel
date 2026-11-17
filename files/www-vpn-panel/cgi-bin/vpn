@@ -441,75 +441,86 @@ echo
 cat <<HTML
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>vpn.panel-gl.inet</title><style>
-body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:1040px;margin:20px auto;padding:0 14px;background:#f4f5f7;color:#222}
+body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;font-weight:400;line-height:1.4;max-width:1040px;margin:20px auto;padding:0 14px;background:#f4f5f7;color:#222}
+.au,.hint,.http-udp,.msg,.itxt,.ipct,.svcs,td{font-family:inherit;font-size:inherit;font-style:inherit}
+input,select,textarea,button{font-family:inherit;font-size:14px;font-style:inherit;font-weight:400}
 .c{background:#fff;border-radius:12px;padding:16px 18px;margin:14px 0;box-shadow:0 1px 4px #0002}
-button{border:0;border-radius:10px;color:#fff;background:#1565c0;padding:10px 18px;font-size:16px;cursor:pointer}
-.big{width:100%;font-size:22px;padding:18px}
-textarea{display:block;width:100%;box-sizing:border-box;resize:none;overflow:auto;border:1px solid #ccc;border-radius:6px;font-family:monospace;font-size:12px;line-height:18px;padding:0 8px;height:38px;min-height:38px;max-height:38px;word-break:break-all;field-sizing:fixed;white-space:pre-wrap}
-select{font-size:16px;padding:6px}.msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}td{padding:3px 8px 3px 0}
+button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;color:#fff;background:#1565c0;padding:6px 12px;font-family:inherit;font-size:inherit;font-weight:inherit;font-style:inherit;line-height:1.25;height:30px;min-height:30px;cursor:pointer}
+.big{width:100%}
+textarea{display:block;width:100%;box-sizing:border-box;resize:none;overflow:auto;border:1px solid #ccc;border-radius:6px;font-family:inherit;font-size:inherit;line-height:18px;padding:0 8px;height:38px;min-height:38px;max-height:38px;word-break:break-all;field-sizing:fixed;white-space:pre-wrap}
+select{font-family:inherit;font-size:inherit;font-weight:inherit;font-style:inherit;padding:6px 8px;height:30px;box-sizing:border-box;border:1px solid #ccc;border-radius:6px;background:#fff;color:inherit}
+.msg{padding:10px;border-radius:8px;background:#fff3cd;white-space:pre-wrap}
+td{padding:3px 8px 3px 0}
+#status table{border-collapse:collapse;border-spacing:0;background:transparent;border:0}
+#status tr,#status td{background:transparent;border:0;outline:0}
+#status td{vertical-align:middle}
+#status .modef{background:transparent}
+#status select{background:#fff}
 .banner{padding:12px 14px;border-radius:8px;background:#fff;border:1px solid #f3c1c1;margin:0 0 14px}
 .banner .why{color:#c62828;font-weight:700;text-transform:uppercase;white-space:pre-wrap}
 .banner .how{color:#1a7f37;font-weight:700;text-transform:uppercase;white-space:pre-wrap;margin-top:8px}
 .modef{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0}
-.modef button{padding:6px 14px;font-size:15px}
 .svcs{line-height:1.45}
 .svc{white-space:nowrap}
 .svcb{display:inline;margin:0}
-button.rb{display:inline-block;box-sizing:border-box;width:1.2em;height:1.2em;min-width:0;padding:0;margin:0 .1em 0 .3em;border-radius:3px;font-size:1em;line-height:1.2em;text-align:center;vertical-align:.04em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
+button.rb{display:inline-block;box-sizing:border-box;width:1.2em;height:1.2em;min-width:0;min-height:0;padding:0;margin:0 .1em 0 .3em;border-radius:3px;font-size:1em;line-height:1.2em;text-align:center;vertical-align:.04em;background:#1565c0;color:#fff;font-family:inherit;overflow:hidden}
 button.rb:disabled{opacity:.35;cursor:not-allowed}
 button.rb .rg{font-size:.9em;line-height:1.2em}
 .sec{margin:18px 0 8px}
-.sec>h3{margin:0 0 10px;font-size:18px}
+.sec>h3,.isec>h3{margin:0 0 10px;font-size:18px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;margin:0}
 .grid .c{margin:0}
+.grid .c form>b{font-size:15px;font-weight:700}
 .vpn>.c{box-sizing:border-box;display:flex;flex-direction:column;height:100%;position:relative;overflow:visible}
 .vpn>.c>form{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;position:relative;overflow:visible}
 .vpn>.c>form>.btns{margin-top:auto;padding-top:12px}
 .vpn .pf.nv{margin-top:8px;gap:6px 10px}
-.vpn .pf.nv label{gap:2px;font-size:12px}
-.vpn .pf.nv input[type=text],.vpn .pf.nv input[type=password]{font-size:14px;padding:5px 8px}
+.vpn .pf.nv label{gap:2px}
 .advpop{position:relative;z-index:8;align-self:start}
-button.advbtn{background:none;color:#1565c0;border:0;padding:0;margin:0;font-size:14px;font-family:inherit;line-height:1.2;cursor:pointer}
+button.advbtn{background:none;color:#1565c0;border:0;padding:0;margin:0;font-size:inherit;font-family:inherit;font-weight:inherit;line-height:1.2;height:auto;min-height:0;display:inline;cursor:pointer}
 button.advbtn:hover,button.advbtn:focus{text-decoration:underline}
 .advbox{display:none;position:absolute;top:calc(100% + 6px);left:0;right:auto;z-index:30;width:min(420px,calc(100vw - 32px));box-sizing:border-box;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px #0003;padding:12px 14px}
 .advbox:before{content:"";position:absolute;left:0;right:0;top:-8px;height:8px}
 .advpop:hover .advbox,.advpop:focus-within .advbox,.advpop.open .advbox{display:block}
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
-.hint{color:#777;font-size:12px;margin:10px 0 0}
+.hint{color:#777;margin:10px 0 0}
 .isec{margin:18px 0 8px}
 .instgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
 .instgrid .c{margin:0;text-align:center}
-.instgrid button.ib{width:100%;font-size:16px;padding:12px 8px}
+.instgrid button.ib{width:100%}
 .instgrid button.ib:disabled{opacity:.5;cursor:not-allowed}
 .ibar{height:10px;border-radius:5px;background:#e3e6ea;overflow:hidden;margin-top:12px}
 .ifill{height:100%;width:0;background:#1565c0;transition:width .4s}
 .ic.ok .ifill{background:#1a7f37}
 .ic.err .ifill{background:#c62828}
-.ipct{font-size:15px;font-weight:700;margin-top:6px}
-.itxt{font-size:13px;color:#555;margin-top:4px;min-height:2.6em;word-break:break-word}
+.ipct{font-weight:700;margin-top:6px}
+.itxt{color:#555;margin-top:4px;min-height:2.6em;word-break:break-word}
 .ic.ok .itxt{color:#1a7f37}
 .ic.err .itxt{color:#c62828}
 @media(max-width:900px){.instgrid{grid-template-columns:1fr 1fr}}
 @media(max-width:480px){.instgrid{grid-template-columns:1fr}}
 .pf{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:8px}
 .pf label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#444}
-.pf input[type=text],.pf input[type=password],.pf input[type=number]{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;font-family:inherit}
+.pf input[type=text],.pf input[type=password],.pf input[type=number],.pf select{font-family:inherit;font-size:14px;font-weight:400;font-style:inherit;padding:6px 8px;border:1px solid #ccc;border-radius:8px;width:100%;box-sizing:border-box;height:30px}
 .pf .chk{flex-direction:row;align-items:center;gap:8px}
 .pf .span2{grid-column:1/-1}
 .tls-extra{display:contents}
 .tls-extra[hidden]{display:none}
-.http-udp{color:#777;font-size:12px;margin:10px 0 0}
-.au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;font-size:14px}
-.au select{font-size:14px;padding:4px}
+.http-udp{color:#777;margin:10px 0 0}
+.au{display:flex;flex-wrap:nowrap;align-items:center;gap:4px 14px;margin-top:12px;white-space:nowrap}
+.au label,.pf .au label,.vpn .pf.nv .au label{display:inline-flex;flex-direction:row;align-items:center;gap:6px;margin:0;font-size:inherit;font-weight:inherit;color:inherit;white-space:nowrap}
+.au select{font-size:inherit;padding:4px 8px;height:30px}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .fld{margin-top:6px}
 .pcell{min-width:0}
-button.add{background:#fff;color:#1565c0;border:1px solid #1565c0;padding:8px 16px;font-size:15px}
+button.add{background:#fff;color:#1565c0;border:1px solid #1565c0}
 button.addproxy{margin-top:0}
-.pf select{font-size:15px;padding:6px 8px;border:1px solid #ccc;border-radius:8px}
-.pw{display:flex;gap:6px}.pw input{flex:1 1 auto;min-width:0}
-button.pwt{background:#fff;color:#1565c0;border:1px solid #ccc;border-radius:8px;padding:4px 10px;font-size:13px}
-.pf textarea.hdr{height:56px;min-height:56px;max-height:none;font-size:13px}
+.proxy .c{position:relative}
+button.pxclose{position:absolute;top:8px;right:10px;z-index:2;box-sizing:border-box;width:24px;height:24px;min-width:24px;min-height:0;padding:0;margin:0;border:0;border-radius:4px;background:none;color:#666;font-family:inherit;font-size:18px;font-weight:400;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+button.pxclose:hover,button.pxclose:focus{background:#f0f0f0;color:#222}
+.pw{display:flex;gap:6px;align-items:center}.pw input{flex:1 1 auto;min-width:0}
+button.pwt{background:#fff;color:#1565c0;border:1px solid #ccc;border-radius:8px}
+.pf textarea.hdr{height:56px;min-height:56px;max-height:none}
 button.add:hover{background:#e3f2fd}
 .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 #status .msg{margin:12px 0 0}
@@ -590,7 +601,7 @@ cat <<HTML
 <div class="grid proxy">
 <div class=pcell>
 <button type=button class="add addproxy" data-card=card-socks $SOCKS_BTN_H>Add SOCKS5</button>
-<div class=c id=card-socks$SOCKS_CARD_H><form method=post><input type=hidden name=proto value=socks><b>SOCKS5</b>
+<div class=c id=card-socks$SOCKS_CARD_H><button type=button class=pxclose data-card=card-socks aria-label="Hide SOCKS5">&times;</button><form method=post><input type=hidden name=proto value=socks><b>SOCKS5</b>
 HTML
 proxy_fields socks
 cat <<HTML
@@ -598,7 +609,7 @@ cat <<HTML
 </div>
 <div class=pcell>
 <button type=button class="add addproxy" data-card=card-http $HTTP_BTN_H>Add HTTP</button>
-<div class=c id=card-http$HTTP_CARD_H><form method=post><input type=hidden name=proto value=http><b>HTTP</b>
+<div class=c id=card-http$HTTP_CARD_H><button type=button class=pxclose data-card=card-http aria-label="Hide HTTP">&times;</button><form method=post><input type=hidden name=proto value=http><b>HTTP</b>
 HTML
 proxy_fields http
 cat <<HTML
@@ -623,6 +634,15 @@ document.querySelectorAll('button.addproxy').forEach(function(b){
     if(card)card.hidden=false;
     b.hidden=true;
     eqCards();
+  });
+});
+document.querySelectorAll('button.pxclose').forEach(function(b){
+  b.addEventListener('click',function(){
+    var id=b.getAttribute('data-card');
+    var card=document.getElementById(id);
+    if(card)card.hidden=true;
+    var add=document.querySelector('button.addproxy[data-card="'+id+'"]');
+    if(add)add.hidden=false;
   });
 });
 document.querySelectorAll('button.pwt').forEach(function(b){

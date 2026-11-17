@@ -21,6 +21,6 @@ Description: vpn.panel-gl.inet: VPN panel for GL.iNet routers on OpenWrt (uhttpd
  downloaded when the package is installed).
  Every protocol is its own service: VLESS = Xray, Hysteria = hysteria, Naive = naive (+ dnsproxy for DNS), WireGuard = kernel interface; only one runs at a time and none goes through another. WireGuard needs kmod-wireguard and wireguard-tools (optional). Every client is optional.
 Filename: vpn-panel-gl-inet_1.5.0a5_all.ipk
-Size: 54684
-SHA256sum: 1838e922d848c8c20a664d5672122dc56e6fd83ddd5432779f7a071c0a0e78fc
+Size: 54693
+SHA256sum: 2ed64cc9fe8871508eed3440031e229b36342ea05a7a3fc3543f50b331233a12
 

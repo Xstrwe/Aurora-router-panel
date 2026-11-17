@@ -590,7 +590,8 @@ if printf '%s\n' "$html" | grep -q 'id=card-socks hidden' \
    && printf '%s\n' "$html" | grep -q 'data-card=card-http aria-label="Hide HTTP"' \
    && grep -q 'button.pxclose{position:absolute;top:8px;right:10px' "$CGI" \
    && grep -q "if(card)card.hidden=true" "$CGI" \
-   && grep -q "if(add)add.hidden=false" "$CGI"; then
+   && grep -q "if(add)add.hidden=false" "$CGI" \
+   && grep -q '\[hidden\]{display:none!important}' "$CGI"; then
 	ok "SOCKS5 and HTTP cards have a close × that only hides the card"
 else
 	bad "proxy card close button markup"

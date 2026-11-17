@@ -89,7 +89,9 @@ Install the VPN clients from the panel. Pre-release.
 - The SOCKS5 and HTTP cards have a close "×" in the top-right corner. It
   hides the card and brings back **Add SOCKS5** / **Add HTTP**. Saved
   proxy settings are not deleted: an unconfigured card still starts
-  hidden, and a saved one still starts open.
+  hidden, and a saved one still starts open. The `hidden` attribute
+  still hides a button or card (`display:none` wins over the compact
+  button layout).
 - The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
   README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**
   and **Port** (default 443) fields stay on the card. **Username**, **Password** (with

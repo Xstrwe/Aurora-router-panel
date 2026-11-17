@@ -369,12 +369,12 @@ html=$(render xray 0 "$TMP/hooks/egress-final.sh")
 ipget() { env PIDOF_UP="$1" VLESS_AU_EGRESS="$2" REQUEST_METHOD=GET QUERY_STRING=ip "$CGI"; }
 row() { printf '%s\n' "$html" | sed -n "s/.*<tr><td>$1<\\/td><td>\\(.*\\)<\\/td><\\/tr>.*/\\1/p" | head -1; }
 proto=$(row 'Protocol:')
-exitrow=$(printf '%s\n' "$html" | grep '<td>Egress IP:</td>' | head -1)
+exitrow=$(printf '%s\n' "$html" | grep '<td>Egress IP:Port:</td>' | head -1)
 svc=$(row 'Client:')
-if printf '%s' "$proto" | grep -q '>Hysteria2<' \
+if [ "$proto" = Hysteria2 ] \
    && printf '%s' "$exitrow" | grep -q 'id=egress' \
    && ! printf '%s' "$exitrow" | grep -q '192.0.2' \
-   && printf '%s' "$svc" | grep -q 'color:#1a7f37" title="running">Xray</span>' \
+   && printf '%s' "$svc" | grep -q 'color:#1a7f37;font-weight:700" title="running">Xray</span>' \
    && printf '%s' "$svc" | grep -q 'color:#c62828;font-weight:700" title="not installed">Hysteria</span>' \
    && ! printf '%s\n' "$html" | grep -q 'Restart service' \
    && [ "$(row 'Server:')" = 192.0.2.20 ] \
@@ -553,6 +553,64 @@ else
 	bad "VPN card button spacing"
 fi
 
+# One typeface and size for body text, fields, hints, Auto-update and buttons.
+if grep -q 'body{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px' "$CGI" \
+   && grep -q '.au,.hint,.http-udp,.msg,.itxt,.ipct,.svcs,td{font-family:inherit;font-size:inherit' "$CGI" \
+   && grep -q 'input,select,textarea,button{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px' "$CGI" \
+   && grep -q 'input,select,textarea{color:#222}' "$CGI" \
+   && ! grep -q 'font-family:monospace' "$CGI" \
+   && grep -q 'button{[^}]*padding:6px 12px' "$CGI" \
+   && grep -q 'button{[^}]*height:30px' "$CGI" \
+   && grep -q 'button.rb{[^}]*min-height:0' "$CGI" \
+   && grep -q '#status .modef select,#status .modef button{height:22px' "$CGI" \
+   && grep -q '#status tr.moderow td{padding-top:13px;padding-bottom:8px}' "$CGI" \
+   && grep -q 'button.rb{[^}]*width:16px;height:16px' "$CGI" \
+   && grep -q '.au{[^}]*gap:0 4px' "$CGI"; then
+	ok "one 14px font for body, fields and buttons; compact 30px buttons"
+else
+	bad "unified typography or button size"
+fi
+
+# Naive Auto-update row is forced onto one line even inside the card grid.
+if grep -q '^\.au{[^}]*flex-wrap:nowrap' "$CGI" \
+   && grep -q '.vpn .pf.nv .au label{display:inline-flex;flex-direction:row' "$CGI" \
+   && grep -q '.au{[^}]*gap:0 4px' "$CGI" \
+   && grep -q '.au input\[type=checkbox\]{margin:0' "$CGI"; then
+	ok "Naive Advanced Auto-update row stays on one line"
+else
+	bad "Naive Auto-update row CSS"
+fi
+
+# Mode row has no stray grey background or borders.
+if grep -q '#status tr,#status td{background:transparent;border:0' "$CGI"; then
+	ok "Mode and other status rows have no grey highlight or extra borders"
+else
+	bad "status row background"
+fi
+
+# Proxy cards: a top-right × hides the card and shows Add again; it never deletes the saved config.
+if printf '%s\n' "$html" | grep -q 'id=card-socks hidden' \
+   && printf '%s\n' "$html" | grep -q 'id=card-http>' \
+   && ! printf '%s\n' "$html" | grep -q 'id=card-http hidden' \
+   && [ "$(printf '%s\n' "$html" | grep -c 'class=pxclose')" = 2 ] \
+   && printf '%s\n' "$html" | grep -q 'data-card=card-socks aria-label="Hide SOCKS5"' \
+   && printf '%s\n' "$html" | grep -q 'data-card=card-http aria-label="Hide HTTP"' \
+   && grep -q 'button.pxclose{position:absolute;top:8px;right:10px' "$CGI" \
+   && grep -q "if(card)card.hidden=true" "$CGI" \
+   && grep -q "if(add)add.hidden=false" "$CGI" \
+   && grep -q '\[hidden\]{display:none!important}' "$CGI"; then
+	ok "SOCKS5 and HTTP cards have a close × that only hides the card"
+else
+	bad "proxy card close button markup"
+fi
+# Closing a card must not delete or clear the saved proxy files (no server action).
+if ! grep -A20 "button.pxclose').forEach" "$CGI" | grep -Eq 'fetch\(|XMLHttpRequest|method=post|socks.json|http.json|unlink|rm -' \
+   && ! grep -Eq 'action=socksdel|action=httpdel|action=proxydel|action=proxyclear' "$CGI"; then
+	ok "closing a proxy card does not delete the saved config"
+else
+	bad "proxy close would change saved config"
+fi
+
 # Saved SOCKS5/HTTP passwords never appear in the page; the field is empty with a "saved" hint.
 cp "$D/http.json" "$D/http.json.pw.bak"
 printf '%s\n' '{"address":"proxy.example","port":8080,"user":"u","pass":"s3cr3t-HttpPw","tls":true,"sni":"proxy.example","allowInsecure":false}' > "$D/http.json"
@@ -648,20 +706,20 @@ nrb=$(printf '%s\n' "$html" | grep -o 'class=rb' | wc -l | tr -d ' ')
 if [ "$nrb" = 4 ] \
    && printf '%s' "$svc" | grep -q 'Xray</span>.*</span> / <span class=svc>.*Naive</span>.*</span> / <span class=svc>.*Hysteria</span>.*</span> / <span class=svc>.*WireGuard</span>' \
    && printf '%s\n' "$html" | grep -q 'name=svc value=wireguard' \
-   && grep -q 'button.rb{[^}]*width:1.2em;height:1.2em' "$CGI"; then
+   && grep -q 'button.rb{[^}]*width:16px;height:16px' "$CGI"; then
 	ok "services are one row: Xray / Naive / Hysteria / WireGuard, each with a small restart button"
 else
 	bad "service row (buttons=$nrb)"
 fi
 # Mode is the first row of the status card (above the transparent-mode row) and still posts action=mode.
-if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr><td>Transparent mode for the network:</td>' \
+if printf '%s\n' "$html" | tr '\n' ' ' | grep -q '<div class=c id=status><table> *<tr class=moderow><td>Mode:</td><td><form method=post class=modef><input type=hidden name=action value=mode>.*</form></td></tr> *<tr class=tmrow><td>Transparent mode for the network:</td>' \
    && ! printf '%s\n' "$html" | grep -q 'id=modecard' \
    && [ "$(printf '%s\n' "$html" | grep -c '<b>Mode:</b>')" = 0 ]; then
 	ok "the mode selector is the first row of the status card; no separate mode card"
 else
 	bad "mode row position"
 fi
-# Enable / Disable / Test / Speed live in the status card, under Egress IP, not in a separate card.
+# Enable / Disable / Test / Speed live in the status card, under Egress IP:Port, not in a separate card.
 python3 - "$html" <<'PYEND'
 import re,sys
 h=sys.argv[1]
@@ -672,9 +730,9 @@ if not m:
 if not m:
     sys.exit(2)
 card=m.group(1)
-if 'Egress IP:' not in card: sys.exit(3)
-# buttons after Egress IP
-if card.find('Egress IP:') > card.find('name=action value=on'): sys.exit(4)
+if 'Egress IP:Port:' not in card: sys.exit(3)
+# buttons after Egress IP:Port
+if card.find('Egress IP:Port:') > card.find('name=action value=on'): sys.exit(4)
 if not all(s in card for s in ('name=action value=on','name=action value=off','name=action value=test','name=action value=speed','class=acts')):
     sys.exit(5)
 # no leftover separate button card
@@ -682,7 +740,7 @@ if 'style="display:flex;flex-wrap:wrap;gap:8px"' in h: sys.exit(6)
 sys.exit(0)
 PYEND
 if [ $? -eq 0 ] && grep -q '.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}' "$CGI"; then
-	ok "Enable, Disable, Test and Speed sit in the status card under Egress IP"
+	ok "Enable, Disable, Test and Speed sit in the status card under Egress IP:Port"
 else
 	bad "status card action buttons"
 fi
@@ -1054,8 +1112,8 @@ wr4=$(wgrow VLESS_WG_BIN="$TMP/bin/wg-ok" VLESS_WG_SYSMOD="$TMP/wg-module")
 rm -f "$TMP/wgup.state"
 if printf '%s' "$wr1" | grep -q 'color:#c62828;font-weight:700" title="not installed' && printf '%s' "$wr1" | grep -q 'class=rb disabled' \
    && printf '%s' "$wr2" | grep -q 'color:#c62828;font-weight:700" title="config not saved' && printf '%s' "$wr2" | grep -q 'class=rb disabled' \
-   && printf '%s' "$wr3" | grep -q 'color:#777" title="stopped: not the active protocol' && ! printf '%s' "$wr3" | grep -q 'class=rb disabled' \
-   && printf '%s' "$wr4" | grep -q 'color:#1a7f37" title="running' && ! printf '%s' "$wr4" | grep -q 'class=rb disabled'; then
+   && printf '%s' "$wr3" | grep -q 'color:#777" title="stopped: not the active protocol' && ! printf '%s' "$wr3" | grep -q 'font-weight:700' && ! printf '%s' "$wr3" | grep -q 'class=rb disabled' \
+   && printf '%s' "$wr4" | grep -q 'color:#1a7f37;font-weight:700" title="running' && ! printf '%s' "$wr4" | grep -q 'class=rb disabled'; then
 	ok "the WireGuard row shows its real state: not installed, config not saved, idle (grey, not red), running"
 else
 	bad "wg row ($wr1 | $wr2 | $wr3 | $wr4)"
@@ -1147,7 +1205,7 @@ hrow() { # $1 up-list $2 proto $3 probe-hook $4 NFT_FAIL -> rendered page
 	env PIDOF_UP="$1" NFT_FAIL="${4:-}" VLESS_AU_PROBE="$3" VLESS_HEALTH_CACHE="$TMP/health.cache" VLESS_AU_EGRESS="$TMP/hooks/egress-final.sh" \
 		VLESS_XRAY_BIN="$TMP/bin/xray-ok" VLESS_NAIVE_BIN="$TMP/bin/xray-ok" VLESS_HYSTERIA_BIN="$TMP/bin/xray-ok" REQUEST_METHOD=GET "$CGI"
 }
-tm() { printf '%s\n' "$1" | sed -n 's/.*<tr><td>Transparent mode for the network:<\/td><td><b style="color:\([^"]*\)">\(.*\)<\/b><\/td><\/tr>.*/\1 \2/p' | head -1; }
+tm() { printf '%s\n' "$1" | sed -n 's/.*<tr\( class=tmrow\)\?><td>Transparent mode for the network:<\/td><td><span style="color:\(#[0-9a-fA-F]*\)[^"]*">\(.*\)<\/span><\/td><\/tr>.*/\2 \3/p' | head -1; }
 h_ok=$(hrow naive naive "$TMP/hooks/health-ok.sh")
 h_bad=$(hrow naive naive "$TMP/hooks/health-bad.sh")
 h_down=$(hrow xray naive "$TMP/hooks/health-ok.sh")
@@ -1390,6 +1448,484 @@ else:
 		ok "render: opening the Advanced pop-up does not change VPN card heights"
 	else
 		bad "render card heights with pop-up open: closed='$hs' open='$ho' again='$hc'"
+	fi
+
+	# Font, button size, Mode row, Naive Auto-update layout, and ON/OFF state colours.
+	write_meas() { # $1 dest html $2 source cgi output (may include headers)
+		python3 - "$1" "$2" <<'PYEND'
+import sys
+dest, src = sys.argv[1], sys.argv[2]
+h=open(src, encoding="utf-8", errors="replace").read()
+if h.lower().startswith("content-type"):
+    h=h.split("\n\n",1)[-1].split("\r\n\r\n",1)[-1]
+meas="""<script>
+(function(){
+  function fam(el){var s=getComputedStyle(el);return [s.fontFamily,s.fontSize,s.fontStyle].join("|")}
+  function report(id,text){
+    var el=document.getElementById(id)||document.createElement("pre");
+    el.id=id; el.textContent=text; document.body.appendChild(el);
+  }
+  function go(){
+    var body=document.body, bf=fam(body);
+    var pick={
+      textarea:document.querySelector(".vpn textarea"),
+      input:document.querySelector(".pf input[type=text]"),
+      select:document.querySelector("select[name=mode]")||document.querySelector("select"),
+      td:document.querySelector("#status td"),
+      button:document.querySelector(".acts button"),
+      au:document.querySelector(".grid.vpn .au")||document.querySelector(".au"),
+      hint:document.querySelector(".hint")
+    };
+    var fontOk=[];
+    Object.keys(pick).forEach(function(k){
+      var el=pick[k];
+      if(!el){fontOk.push(k+":missing");return;}
+      var f=fam(el);
+      fontOk.push(k+":"+((f.split("|")[0]===bf.split("|")[0]&&f.split("|")[1]===bf.split("|")[1])?"ok":f+"/"+bf));
+    });
+    report("ui-fonts", fontOk.join(";"));
+    report("ui-body-font", bf);
+    var pop0=document.querySelector(".advpop");
+    if(pop0)pop0.classList.add("open");
+    var btns=[].slice.call(document.querySelectorAll("button")).filter(function(b){
+      if(b.classList.contains("rb")||b.classList.contains("advbtn")||b.classList.contains("pxclose"))return false;
+      if(b.closest&&b.closest(".modef"))return false;
+      if(b.hidden||b.getAttribute("hidden")!==null)return false;
+      var r=b.getBoundingClientRect();
+      return r.height>0 && r.width>0;
+    });
+    var hs=btns.map(function(b){return Math.round(b.getBoundingClientRect().height)});
+    var uniq=[];
+    hs.forEach(function(v){if(uniq.indexOf(v)<0)uniq.push(v)});
+    report("ui-btn-heights", btns.length+":"+uniq.join(",")+":"+hs.join(","));
+    var modeTd=document.querySelector("#status tr td");
+    var modeTr=document.querySelector("#status tr");
+    if(modeTd&&modeTr){
+      var sm=getComputedStyle(modeTd), sr=getComputedStyle(modeTr);
+      report("ui-mode-bg", [sm.backgroundColor,sr.backgroundColor,sm.borderTopWidth,sm.borderBottomWidth,sr.borderTopWidth,sr.borderBottomWidth].join("|"));
+    }else report("ui-mode-bg","missing");
+    var tmEl=null, clientRow=null;
+    [].slice.call(document.querySelectorAll("#status tr")).forEach(function(tr){
+      var lab=(tr.cells[0]&&tr.cells[0].textContent||"").replace(/\\s+/g," ").trim();
+      if(lab.indexOf("Transparent mode")===0) tmEl=tr.cells[1]&&tr.cells[1].querySelector("span");
+      if(lab.indexOf("Client:")===0) clientRow=tr.cells[1];
+    });
+    var clients=[];
+    if(clientRow){
+      [].slice.call(clientRow.querySelectorAll(".svc > span")).forEach(function(s){
+        if(s.classList.contains("rg")||s.tagName==="FORM")return;
+        var name=s.textContent.trim();
+        if(!name||name.charCodeAt(0)===8635)return;
+        clients.push(name+":"+getComputedStyle(s).color);
+      });
+    }
+    function typW(w){return (w==="700"||w==="bold")?"700":((w==="400"||w==="normal")?"400":w)}
+    function typRole(el){
+      var c=getComputedStyle(el).color.replace(/\\s/g,"");
+      if(c==="rgb(26,127,55)"||c==="rgb(198,40,40)")return "state";
+      return "plain";
+    }
+    function typOf(el,role){var s=getComputedStyle(el);return [s.fontFamily,s.fontSize,typW(s.fontWeight),role||"plain"].join("|")}
+    var typItems=[], typFam="", typSize="", typOk=1;
+    [].slice.call(document.querySelectorAll("#status table tr")).forEach(function(tr){
+      var labCell=tr.cells[0], valCell=tr.cells[1];
+      if(!labCell||!valCell)return;
+      var lab=(labCell.textContent||"").replace(/\\s+/g," ").trim().replace(/:$/,"");
+      typItems.push("lab-"+lab+":"+typOf(labCell,"plain"));
+      if(lab.indexOf("Transparent mode")===0){
+        var el=valCell.querySelector("span")||valCell;
+        typItems.push("val-tm:"+typOf(el,typRole(el)));
+      }else if(lab.indexOf("Client")===0){
+        [].slice.call(valCell.querySelectorAll(".svc > span")).forEach(function(s){
+          if(s.classList.contains("rg")||s.tagName==="FORM")return;
+          var name=s.textContent.trim();
+          if(!name||name.charCodeAt(0)===8635)return;
+          typItems.push("val-"+name+":"+typOf(s,typRole(s)));
+        });
+      }else if(lab==="Mode"){
+        /* skip the select and Apply button */
+      }else{
+        typItems.push("val-"+lab+":"+typOf(valCell,"plain"));
+      }
+    });
+    typItems.forEach(function(it){
+      var bits=it.split("|");
+      var fam=bits[0].slice(bits[0].lastIndexOf(":")+1);
+      if(!typFam)typFam=fam;
+      if(fam!==typFam)typOk=0;
+    });
+    report("ui-status-type", typItems.join(";")+" || famok="+(typOk?"1":"0"));
+    var serverEl=null;
+    [].slice.call(document.querySelectorAll("#status table tr")).forEach(function(tr){
+      var lab=(tr.cells[0]&&tr.cells[0].textContent||"").replace(/\\s+/g," ").trim().replace(/:$/,"");
+      if(lab==="Server") serverEl=tr.cells[1];
+    });
+    function typFont(el){var s=getComputedStyle(el);return [s.fontFamily,s.fontSize,typW(s.fontWeight),s.color.replace(/\\s/g,"")].join("|")}
+    var srv=serverEl?typFont(serverEl):"missing";
+    function sameFont(el,withColor){
+      if(!el||!serverEl)return "missing";
+      var a=typFont(el).split("|"), b=srv.split("|");
+      var ok=(a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2]&&(!withColor||a[3]===b[3]));
+      return (ok?"ok":a.join("/")+" vs "+b.join("/"));
+    }
+    var ff=[
+      "input:"+sameFont(document.querySelector(".pf input[type=text]"),true),
+      "textarea:"+sameFont(document.querySelector(".vpn textarea")||document.querySelector("textarea"),true),
+      "select:"+sameFont(document.querySelector(".pf select")||document.querySelector("select[name=int]"),true),
+      "modeSel:"+sameFont(document.querySelector("select[name=mode]"),true)
+    ];
+    report("ui-field-font", ff.join(";")+" || server="+srv);
+    var modeSel=document.querySelector("#status .modef select");
+    var modeBtn=document.querySelector("#status .modef button");
+    function boxH(el){return el?Math.round(el.getBoundingClientRect().height):0}
+    report("ui-mode-ht", modeSel&&modeBtn? (boxH(modeSel)+":"+boxH(modeBtn)):"missing");
+    var stCard=document.querySelector("#status");
+    var modeTr=document.querySelector("#status tr.moderow");
+    var tmTr=document.querySelector("#status tr.tmrow");
+    if(stCard&&modeTr&&tmTr&&modeSel){
+      var modeTd=modeTr.cells[0], tmTd=tmTr.cells[0];
+      var modePad=parseFloat(getComputedStyle(modeTd).paddingTop)||0;
+      var tmPad=parseFloat(getComputedStyle(tmTd).paddingTop)||0;
+      var gapTop=Math.round((modeTd.getBoundingClientRect().top+modePad)-stCard.getBoundingClientRect().top);
+      var modeBot=modeSel.getBoundingClientRect().bottom;
+      var gapBelow=Math.round((tmTd.getBoundingClientRect().top+tmPad)-modeBot);
+      report("ui-mode-gap", gapTop+":"+gapBelow);
+    } else report("ui-mode-gap","missing");
+    var cName=document.querySelector("#status .svc>span");
+    var cBtn=document.querySelector("#status button.rb");
+    report("ui-client-ht", (cName&&cBtn)? (getComputedStyle(cName).fontSize+":"+Math.round(cBtn.getBoundingClientRect().width)+":"+Math.round(cBtn.getBoundingClientRect().height)):"missing");
+    function auGap(au){
+      if(!au)return "missing";
+      var cs=getComputedStyle(au);
+      var gap=cs.columnGap||cs.gap;
+      var lab=au.querySelector("label");
+      var lg=lab?(getComputedStyle(lab).columnGap||getComputedStyle(lab).gap):"na";
+      var cb=au.querySelector("input[type=checkbox]");
+      var ml=cb?getComputedStyle(cb).marginLeft:"na";
+      var mr=cb?getComputedStyle(cb).marginRight:"na";
+      return gap+"|"+lg+"|"+ml+"|"+mr;
+    }
+    var auCard=document.querySelector(".grid.vpn .c > form > .au")||document.querySelector(".grid.vpn form > .au");
+    var auPop=document.querySelector(".advbox .au");
+    report("ui-au-gap", auGap(auCard)+" || "+auGap(auPop));
+        report("ui-state", (tmEl?(tmEl.textContent.trim()+":"+getComputedStyle(tmEl).color):"missing")+" || "+clients.join(";"));
+    var pop=document.querySelector(".advpop");
+    if(pop)pop.classList.add("open");
+    var auN=document.querySelector(".advbox .au");
+    if(auN){
+      var kids=[].slice.call(auN.querySelectorAll("span, label, select"));
+      var tops=kids.map(function(el){return Math.round(el.getBoundingClientRect().top)});
+      var min=Math.min.apply(null,tops), max=Math.max.apply(null,tops);
+      report("ui-naive-au", (max-min)+":"+Math.round(auN.getBoundingClientRect().height)+":"+tops.join(","));
+    } else report("ui-naive-au","missing");
+  }
+  if(document.readyState==="complete")setTimeout(go,50);
+  else window.addEventListener("load",function(){setTimeout(go,50)});
+})();
+</script>"""
+open(dest,"w",encoding="utf-8").write(h.replace("<body>","<body>"+meas,1) if "<body>" in h else meas+h)
+PYEND
+	}
+	printf '%s' "$h_ok" > "$TMP/rt/src-on.html"
+	printf '%s' "$h_off" > "$TMP/rt/src-off.html"
+	printf '%s' "$h_down" > "$TMP/rt/src-down.html"
+	write_meas "$TMP/rt/ui-on.html" "$TMP/rt/src-on.html"
+	write_meas "$TMP/rt/ui-off.html" "$TMP/rt/src-off.html"
+	write_meas "$TMP/rt/ui-down.html" "$TMP/rt/src-down.html"
+	chrome_ui() { # $1 html -> sets extracted fields from dump-dom
+		rdom=$("$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
+			--window-size=1024,1400 --force-device-scale-factor=1 \
+			--virtual-time-budget=8000 --dump-dom "file://$1" 2>/dev/null)
+		ui_fonts=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-fonts">\([^<]*\)<.*/\1/p' | head -1)
+		ui_btns=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-btn-heights">\([^<]*\)<.*/\1/p' | head -1)
+		ui_mode=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-mode-bg">\([^<]*\)<.*/\1/p' | head -1)
+		ui_state=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-state">\([^<]*\)<.*/\1/p' | head -1)
+		ui_nau=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-naive-au">\([^<]*\)<.*/\1/p' | head -1)
+		ui_typ=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-status-type">\([^<]*\)<.*/\1/p' | head -1)
+		ui_ffield=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-field-font">\([^<]*\)<.*/\1/p' | head -1)
+		ui_modeht=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-mode-ht">\([^<]*\)<.*/\1/p' | head -1)
+		ui_modegap=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-mode-gap">\([^<]*\)<.*/\1/p' | head -1)
+		ui_cliht=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-client-ht">\([^<]*\)<.*/\1/p' | head -1)
+		ui_augap=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-au-gap">\([^<]*\)<.*/\1/p' | head -1)
+	}
+	chrome_ui "$TMP/rt/ui-on.html"
+	# fonts: every listed control is ok
+	if printf '%s' "$ui_fonts" | grep -q 'textarea:ok' \
+	   && printf '%s' "$ui_fonts" | grep -q 'input:ok' \
+	   && printf '%s' "$ui_fonts" | grep -q 'select:ok' \
+	   && printf '%s' "$ui_fonts" | grep -q 'td:ok' \
+	   && printf '%s' "$ui_fonts" | grep -q 'button:ok' \
+	   && printf '%s' "$ui_fonts" | grep -q 'au:ok' \
+	   && printf '%s' "$ui_fonts" | grep -q 'hint:ok' \
+	   && ! printf '%s' "$ui_fonts" | grep -q ':missing' \
+	   && ! printf '%s' "$ui_fonts" | grep -q '/'; then
+		ok "render: body, status rows, fields, hints, Auto-update and buttons share one 14px font"
+	else
+		bad "render fonts: $ui_fonts"
+	fi
+	# button heights: n:uniq:h,h,... all ~30 and at most 1px spread
+	eval "$(printf '%s' "$ui_btns" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=s.split(":")
+n=parts[0] if parts else "0"
+vals=[]
+if len(parts)>=3:
+    vals=[int(x) for x in parts[2].split(",") if x.strip().lstrip("-").isdigit()]
+print("nbtn=%s"%n)
+print("btnspread=%d"%( (max(vals)-min(vals)) if vals else 99))
+print("btnmin=%d"%(min(vals) if vals else 0))
+print("btnmax=%d"%(max(vals) if vals else 0))
+')"
+	if [ "${nbtn:-0}" -ge 10 ] && [ "${btnmin:-0}" -ge 28 ] && [ "${btnmax:-99}" -le 32 ] && [ "${btnspread:-99}" -le 1 ]; then
+		ok "render: action buttons are one compact height (${btnmin}-${btnmax}px, n=$nbtn)"
+	else
+		bad "render button heights: $ui_btns"
+	fi
+	# Mode row backgrounds are transparent (or white-equivalent) and borders are 0
+	eval "$(printf '%s' "$ui_mode" | python3 -c '
+import sys,re
+s=sys.stdin.read().strip()
+bits=s.split("|")
+def trans(v):
+    v=(v or "").lower().replace(" ","")
+    return v in ("transparent","rgba(0,0,0,0)","rgb(0,0,0,0)","rgba(0,0,0,0.0)")
+def zero(v):
+    return (v or "") in ("0px","0")
+ok = len(bits)>=6 and trans(bits[0]) and trans(bits[1]) and all(zero(x) for x in bits[2:6])
+print("modebg=%s"%("1" if ok else "0"))
+')"
+	if [ "${modebg:-0}" = 1 ]; then
+		ok "render: Mode row has no grey highlight or extra borders"
+	else
+		bad "render Mode row background: $ui_mode"
+	fi
+	# Naive Auto-update: tops within 8px, row not tall enough to be two wrapped lines
+	eval "$(printf '%s' "$ui_nau" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=s.split(":")
+spread=int(parts[0]) if parts and parts[0].lstrip("-").isdigit() else 99
+h=int(parts[1]) if len(parts)>1 and parts[1].lstrip("-").isdigit() else 99
+print("nauspread=%d"%spread)
+print("nauheight=%d"%h)
+')"
+	if [ "${nauspread:-99}" -le 8 ] && [ "${nauheight:-99}" -le 44 ] && [ "${nauheight:-0}" -ge 18 ]; then
+		ok "render: Naive Advanced Auto-update sits on one line (spread ${nauspread}px, height ${nauheight}px)"
+	else
+		bad "render Naive Auto-update layout: $ui_nau"
+	fi
+	# ON: ENABLED green, running Naive green
+	if printf '%s' "$ui_state" | grep -q 'ENABLED:rgb(26, 127, 55)' \
+	   && printf '%s' "$ui_state" | grep -q 'Naive:rgb(26, 127, 55)'; then
+		ok "render ON: Transparent mode is green ENABLED and the running client is green"
+	else
+		bad "render ON state colours: $ui_state"
+	fi
+	# Status card typography: one family and 14px size; green/red state values are 700, everything else 400.
+	eval "$(printf '%s' "$ui_typ" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+body, _, meta = s.partition(" || ")
+ok = 1
+reasons = []
+if "famok=1" not in meta:
+    ok = 0
+    reasons.append("family mismatch")
+def expected_size(name):
+    return "14px"
+state_n = plain_n = 0
+for part in body.split(";"):
+    if not part or ":" not in part:
+        continue
+    bits = part.split("|")
+    if len(bits) < 4 or ":" not in bits[0]:
+        ok = 0
+        reasons.append("bad "+part[:40])
+        continue
+    head = bits[0]
+    i = head.rfind(":")
+    name, _fam = head[:i], head[i+1:]
+    sz, w, role = bits[1], bits[2], bits[3]
+    exp = expected_size(name)
+    if sz != exp:
+        ok = 0
+        reasons.append(name+" size="+sz+" want="+exp)
+    if role == "state":
+        state_n += 1
+        if w != "700":
+            ok = 0
+            reasons.append(name+" state weight="+w)
+    else:
+        plain_n += 1
+        if w != "400":
+            ok = 0
+            reasons.append(name+" plain weight="+w)
+if state_n < 2 or plain_n < 4:
+    ok = 0
+    reasons.append("counts state=%d plain=%d" % (state_n, plain_n))
+print("typok=%s" % (1 if ok else 0))
+print("typreasons=%s" % repr(",".join(reasons) if reasons else "ok"))
+')"
+	if [ "${typok:-0}" = 1 ]; then
+		ok "render: status typography uses one family; only green/red state values are bold"
+	else
+		bad "render status typography: ${typreasons:-fail} ($ui_typ)"
+	fi
+	# Fields match the Server value font (family, 14px, weight, colour).
+	if printf '%s' "$ui_ffield" | grep -q 'input:ok' \
+	   && printf '%s' "$ui_ffield" | grep -q 'textarea:ok' \
+	   && printf '%s' "$ui_ffield" | grep -q 'select:ok' \
+	   && printf '%s' "$ui_ffield" | grep -q 'modeSel:ok' \
+	   && ! printf '%s' "$ui_ffield" | grep -q 'missing'; then
+		ok "render: inputs, selects and link fields use the same font as the Server value"
+	else
+		bad "render field font: $ui_ffield"
+	fi
+	# Mode select and Apply: slim ~22px, same height, text fits (not shorter than ~20).
+	eval "$(printf '%s' "$ui_modeht" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=s.split(":")
+ok=0
+try:
+    a,b=int(parts[0]),int(parts[1])
+    ok=1 if (20<=a<=24 and 20<=b<=24 and abs(a-b)<=1) else 0
+except Exception:
+    a=b=-1
+print("modehtok=%d"%ok)
+print("modesel_h=%s"%parts[0] if parts else "modesel_h=0")
+print("modebtn_h=%s"%(parts[1] if len(parts)>1 else "0"))
+')"
+	if [ "${modehtok:-0}" = 1 ]; then
+		ok "render: Mode select and Apply are a slim matching height (${modesel_h}/${modebtn_h}px)"
+	else
+		bad "render Mode control height: $ui_modeht"
+	fi
+	# Mode row sits ~10px lower (gap from card top ~29px) with a little space before Transparent mode.
+	eval "$(printf '%s' "$ui_modegap" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=s.split(":")
+ok=0
+try:
+    top,below=int(parts[0]),int(parts[1])
+    # was ~19px (16 card + 3 td); now 16+13=29, allow 26-34. Below was ~6; now ~8+3 plus margins, allow 8-20.
+    ok=1 if (26<=top<=34 and 8<=below<=20) else 0
+except Exception:
+    top=below=-1
+print("modegapok=%d"%ok)
+print("modegap_top=%s"%(parts[0] if parts else "0"))
+print("modegap_below=%s"%(parts[1] if len(parts)>1 else "0"))
+')"
+	if [ "${modegapok:-0}" = 1 ]; then
+		ok "render: Mode row has extra space above (${modegap_top}px) and a little space before Transparent mode (${modegap_below}px)"
+	else
+		bad "render Mode row spacing: $ui_modegap"
+	fi
+	# Client names are 14px; restart icons are a 16px square.
+	eval "$(printf '%s' "$ui_cliht" | python3 -c '
+import sys
+s=sys.stdin.read().strip()
+parts=s.split(":")
+ok=0
+try:
+    fs=parts[0]
+    w,h=int(parts[1]),int(parts[2])
+    ok=1 if (fs=="14px" and 15<=w<=17 and 15<=h<=17 and abs(w-h)<=1) else 0
+except Exception:
+    fs,w,h="?","-1","-1"
+print("clihtok=%d"%ok)
+print("cliname_fs=%s"% (parts[0] if parts else "0"))
+print("clibtn_w=%s"% (parts[1] if len(parts)>1 else "0"))
+print("clibtn_h=%s"% (parts[2] if len(parts)>2 else "0"))
+')"
+	if [ "${clihtok:-0}" = 1 ]; then
+		ok "render: Client names are 14px and restart icons are ${clibtn_w}x${clibtn_h}px"
+	else
+		bad "render Client name/icon size: $ui_cliht"
+	fi
+	# Auto-update gaps are tight on the card and in the Naive pop-up (computed gap <= 6px, no checkbox margin).
+	eval "$(printf '%s' "$ui_augap" | python3 -c '
+import sys,re
+s=sys.stdin.read().strip()
+ok=1
+reasons=[]
+def px(v):
+    v=(v or "").strip()
+    if v in ("0","0px","normal"):
+        return 0.0
+    m=re.match(r"^([0-9.]+)px$", v)
+    return float(m.group(1)) if m else 99.0
+for i,side in enumerate(s.split(" || ")):
+    label=("card","popup")[i] if i<2 else "au"+str(i)
+    bits=side.split("|")
+    if side.strip()=="missing" or len(bits)<4:
+        ok=0
+        reasons.append(label+" missing")
+        continue
+    gap,lg,ml,mr=bits[0],bits[1],bits[2],bits[3]
+    if px(gap)>6 or px(lg)>6 or px(ml)>1 or px(mr)>1:
+        ok=0
+        reasons.append(label+" "+side)
+print("augapok=%d"%ok)
+print("augapreasons=%s"%repr(",".join(reasons) if reasons else "ok"))
+')"
+	if [ "${augapok:-0}" = 1 ]; then
+		ok "render: Auto-update controls sit tight on the card and in the Naive pop-up"
+	else
+		bad "render Auto-update gaps: ${augapreasons:-fail} ($ui_augap)"
+	fi
+	chrome_ui "$TMP/rt/ui-off.html"
+	if printf '%s' "$ui_state" | grep -q 'DISABLED (direct internet):rgb(198, 40, 40)'; then
+		ok "render OFF: Transparent mode is red DISABLED"
+	else
+		bad "render OFF state colours: $ui_state"
+	fi
+	chrome_ui "$TMP/rt/ui-down.html"
+	if printf '%s' "$ui_state" | grep -q 'Naive:rgb(198, 40, 40)'; then
+		ok "render: a stopped or failed client is red"
+	else
+		bad "render stopped client colour: $ui_state"
+	fi
+
+	# Close × on a saved HTTP card hides it and brings Add HTTP back; Add opens it again.
+	python3 - "$TMP/rt" <<'PYEND'
+import sys
+d=sys.argv[1]
+h=open(d+"/page.html",encoding="utf-8",errors="replace").read()
+if h.lower().startswith("content-type"):
+    h=h.split("\n\n",1)[-1].split("\r\n\r\n",1)[-1]
+meas="""<script>
+(function(){
+  function report(id,text){
+    var el=document.getElementById(id)||document.createElement("pre");
+    el.id=id; el.textContent=text; document.body.appendChild(el);
+  }
+  function vis(el){return !!(el&&!el.hidden&&el.getAttribute("hidden")===null&&el.getBoundingClientRect().height>0)}
+  function go(){
+    var card=document.getElementById("card-http");
+    var add=document.querySelector('button.addproxy[data-card="card-http"]');
+    var close=card&&card.querySelector("button.pxclose");
+    var start="card="+vis(card)+",add="+vis(add)+",close="+(!!close);
+    if(close)close.click();
+    var after="card="+vis(card)+",add="+vis(add);
+    if(add)add.click();
+    var again="card="+vis(card)+",add="+vis(add);
+    report("ui-proxy-close", start+" || "+after+" || "+again);
+  }
+  if(document.readyState==="complete")setTimeout(go,50);
+  else window.addEventListener("load",function(){setTimeout(go,50)});
+})();
+</script>"""
+open(d+"/proxy-close.html","w",encoding="utf-8").write(h.replace("<body>","<body>"+meas,1) if "<body>" in h else meas+h)
+PYEND
+	rdom=$("$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars 		--window-size=1024,1400 --force-device-scale-factor=1 		--virtual-time-budget=8000 --dump-dom "file://$TMP/rt/proxy-close.html" 2>/dev/null)
+	ui_px=$(printf '%s' "$rdom" | sed -n 's/.*id="ui-proxy-close">\([^<]*\)<.*/\1/p' | head -1)
+	if [ "$ui_px" = "card=true,add=false,close=true || card=false,add=true || card=true,add=false" ]; then
+		ok "render: HTTP close × hides the saved card and Add HTTP brings it back"
+	else
+		bad "render proxy close: $ui_px"
 	fi
 fi
 

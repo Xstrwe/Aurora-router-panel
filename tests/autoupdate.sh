@@ -203,7 +203,7 @@ if grep -q '<h3>VPN</h3>' "$CGI" \
    && grep -q 'Client:' "$CGI" \
    && grep -q 'name=action value=restartsvc' "$CGI" \
    && ! grep -q 'Restart service' "$CGI" \
-   && grep -q '>Egress IP:<' "$CGI" \
+   && grep -q '>Egress IP:Port:<' "$CGI" \
    && grep -q 'class=banner' "$CGI" \
    && ! grep -q 'Egress IP through VLESS' "$CGI" \
    && ! grep -q 'Xray service' "$CGI" \

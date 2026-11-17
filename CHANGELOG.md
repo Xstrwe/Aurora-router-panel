@@ -69,9 +69,47 @@ Install the VPN clients from the panel. Pre-release.
   tight against the Auto-update row or the Advanced link. On the status card the
   row label is **Client:** (it was "Service (daemon):"). **Enable**, **Disable**,
   **Test connection** and **Speed** sit in that same card, directly under
-  **Egress IP:** (about half a line of space above the buttons). Their result
+  **Egress IP:Port:** (about half a line of space above the buttons). Their result
   is shown under the buttons in the status card; the old separate button card
   is gone.
+- Panel typography and buttons are consistent. Body text, status rows, inputs,
+  selects, link fields (no longer monospace), hints, the Auto-update row and
+  the action buttons all use the same 14px system sans-serif. Inputs, selects
+  and link textareas set that typeface, size, weight and colour (`#222`)
+  explicitly, matching the Server value in the status card, so Safari and
+  Chrome do not keep a form-control default. Section headings (VPN, Proxy),
+  card titles and the small field labels above inputs keep their own style.
+  Action buttons (Enable, Disable, Test connection, Speed, Connect, Update
+  now, Add SOCKS5, Add HTTP, show/hide and Install) stay one compact size
+  (14px text, 6px 12px padding, 30px height); colours are unchanged. The Mode
+  select and its Apply button stay the same slimmer 22px height (vertical
+  padding reduced so the 14px text still fits). The whole Mode row (label,
+  select and Apply) sits a little lower: about 10px more space below the
+  top of the status card, and a little space before the Transparent mode
+  row. The tiny
+  service restart buttons and the Advanced text trigger stay as they were.
+  The Mode row has no grey highlight or extra borders. In every card and in
+  the Naive Advanced pop-up the Auto-update row stays on one line, with the
+  Auto-update label, the on checkbox, Interval and the select sitting tight
+  (no extra horizontal gaps). In the status card, labels and values share
+  the same 14px regular typeface, including the Transparent mode row
+  (label and value) and the Client names. Green and red state values
+  stay bold; grey inactive names stay regular. The restart icon buttons
+  are 16px square, with the icon scaled down, so they match that text
+  height. Green and
+  red *state* values are bold (font-weight 700): Transparent mode ENABLED
+  or DISABLED (or ERROR), and a running or failed Client name. Grey
+  inactive client names, the Protocol value, Server and Egress IP:Port
+  stay regular weight, like the row labels. State is otherwise shown only
+  by colour (green enabled/running, red disabled/failed, grey
+  stopped/inactive). The status-card label is **Egress IP:Port:**; the
+  value is still `<egress-ip>:<port>`.
+- The SOCKS5 and HTTP cards have a close "×" in the top-right corner. It
+  hides the card and brings back **Add SOCKS5** / **Add HTTP**. Saved
+  proxy settings are not deleted: an unconfigured card still starts
+  hidden, and a saved one still starts open. The `hidden` attribute
+  still hides a button or card (`display:none` wins over the compact
+  button layout).
 - The Naive card follows the official NaiveProxy client config (klzgrad/naiveproxy
   README and USAGE.txt) instead of one `naive+https://` link field: separate **Server**
   and **Port** (default 443) fields stay on the card. **Username**, **Password** (with
@@ -93,7 +131,7 @@ Install the VPN clients from the panel. Pre-release.
 - The page decodes form fields with awk instead of `printf %b`, so a backslash in a
   password or a header stays a backslash.
 - Status card: **Server:** shows only the active protocol's configured server host (the IP
-  when it is configured by IP; no port, no SNI), and **Egress IP:** shows the egress IP
+  when it is configured by IP; no port, no SNI), and **Egress IP:Port:** shows the egress IP
   followed by that server's port (`<egress-ip>:<port>`). Both come from the active
   protocol's own saved config.
 - Removed the hints "IPv6 is not proxied." and "Local proxies for individual apps: ..."

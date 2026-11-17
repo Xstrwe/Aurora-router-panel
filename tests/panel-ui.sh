@@ -499,53 +499,51 @@ else
 	bad "textarea height"
 fi
 
-# Naive: Server/Port/Username/Password stay on the card; Scheme and Advanced
-# keys live in a hover/focus/click pop-up that does not use <details>.
+# Naive: Server and Port stay on the card; Username, Password, Scheme and
+# Advanced keys live in a hover/focus/click pop-up that does not use <details>.
+# The Advanced trigger is in the card grid (second row, under Server), not the corner.
 if printf '%s\n' "$html" | grep -q 'class="pf nv"' \
    && printf '%s\n' "$html" | grep -q 'class=advbtn' \
    && printf '%s\n' "$html" | grep -q 'class=advbox id=naive-adv' \
-   && printf '%s\n' "$html" | grep -q 'class=nvtitle' \
    && ! printf '%s\n' "$html" | grep -q '<details' \
+   && ! grep -q 'nvtitle' "$CGI" \
+   && ! grep -q '.advpop{position:absolute;top:0;right:0' "$CGI" \
    && grep -q '.advpop:hover .advbox,.advpop:focus-within .advbox,.advpop.open .advbox{display:block}' "$CGI" \
    && grep -q 'position:absolute' "$CGI"; then
 	ok "Naive Advanced is a hover/focus/click pop-up, not a details block"
 else
 	bad "Naive Advanced pop-up markup"
 fi
-# Scheme is inside the pop-up; the main 2x2 grid has host/port/user/pass only.
+# Username/Password/Scheme are inside the pop-up; the card grid has host/port + Advanced.
 python3 - "$html" <<'PYEND'
 import re,sys
 h=sys.argv[1]
-# strip tags to walk classes around name= attributes is brittle; use regex on slices
-m=re.search(r'<div class="pf nv">(.*?)</div>',h,re.S)
-adv=re.search(r'<div class=advbox[^>]*>(.*)<!--advbox-end-->',h,re.S)
-# fallback: from advbox to the last closing divs before Connect Naive is hard;
-# take from class=advbox to the line with naiveupdate's following container.
+m=re.search(r'name=proto value=naive(.*?)Connect Naive',h,re.S)
 if not m:
     sys.exit(2)
-main=m.group(1)
-a=re.search(r'<div class=advbox[^>]*>(.*)',h,re.S)
-if not a:
+card=m.group(1)
+pre,_,rest=card.partition('class=advbox')
+if not _:
     sys.exit(3)
-box=a.group(1)
-# cut the box at Connect Naive button (outside the pop-up)
-cut=box.split("Connect Naive")[0] if "Connect Naive" in box else box
-ok=True
-for n in ("host","port","user"):
-    if f"name={n}" not in main or f"name={n}" in cut.split("<div class=pf>",1)[0] if False else False:
-        ok=False
-if "name=host" not in main or "name=port" not in main or "name=user" not in main or "name=pass" not in main:
+if not all(s in pre for s in ('name=host','name=port','class=advbtn')):
     sys.exit(4)
-if "name=scheme" in main or "name=conc" in main or "name=sub" in main:
+if any(s in pre for s in ('name=user','name=pass','name=scheme','name=conc','name=sub')):
     sys.exit(5)
-if "name=scheme" not in cut or "name=conc" not in cut or "name=sub" not in cut:
+if not all(s in rest for s in ('name=user','name=pass','name=scheme','name=conc','name=sub')):
     sys.exit(6)
 sys.exit(0)
 PYEND
 if [ $? -eq 0 ]; then
-	ok "Scheme and Advanced keys are in the pop-up; Server/Port/Username/Password stay on the card"
+	ok "Username, Password and Scheme are in the pop-up; Server and Port stay on the card"
 else
 	bad "Naive field placement in the pop-up vs the card"
+fi
+
+# No horizontal divider between the link field and the Auto-update row.
+if grep -q '^\.au{' "$CGI" && ! grep '^\.au{' "$CGI" | grep -q 'border-top'; then
+	ok "no divider line under the link fields"
+else
+	bad "Auto-update row still has a border-top divider"
 fi
 
 # Saved SOCKS5/HTTP passwords never appear in the page; the field is empty with a "saved" hint.

@@ -87,11 +87,11 @@ BLK
 </div>
 BLK
 }
-# Naive card: Server, Port, Username and Password stay on the card (compact 2x2 grid
-# so the four VPN cards can share one height). Scheme and the optional upstream keys,
-# subscription URL and auto-update live in a hover/focus/click Advanced pop-up that
-# does not stretch the card. The saved password is never written into the page: the
-# field stays empty and an empty field keeps it.
+# Naive card: Server and Port stay on the card. Username, Password, Scheme and the
+# optional upstream keys, subscription URL and auto-update live in a hover/focus/click
+# Advanced pop-up (the Advanced trigger sits in the second row, left column, under
+# Server) that does not stretch the card. The saved password is never written into
+# the page: the field stays empty and an empty field keeps it.
 naive_fields(){
   NJ=$($V naive-show 2>/dev/null)
   nj(){ printf '%s' "$NJ" | jq -r ".$1 // empty" 2>/dev/null; }
@@ -112,13 +112,12 @@ naive_fields(){
 <div class="pf nv">
 <label>Server <input type=text name=host value="$(printf '%s' "$N_H" | esc)" placeholder="example.com" autocomplete=off spellcheck=false></label>
 <label>Port <input type=text name=port value="$(printf '%s' "$N_P" | esc)" inputmode=numeric autocomplete=off></label>
-<label>Username <input type=text name=user value="$(printf '%s' "$N_U" | esc)" autocomplete=off spellcheck=false></label>
-<label>Password <span class=pw><input type=password name=pass value="" placeholder="$PPH" autocomplete=new-password><button type=button class=pwt aria-label="Show password">show</button></span></label>
-</div>
 <div class="advpop$ADV_O">
 <button type=button class=advbtn aria-expanded="$ADV_AX" aria-haspopup=true aria-controls=naive-adv>Advanced</button>
 <div class=advbox id=naive-adv role=group aria-label="Naive advanced settings">
 <div class=pf>
+<label>Username <input type=text name=user value="$(printf '%s' "$N_U" | esc)" autocomplete=off spellcheck=false></label>
+<label>Password <span class=pw><input type=password name=pass value="" placeholder="$PPH" autocomplete=new-password><button type=button class=pwt aria-label="Show password">show</button></span></label>
 <label>Scheme <select name=scheme><option value=https $S1>https (HTTP/2)</option><option value=quic $S2>quic (HTTP/3)</option></select></label>
 <label>insecure-concurrency <input type=text name=conc value="$(printf '%s' "$N_C" | esc)" inputmode=numeric placeholder="1 (default)" autocomplete=off></label>
 <label>tunnel-timeout, s <input type=text name=tt value="$(printf '%s' "$N_T" | esc)" inputmode=numeric placeholder="1800 (default)" autocomplete=off></label>
@@ -131,6 +130,7 @@ BLK
   cat <<BLK
 <p class=hint>Auto-update re-reads the subscription URL and applies the naive+https:// link it returns. Without a subscription URL there is nothing to update.</p>
 <div class=btns><button type=submit name=action value=naiveupdate>Update now</button></div>
+</div>
 </div>
 </div>
 BLK
@@ -465,14 +465,13 @@ button.rb .rg{font-size:.9em;line-height:1.2em}
 .vpn>.c{box-sizing:border-box;display:flex;flex-direction:column;height:100%;position:relative;overflow:visible}
 .vpn>.c>form{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;position:relative;overflow:visible}
 .vpn .btns{margin-top:auto}
-.vpn .nvtitle{padding-right:7em}
 .vpn .pf.nv{margin-top:8px;gap:6px 10px}
 .vpn .pf.nv label{gap:2px;font-size:12px}
 .vpn .pf.nv input[type=text],.vpn .pf.nv input[type=password]{font-size:14px;padding:5px 8px}
-.advpop{position:absolute;top:0;right:0;z-index:8}
+.advpop{position:relative;z-index:8;align-self:start}
 button.advbtn{background:none;color:#1565c0;border:0;padding:0;margin:0;font-size:14px;font-family:inherit;line-height:1.2;cursor:pointer}
 button.advbtn:hover,button.advbtn:focus{text-decoration:underline}
-.advbox{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:30;width:min(420px,calc(100vw - 32px));box-sizing:border-box;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px #0003;padding:12px 14px}
+.advbox{display:none;position:absolute;top:calc(100% + 6px);left:0;right:auto;z-index:30;width:min(420px,calc(100vw - 32px));box-sizing:border-box;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px #0003;padding:12px 14px}
 .advbox:before{content:"";position:absolute;left:0;right:0;top:-8px;height:8px}
 .advpop:hover .advbox,.advpop:focus-within .advbox,.advpop.open .advbox{display:block}
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
@@ -500,7 +499,7 @@ button.advbtn:hover,button.advbtn:focus{text-decoration:underline}
 .tls-extra{display:contents}
 .tls-extra[hidden]{display:none}
 .http-udp{color:#777;font-size:12px;margin:10px 0 0}
-.au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;padding-top:12px;border-top:1px solid #eee;font-size:14px}
+.au{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:12px;font-size:14px}
 .au select{font-size:14px;padding:4px}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .fld{margin-top:6px}
@@ -555,7 +554,7 @@ link_field link "$LINK"
 au_row vless
 cat <<HTML
 <div class=btns><button type=submit name=action value=save style="background:#6a1b9a">Connect VLESS</button><button type=submit name=action value=update>Update now</button></div></form></div>
-<div class=c><form method=post><input type=hidden name=proto value=naive><b class=nvtitle>Naive</b>
+<div class=c><form method=post><input type=hidden name=proto value=naive><b>Naive</b>
 HTML
 naive_fields
 cat <<HTML
